@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Reglas maestras para pantalla completa */
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden; /* Evita scroll horizontal innecesario */
+  background-color: #F3F4F6; /* Un fondo gris suave por seguridad */
+}
+
+/* Opcional: Para que las fuentes se vean mejor */
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
