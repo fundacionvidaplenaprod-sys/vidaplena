@@ -15,15 +15,17 @@ export default function LandingPage() {
             <img src={logoImg} alt="Logo Fundación" className="h-12" />
           </div>
 
-          {/* Menu */}
+          {/* Menú */}
           <div className="hidden md:flex space-x-6 items-center">
             <a href="#inicio" className="hover:text-green-800">Inicio</a>
             <a href="#nosotros" className="hover:text-green-800">Nosotros</a>
             <a href="#galeria" className="hover:text-green-800">Galería</a>
             <a href="#donar" className="hover:text-green-800">Donar</a>
+          </div>
 
-            {/* Botón especial */}
-            <Link to="/login" className="border-2 border-green-900 text-green-900 px-4 py-2 rounded-full hover:bg-green-900 hover:text-white transition">
+          {/* Botón especial (Visible en Móvil y Desktop) */}
+          <div className="flex items-center">
+            <Link to="/login" className="border-2 border-green-900 text-green-900 px-3 py-1.5 md:px-4 md:py-2 rounded-full hover:bg-green-900 hover:text-white transition text-sm md:text-base font-semibold">
               Acceso al Sistema
             </Link>
           </div>
