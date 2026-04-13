@@ -7,18 +7,22 @@ from fastapi.middleware.cors import CORSMiddleware
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.APP_NAME)
-    origins = [
-        "http://localhost",
-        "http://localhost:5173", # <--- EL PUERTO DE TU FRONTEND (Vite)
+    # 1. Definir la lista blanca de dominios permitidos (Tus orígenes)
+    origenes_permitidos = [
+        "http://localhost:3000",                  # Para que puedas seguir programando localmente
+        "http://localhost:5173",                  # Vite puerto local por defecto
         "http://127.0.0.1:5173",
+        "https://www.vidaplenafundacion.org",     # Tu frontend oficial con 'www'
+        "https://vidaplenafundacion.org",         # Tu frontend oficial sin 'www'
     ]
 
+    # 2. Inyectar el middleware de seguridad
     app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins, # O usa ["*"] para permitir a TODO el mundo (solo en dev)
-    allow_credentials=True,
-    allow_methods=["*"], # Permitir todos los métodos (GET, POST, PUT, DELETE)
-    allow_headers=["*"],
+        CORSMiddleware,
+        allow_origins=origenes_permitidos,
+        allow_credentials=True,
+        allow_methods=["*"], # Permite GET, POST, PUT, DELETE, etc.
+        allow_headers=["*"], # Permite todos los headers (incluyendo tokens de autenticación)
     )
     # --- REGISTRO DE RUTAS ---
     # 1. Login (Es vital que esté aquí para evitar el 404)
