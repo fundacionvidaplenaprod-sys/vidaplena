@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // 1. Crear la instancia BÁSICA (sin token aún)
 const client = axios.create({
-  baseURL: 'http://localhost:8000', // Asegúrate de que este puerto sea el correcto
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000', // Usa la variable de entorno
   headers: {
     'Content-Type': 'application/json',
   },
