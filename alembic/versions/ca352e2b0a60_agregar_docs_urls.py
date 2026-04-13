@@ -25,8 +25,8 @@ def upgrade() -> None:
     op.add_column('patients', sa.Column('url_declaracion_aporte', sa.String(length=500), nullable=True))
     op.add_column('patients', sa.Column('url_ci_tutor', sa.String(length=500), nullable=True))
     op.add_column('patients', sa.Column('url_foto_tutor', sa.String(length=500), nullable=True))
-    op.drop_column('patients', 'url_declaracion_jurada')
-    op.drop_column('patients', 'url_compromiso_firmado')
+    #op.drop_column('patients', 'url_declaracion_jurada')
+    #op.drop_column('patients', 'url_compromiso_firmado')
     # ### end Alembic commands ###
 
 
