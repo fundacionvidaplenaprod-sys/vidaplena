@@ -10,12 +10,16 @@ import logoVidaPlena from '../../assets/logo.png'; // Asegúrate que esta ruta s
 
 export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false);
+    const [loginError, setLoginError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     const { register, handleSubmit, formState: { errors } } = useForm();
     const { login } = useAuth();
     const navigate = useNavigate();
 
     const onSubmit = async (data) => {
         try {
+            setLoginError('');
+            setIsLoading(true);
             // 1. Login (Tu AuthContext ya maneja la lógica de pedir usuario si falta)
             await login(data);
 
@@ -26,8 +30,11 @@ export default function LoginPage() {
 
         } catch (error) {
             console.error("Error en Login:", error);
+            setLoginError('Correo electrónico o contraseña incorrectos.');
             // No es necesario alert si ya tienes toast, pero por seguridad:
             // alert("Error al iniciar sesión."); 
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -73,6 +80,12 @@ export default function LoginPage() {
                             error={errors.password}
                         />
 
+                        {loginError && (
+                            <p className="text-red-500 text-sm -mt-4 mb-2 ml-1 font-medium bg-red-50 p-2 rounded-md border border-red-200">
+                                {loginError}
+                            </p>
+                        )}
+
                         <div className="flex items-center -mt-2 mb-2 ml-1">
                             <input
                                 type="checkbox"
@@ -86,8 +99,10 @@ export default function LoginPage() {
                             </label>
                         </div>
 
-                        <Button type="submit" className="mt-4 py-4 text-lg shadow-xl bg-vida-main text-white hover:bg-vida-hover">
-                            Entrar al Sistema <LogIn size={20} className="ml-2" />
+                        <Button type="submit" disabled={isLoading} className="mt-4 py-4 text-lg shadow-xl bg-vida-main text-white hover:bg-vida-hover disabled:opacity-70 disabled:cursor-not-allowed">
+                            {isLoading ? 'Iniciando sesión...' : (
+                                <>Entrar al Sistema <LogIn size={20} className="ml-2" /></>
+                            )}
                         </Button>
                     </form>
                 </div>
