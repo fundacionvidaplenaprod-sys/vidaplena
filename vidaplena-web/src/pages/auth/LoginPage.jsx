@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 // 👇 AQUÍ ESTÁ LA CLAVE: Subimos 2 niveles (../../)
 import { useAuth } from '../../context/AuthContext';
@@ -8,6 +9,7 @@ import { Mail, Lock, LogIn } from 'lucide-react';
 import logoVidaPlena from '../../assets/logo.png'; // Asegúrate que esta ruta sea real
 
 export default function LoginPage() {
+    const [showPassword, setShowPassword] = useState(false);
     const { register, handleSubmit, formState: { errors } } = useForm();
     const { login } = useAuth();
     const navigate = useNavigate();
@@ -65,11 +67,24 @@ export default function LoginPage() {
 
                         <Input
                             label="Contraseña"
-                            type="password"
+                            type={showPassword ? "text" : "password"}
                             icon={<Lock size={20} />}
                             {...register("password", { required: "Requerido" })}
                             error={errors.password}
                         />
+
+                        <div className="flex items-center -mt-2 mb-2 ml-1">
+                            <input
+                                type="checkbox"
+                                id="showPassword"
+                                className="mr-2 cursor-pointer accent-vida-primary"
+                                checked={showPassword}
+                                onChange={(e) => setShowPassword(e.target.checked)}
+                            />
+                            <label htmlFor="showPassword" className="text-sm text-gray-600 cursor-pointer">
+                                Mostrar Contraseña
+                            </label>
+                        </div>
 
                         <Button type="submit" className="mt-4 py-4 text-lg shadow-xl bg-vida-main text-white hover:bg-vida-hover">
                             Entrar al Sistema <LogIn size={20} className="ml-2" />
