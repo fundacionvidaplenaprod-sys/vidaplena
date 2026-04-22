@@ -4,12 +4,16 @@ export const Input = React.forwardRef(({ label, error, className, ...props }, re
   return (
     <div className="flex flex-col gap-1 w-full">
       {label && (
-        <label className="text-sm font-bold text-vida-primary ml-1">
+        <label 
+          htmlFor={props.id || props.name}
+          className="text-sm font-bold text-vida-primary ml-1"
+        >
           {label}
         </label>
       )}
       <input
         ref={ref}
+        id={props.id || props.name}
         className={`
           w-full 
           bg-vida-bg text-ui-text placeholder-gray-400

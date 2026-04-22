@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getPatientById, activatePatient, updatePatient, changePatientStatus } from '../../api/patients';
 import { Button } from '../../components/ui/Button';
-import { ArrowLeft, CheckCircle, User, Activity, Edit2, AlertTriangle, Pill } from 'lucide-react';
+import { Modal } from '../../components/ui/Modal';
+import { toast } from 'react-hot-toast';
+import { ArrowLeft, CheckCircle, User, Activity, Edit2, AlertTriangle, Pill, Copy, Key, Mail } from 'lucide-react';
 
 export default function PatientDetailsPage() {
     const { id } = useParams();
@@ -11,6 +13,8 @@ export default function PatientDetailsPage() {
     const [loading, setLoading] = useState(true);
     const [activating, setActivating] = useState(false);
     const [isChangingStatus, setIsChangingStatus] = useState(false);
+    const [credentials, setCredentials] = useState(null); // { username, password }
+    const [showCredsModal, setShowCredsModal] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -40,15 +44,17 @@ export default function PatientDetailsPage() {
             setActivating(true);
             await activatePatient(id);
 
-            alert(
-                `✅ ¡PACIENTE ACTIVADO!\n\n` +
-                `Usuario: ${patient.email || patient.ci}\n` +
-                `Contraseña: ${patient.ci}\n\n` +
-                `Informe al paciente para que inicie sesión.`
-            );
+            const isMinor = patient.edad_calc < 18;
+            const username = isMinor ? patient.tutor?.email : (patient.email || patient.ci);
+            const password = isMinor ? patient.tutor?.ci : patient.ci;
+
+            setCredentials({ username, password });
+            setShowCredsModal(true);
+            
+            toast.success("¡Paciente activado correctamente!");
             loadData();
         } catch (error) {
-            alert("Error al activar: " + (error.response?.data?.detail || "Error desconocido"));
+            toast.error("Error al activar: " + (error.response?.data?.detail || "Error desconocido"));
         } finally {
             setActivating(false);
         }
@@ -180,7 +186,7 @@ export default function PatientDetailsPage() {
                                     <span className="font-medium text-gray-700">({getAge()} años)</span>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                                 <div>
                                     <span className="block text-gray-400 text-xs uppercase font-bold">Peso</span>
                                     <span className="font-medium text-gray-700">{patient.peso ? `${patient.peso} Kg` : '-'}</span>
@@ -188,6 +194,10 @@ export default function PatientDetailsPage() {
                                 <div>
                                     <span className="block text-gray-400 text-xs uppercase font-bold">Altura</span>
                                     <span className="font-medium text-gray-700">{patient.altura ? `${patient.altura} m` : '-'}</span>
+                                </div>
+                                <div>
+                                    <span className="block text-gray-400 text-xs uppercase font-bold">IMC</span>
+                                    <span className="font-medium text-gray-700">{patient.imc || '-'}</span>
                                 </div>
                             </div>
                             <div>
@@ -290,7 +300,7 @@ export default function PatientDetailsPage() {
             </div>
 
             {/* FOOTER ACTION */}
-            {patient.estado !== 'ACTIVO' && patient.estado !== 'HABILITADO' && (
+            {!patient.user_id && (
                 <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 md:pl-72 flex justify-end items-center gap-4 z-10 shadow-lg">
                     <p className="text-xs text-gray-400 mr-auto hidden md:block">
                         * Revise cuidadosamente los datos médicos antes de aprobar.
@@ -308,6 +318,74 @@ export default function PatientDetailsPage() {
                     </Button>
                 </div>
             )}
+
+            {/* MODAL DE CREDENCIALES */}
+            <Modal 
+                isOpen={showCredsModal} 
+                onClose={() => setShowCredsModal(false)}
+                title="Acceso al Sistema Generado"
+            >
+                <div className="space-y-6">
+                    <div className="bg-green-50 p-4 rounded-xl border border-green-100 flex items-center gap-3">
+                        <div className="bg-green-500 text-white p-2 rounded-full">
+                            <CheckCircle size={20} />
+                        </div>
+                        <p className="text-sm text-green-800 font-medium">
+                            El usuario ha sido creado exitosamente. Por favor, comparta estas credenciales con el beneficiario.
+                        </p>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="relative group">
+                            <label className="text-xs font-bold text-gray-400 uppercase mb-1 block ml-1">Correo de Usuario</label>
+                            <div className="flex items-center gap-2 bg-gray-50 p-3 rounded-xl border border-gray-100 hover:border-vida-main transition-colors group">
+                                <Mail size={18} className="text-gray-400 group-hover:text-vida-main" />
+                                <span className="flex-1 font-mono text-gray-700">{credentials?.username}</span>
+                                <button 
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(credentials?.username);
+                                        toast.success("Correo copiado");
+                                    }}
+                                    className="p-1.5 hover:bg-white rounded-lg text-gray-400 hover:text-vida-main shadow-sm transition-all"
+                                    title="Copiar correo"
+                                >
+                                    <Copy size={16} />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="relative group">
+                            <label className="text-xs font-bold text-gray-400 uppercase mb-1 block ml-1">Contraseña Inicial</label>
+                            <div className="flex items-center gap-2 bg-gray-50 p-3 rounded-xl border border-gray-100 hover:border-vida-main transition-colors group">
+                                <Key size={18} className="text-gray-400 group-hover:text-vida-main" />
+                                <span className="flex-1 font-mono text-gray-700">{credentials?.password}</span>
+                                <button 
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(credentials?.password);
+                                        toast.success("Contraseña copiada");
+                                    }}
+                                    className="p-1.5 hover:bg-white rounded-lg text-gray-400 hover:text-vida-main shadow-sm transition-all"
+                                    title="Copiar contraseña"
+                                >
+                                    <Copy size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="pt-4">
+                        <Button 
+                            className="w-full bg-vida-main hover:bg-vida-hover text-white py-4 text-lg shadow-lg"
+                            onClick={() => setShowCredsModal(false)}
+                        >
+                            Listo, ya las compartí
+                        </Button>
+                        <p className="text-center text-xs text-gray-400 mt-4 italic">
+                            * Por seguridad, estas credenciales no se volverán a mostrar de forma explícita.
+                        </p>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 }

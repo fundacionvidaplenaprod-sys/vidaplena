@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { LogOut, UploadCloud, CheckCircle, FileText, Lock, Clock, Camera, Users, Download, AlertTriangle, Pill, Wallet, CalendarDays } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/ui/Button';
 import { toast } from 'react-hot-toast';
 import { uploadDocument } from '../../api/patients';
@@ -207,9 +208,10 @@ export default function MyDocumentsPage() {
         }
     };
 
+    const { logout } = useAuth();
+ 
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        logout();
         navigate('/login');
     };
 

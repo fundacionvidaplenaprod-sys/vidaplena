@@ -13,14 +13,14 @@ def init_firebase():
     """Inicializa la conexión con Firebase si no está activa."""
     if not firebase_admin._apps:
         if not os.path.exists(CREDENTIALS_FILE):
-            print(f"⚠️ ADVERTENCIA: No se encontró {CREDENTIALS_FILE}. La subida fallará.")
+            print(f"ADVERTENCIA: No se encontró {CREDENTIALS_FILE}. La subida fallará.")
             return
 
         cred = credentials.Certificate(CREDENTIALS_FILE)
         firebase_admin.initialize_app(cred, {
             'storageBucket': BUCKET_NAME
         })
-        print("🔥 Firebase Conectado Exitosamente")
+        print("Firebase Conectado Exitosamente")
 
 def upload_file_to_firebase(file_content: bytes, filename: str, content_type: str) -> str:
     """

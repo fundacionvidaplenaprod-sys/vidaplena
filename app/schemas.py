@@ -200,6 +200,7 @@ class PatientBase(BaseModel):
     seguro_medico: Optional[str] = Field(None, max_length=100)
     peso: Optional[float] = Field(None, ge=0)
     altura: Optional[float] = Field(None, ge=0)
+    imc: Optional[float] = Field(None, ge=0)
     tipo_sangre: Optional[str] = Field(None, max_length=10)
 
     url_ci_paciente: Optional[str] = None        

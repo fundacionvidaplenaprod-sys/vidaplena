@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { 
   Users, 
   LogOut, 
@@ -18,10 +19,11 @@ export default function Sidebar({ isOpen, onClose }) {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
 
+  const { logout } = useAuth();
+ 
   const handleLogout = () => {
     if (confirm("¿Estás seguro de que deseas salir?")) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      logout();
       navigate('/login');
     }
   };

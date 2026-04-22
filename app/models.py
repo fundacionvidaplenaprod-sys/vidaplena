@@ -44,6 +44,7 @@ class Patient(Base):
     # Datos Físicos
     peso = Column(Numeric(5, 2))
     altura = Column(Numeric(5, 2))
+    imc = Column(Numeric(5, 2))
     tipo_sangre = Column(String(8))
     genero = Column(String(20), nullable=True) 
     seguro_medico = Column(String(100), nullable=True)

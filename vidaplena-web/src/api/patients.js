@@ -58,3 +58,8 @@ export const uploadDocument = async (docType, file) => {
   });
   return response.data;
 };
+
+export const deletePatient = async (id) => {
+  const response = await client.delete(`/patients/${id}`);
+  return response.data;
+};

@@ -81,6 +81,7 @@ const login = async (data) => { // 👈 CAMBIO AQUÍ: Recibimos un objeto 'data'
   // 3. Función de Logout
   const logout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
     setIsAuthenticated(false);
   };

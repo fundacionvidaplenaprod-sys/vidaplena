@@ -1,20 +1,27 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getPatients } from '../../api/patients';
+import { getPatients, deletePatient } from '../../api/patients';
+import { useAuth } from '../../context/AuthContext';
 import {
     UserPlus, Search, Eye, Edit2,
     Key,
     FileCheck,
     CheckCircle,
-    LayoutDashboard
+    LayoutDashboard,
+    Trash2,
+    AlertTriangle
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 
 export default function PatientsListPage() {
     const navigate = useNavigate();
+    const { user } = useAuth();
+    const isSuperAdmin = user?.role === 'SUPER_ADMIN';
     const [patients, setPatients] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [patientToDelete, setPatientToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
 
     useEffect(() => {
@@ -30,6 +37,21 @@ export default function PatientsListPage() {
             console.error("Error cargando pacientes", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!patientToDelete) return;
+        try {
+            setIsDeleting(true);
+            await deletePatient(patientToDelete.id);
+            setPatients(prev => prev.filter(p => p.id !== patientToDelete.id));
+            setPatientToDelete(null);
+        } catch (error) {
+            console.error('Error al eliminar beneficiario:', error);
+            alert('Error al eliminar el beneficiario. Por favor, intente nuevamente.');
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -56,6 +78,7 @@ export default function PatientsListPage() {
     };
 
     return (
+        <>
         <div className="p-8 max-w-7xl mx-auto animate-fadeIn">
 
             {/* HEADER */}
@@ -129,52 +152,79 @@ export default function PatientsListPage() {
                                             {getStatusBadge(patient.estado)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            {/* 2. BOTÓN REVISAR DOCUMENTOS (Si está HABILITADO) */}
-                                            {patient.estado === 'HABILITADO' && (
-                                                <button
-                                                    onClick={() => navigate(`/dashboard/pacientes/${patient.id}/review`)}
-                                                    className="bg-orange-500 text-white p-2 rounded-lg hover:bg-orange-600 shadow-lg shadow-orange-200 animate-pulse transition-all"
-                                                    title="Revisar Documentos Subidos"
-                                                >
-                                                    <FileCheck size={16} />
-                                                </button>
-                                            )}
+                                            <div className="flex items-center justify-end gap-1">
 
-                                            {/* 3. ACTIVO: Badge + acceso a revisión administrativa */}
-                                            {patient.estado === 'ACTIVO' && (
-                                                <>
+                                                {/* BOTÓN REVISAR DOCUMENTOS (Solo si está HABILITADO) */}
+                                                {patient.estado === 'HABILITADO' && (
                                                     <button
                                                         onClick={() => navigate(`/dashboard/pacientes/${patient.id}/review`)}
-                                                        className="bg-yellow-100 text-yellow-700 p-2 rounded-lg hover:bg-yellow-200 border border-yellow-200 mx-1"
-                                                        title="Revisar / Reabrir compromiso"
+                                                        className="p-1.5 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-500 hover:text-white transition-all animate-pulse"
+                                                        title="Revisar Documentos del Beneficiario"
                                                     >
                                                         <FileCheck size={16} />
                                                     </button>
-                                                    <span className="text-green-600 bg-green-50 p-2 rounded-lg border border-green-200" title="Paciente Activo">
-                                                        <CheckCircle size={16} />
-                                                    </span>
-                                                </>
-                                            )}
+                                                )}
 
-                                            {/* --- BOTÓN EDITAR (LÁPIZ) --- */}
-                                            <Link to={`/dashboard/editar-paciente/${patient.id}`}>
-                                                <button
-                                                    className="text-gray-400 hover:text-blue-600 transition-colors mx-1 p-1 hover:bg-blue-50 rounded-full"
-                                                    title="Editar Expediente Completo"
-                                                >
-                                                    <Edit2 size={18} />
-                                                </button>
-                                            </Link>
+                                                {/* BOTÓN REVISAR (Solo si está ACTIVO) */}
+                                                {patient.estado === 'ACTIVO' && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => navigate(`/dashboard/pacientes/${patient.id}/review`)}
+                                                            className="p-1.5 rounded-full bg-yellow-100 text-yellow-700 hover:bg-yellow-200 transition-colors"
+                                                            title="Revisar / Reabrir compromiso"
+                                                        >
+                                                            <FileCheck size={16} />
+                                                        </button>
+                                                        {/* Indicador de estado activo — no es un botón */}
+                                                        <span
+                                                            className="inline-flex text-green-500 mx-0.5"
+                                                            title="Beneficiario Activo"
+                                                        >
+                                                            <CheckCircle size={16} />
+                                                        </span>
+                                                    </>
+                                                )}
 
-                                            {/* --- BOTÓN VER DETALLE (OJO) --- */}
-                                            <Link to={`/dashboard/pacientes/${patient.id}`}>
-                                                <button
-                                                    className="text-gray-400 hover:text-vida-main transition-colors mx-1 p-1 hover:bg-green-50 rounded-full"
-                                                    title="Ver Expediente"
-                                                >
-                                                    <Eye size={18} />
-                                                </button>
-                                            </Link>
+                                                {/* BOTÓN EDITAR */}
+                                                <Link to={`/dashboard/editar-paciente/${patient.id}`}>
+                                                    <button
+                                                        className="p-1.5 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                        title="Editar Expediente"
+                                                    >
+                                                        <Edit2 size={16} />
+                                                    </button>
+                                                </Link>
+
+                                                {/* BOTÓN VER DETALLE */}
+                                                <Link to={`/dashboard/pacientes/${patient.id}`}>
+                                                    <button
+                                                        className="p-1.5 rounded-full text-gray-400 hover:text-vida-main hover:bg-green-50 transition-colors"
+                                                        title="Ver Expediente del Beneficiario"
+                                                    >
+                                                        <Eye size={16} />
+                                                    </button>
+                                                </Link>
+
+                                                {/* BOTÓN ELIMINAR (SOLO SUPER_ADMIN) */}
+                                                {isSuperAdmin ? (
+                                                    <button
+                                                        onClick={() => setPatientToDelete(patient)}
+                                                        className="p-1.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                        title="Eliminar Beneficiario"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        disabled
+                                                        className="p-1.5 rounded-full text-gray-200 cursor-not-allowed"
+                                                        title="Solo el Super Administrador puede eliminar beneficiarios"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )}
+
+                                            </div>
                                         </td>
                                     </tr>
                                 ))
@@ -184,5 +234,45 @@ export default function PatientsListPage() {
                 </div>
             </div>
         </div>
+
+        {/* MODAL DE CONFIRMACIÓN DE ELIMINACIÓN */}
+        {patientToDelete && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-fadeIn">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <AlertTriangle className="text-red-600" size={24} />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-800">Eliminar Beneficiario</h3>
+                            <p className="text-sm text-gray-500">Esta acción no se puede deshacer.</p>
+                        </div>
+                    </div>
+                    <p className="text-gray-700 mb-6 bg-red-50 p-3 rounded-lg border border-red-100 text-sm">
+                        ¿Está seguro que desea eliminar a <strong>{patientToDelete.nombres} {patientToDelete.ap_paterno}</strong> (C.I. {patientToDelete.ci})? Se eliminarán todos sus datos, tratamientos y documentos asociados.
+                    </p>
+                    <div className="flex gap-3 justify-end">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => setPatientToDelete(null)}
+                            disabled={isDeleting}
+                            className="px-5"
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={handleDeleteConfirm}
+                            disabled={isDeleting}
+                            className="bg-red-600 hover:bg-red-700 text-white px-5 shadow-lg shadow-red-200"
+                        >
+                            {isDeleting ? 'Eliminando...' : 'Sí, eliminar'}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        )}
+        </>
     );
 }

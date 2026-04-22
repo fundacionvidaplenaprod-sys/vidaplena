@@ -10,6 +10,7 @@ import {
   User, MapPin, Phone, Mail,
   HeartPulse, Activity, AlertTriangle, Plus, Trash2, CheckCircle
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 // --- OPCIONES FIJAS ---
 const DEPARTAMENTOS = ["La Paz", "Cochabamba", "Santa Cruz", "Oruro", "Potosí", "Chuquisaca", "Tarija", "Beni", "Pando"];
@@ -42,11 +43,11 @@ export default function RegisterPatientPage() {
   const [serverError, setServerError] = useState(null);
   const [loadingData, setLoadingData] = useState(false); // Estado de carga para edición
 
-  const { register, control, handleSubmit, watch, trigger, reset, formState: { errors, isSubmitting } } = useForm({
+  const { register, control, handleSubmit, watch, trigger, reset, setValue, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
       // 3.1 Datos Generales
       nombres: '', ap_paterno: '', ap_materno: '', ci: '',
-      fecha_nac: '', peso: '', altura: '', tipo_sangre: '',
+      fecha_nac: '', peso: '', altura: '', imc: '', tipo_sangre: '',
       departamento: 'La Paz', municipio: '', zona: '', direccion: '',
       email: '', tel_contacto: '', tel_referencia: '',
 
@@ -119,6 +120,7 @@ export default function RegisterPatientPage() {
         fecha_nac: fechaFormat,         // Asignamos la fecha formateada
         peso: data.peso || '',          // Evitamos undefined
         altura: data.altura || '',      // Evitamos undefined
+        imc: data.imc || '',            // Nuevo dato IMC
         tipo_sangre: data.tipo_sangre || '', // Asegura que coincida con las opciones del <select>
         // ---------------------------------------------
 
@@ -166,12 +168,30 @@ export default function RegisterPatientPage() {
     }
   }, [fechaNacimiento]);
 
+  // Cálculo automático de IMC
+  const peso = watch('peso');
+  const altura = watch('altura');
+
+  useEffect(() => {
+    if (peso && altura) {
+      const p = parseFloat(peso);
+      const a = parseFloat(altura);
+      if (p > 0 && a > 0) {
+        const calculatedImc = (p / (a * a)).toFixed(2);
+        // Solo actualizamos si es un número válido
+        if (!isNaN(calculatedImc)) {
+          setValue('imc', calculatedImc);
+        }
+      }
+    }
+  }, [peso, altura, setValue]);
+
   // Navegación entre Pasos
   const nextStep = async () => {
     let isValid = false;
     if (step === 1) {
       const fields = [
-        'nombres', 'ap_paterno', 'ci', 'fecha_nac', 'peso', 'altura', 'tipo_sangre',
+        'nombres', 'ap_paterno', 'ci', 'fecha_nac', 'peso', 'altura', 'imc', 'tipo_sangre',
         'departamento', 'municipio', 'zona', 'direccion', 'tel_contacto'
       ];
       if (isMinor) fields.push('tutor.nombres', 'tutor.apellidos', 'tutor.ci', 'tutor.direccion', 'tutor.telefonos');
@@ -188,7 +208,7 @@ export default function RegisterPatientPage() {
       setServerError(null);
       setStep(prev => prev + 1);
     } else {
-      alert("Por favor complete los campos obligatorios marcados en rojo.");
+      toast.error("Por favor complete los campos obligatorios marcados en rojo.");
     }
   };
 
@@ -230,6 +250,7 @@ export default function RegisterPatientPage() {
         fecha_nac: data.fecha_nac,
         peso: Number.isFinite(parsedPeso) ? parsedPeso : null,
         altura: Number.isFinite(parsedAltura) ? parsedAltura : null,
+        imc: data.imc ? Number(data.imc) : null,
         tipo_sangre: data.tipo_sangre || null,
         depto: data.departamento || null,
         municipio: data.municipio || null,
@@ -248,11 +269,11 @@ export default function RegisterPatientPage() {
       if (isEditMode) {
         // --- MODO ACTUALIZACIÓN ---
         await updatePatient(id, payload);
-        alert("✅ Expediente actualizado correctamente");
+        toast.success("✅ Expediente actualizado correctamente");
       } else {
         // --- MODO CREACIÓN ---
         await createPatient(payload);
-        alert("✅ Paciente registrado correctamente");
+        toast.success("✅ Paciente registrado correctamente");
       }
 
       navigate('/dashboard');
@@ -312,17 +333,18 @@ export default function RegisterPatientPage() {
                 <Input label={<LabelRequired text="C.I." />} {...register('ci', { required: "Requerido" })} error={errors.ci} disabled={isEditMode} className={isEditMode ? "bg-gray-100" : ""} />
                 <Input type="date" label={<LabelRequired text="Nacimiento" />} {...register('fecha_nac', { required: "Requerido" })} error={errors.fecha_nac} />
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm font-bold text-gray-700 ml-1">Tipo Sangre <span className="text-red-500">*</span></label>
-                  <select {...register('tipo_sangre', { required: "Requerido" })} className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none">
+                  <label htmlFor="tipo_sangre" className="text-sm font-bold text-gray-700 ml-1">Tipo Sangre <span className="text-red-500">*</span></label>
+                  <select id="tipo_sangre" {...register('tipo_sangre', { required: "Requerido" })} className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none">
                     <option value="">--</option>
                     {TIPOS_SANGRE.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                   {errors.tipo_sangre && <span className="text-red-500 text-xs font-bold">{errors.tipo_sangre.message}</span>}
                 </div>
-                <div className="flex gap-2">
-                  <Input type="number" step="0.1" label={<LabelRequired text="Peso (Kg)" />} {...register('peso', { required: "Requerido" })} error={errors.peso} />
-                  <Input type="number" step="0.01" label={<LabelRequired text="Altura (m)" />} {...register('altura', { required: "Requerido" })} error={errors.altura} />
-                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-4">
+                <Input type="number" step="0.1" label={<LabelRequired text="Peso (Kg)" />} {...register('peso', { required: "Requerido" })} error={errors.peso} />
+                <Input type="number" step="0.01" label={<LabelRequired text="Altura (m)" />} {...register('altura', { required: "Requerido" })} error={errors.altura} />
+                <Input type="number" step="0.01" label="IMC" {...register('imc')} />
               </div>
             </section>
 
@@ -330,8 +352,8 @@ export default function RegisterPatientPage() {
               <h4 className="font-bold text-lg text-gray-700 mb-4 flex items-center gap-2"><MapPin size={20} /> Ubicación y Contacto</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm font-bold text-gray-700 ml-1">Departamento <span className="text-red-500">*</span></label>
-                  <select {...register('departamento', { required: "Requerido" })} className="w-full bg-white p-3 rounded-xl border border-gray-200 outline-none">
+                  <label htmlFor="departamento" className="text-sm font-bold text-gray-700 ml-1">Departamento <span className="text-red-500">*</span></label>
+                  <select id="departamento" {...register('departamento', { required: "Requerido" })} className="w-full bg-white p-3 rounded-xl border border-gray-200 outline-none">
                     {DEPARTAMENTOS.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
@@ -382,8 +404,8 @@ export default function RegisterPatientPage() {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="text-sm font-bold text-gray-700 ml-1 block mb-1">Tipo de Diabetes <span className="text-red-500">*</span></label>
-                  <select {...register('medical.tipo_diabetes', { required: "Requerido" })} className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none">
+                  <label htmlFor="tipo_diabetes" className="text-sm font-bold text-gray-700 ml-1 block mb-1">Tipo de Diabetes <span className="text-red-500">*</span></label>
+                  <select id="tipo_diabetes" {...register('medical.tipo_diabetes', { required: "Requerido" })} className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none">
                     <option value="">-- Seleccionar --</option>
                     <option value="Tipo 1">Tipo 1</option>
                     <option value="Tipo 2">Tipo 2</option>

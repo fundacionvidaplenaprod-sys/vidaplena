@@ -60,28 +60,36 @@ def _validate_insulin_treatment_payload(treatments: List[schemas.PatientTreatmen
 def _get_missing_activation_fields(patient: models.Patient) -> List[str]:
     """
     Devuelve la lista de campos faltantes para activar al paciente.
-    La activación NO depende de la ficha médica porque en el flujo actual
-    esos datos pueden completarse después.
-    Asume que 'tutor' YA ESTÁ CARGADO en memoria.
+    Para menores de edad, valida que el tutor tenga email y CI.
     """
-    required_fields = {
-        "ci": patient.ci,
-        "nombres": patient.nombres,
-        "ap_paterno": patient.ap_paterno,
-        "fecha_nac": patient.fecha_nac,
-        "email": patient.email,
-        "direccion": patient.direccion,
-        "tel_contacto": patient.tel_contacto,
-    }
     missing_fields: List[str] = []
-    for field_name, value in required_fields.items():
-        if value is None or (isinstance(value, str) and not value.strip()):
-            missing_fields.append(field_name)
 
-    # Verificar tutor si aplica (menor de 18 años)
-    if patient.edad_calc < 18:
+    # Verificar si es menor de edad
+    is_minor = patient.edad_calc < 18
+
+    if is_minor:
+        # Para menores: las credenciales son del tutor
         if not patient.tutor:
             missing_fields.append("tutor (obligatorio para menor de edad)")
+        else:
+            if not patient.tutor.email or not patient.tutor.email.strip():
+                missing_fields.append("tutor.email (necesario para crear credenciales del menor)")
+            if not patient.tutor.ci or not patient.tutor.ci.strip():
+                missing_fields.append("tutor.ci (se usará como contraseña inicial)")
+    else:
+        # Para mayores: credenciales propias
+        required_fields = {
+            "ci": patient.ci,
+            "nombres": patient.nombres,
+            "ap_paterno": patient.ap_paterno,
+            "fecha_nac": patient.fecha_nac,
+            "email": patient.email,
+            "direccion": patient.direccion,
+            "tel_contacto": patient.tel_contacto,
+        }
+        for field_name, value in required_fields.items():
+            if value is None or (isinstance(value, str) and not value.strip()):
+                missing_fields.append(field_name)
 
     return missing_fields
 
@@ -450,15 +458,18 @@ async def read_patients(
 
 @router.put("/{patient_id}/activate", response_model=schemas.UserResponse)
 async def activate_patient_user(
-    patient_id: int, 
-    # Eliminamos activation_data porque ya no pediremos password manual
+    patient_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(deps.get_current_super_user) 
+    current_user: models.User = Depends(deps.get_current_active_user)
 ):
     """
     Activa al paciente y genera su usuario automáticamente.
-    Password inicial = Número de Carnet de Identidad (CI).
+    - Mayor de edad: email del paciente, contraseña = CI del paciente.
+    - Menor de edad: email del tutor, contraseña = CI del tutor.
     """
+    # 0. Permisos
+    if current_user.role not in ["SUPER_ADMIN", "REGISTRADOR"]:
+        raise HTTPException(status_code=403, detail="No tiene permisos para generar credenciales.")
     # 1. Buscar Paciente
     query = (
         select(models.Patient)
@@ -477,32 +488,53 @@ async def activate_patient_user(
     if db_patient.user_id:
         raise HTTPException(status_code=400, detail="El paciente ya tiene un usuario asociado")
 
-    # 2. Validar integridad (Regla de Negocio 3.4)
+    # 2. Validar campos obligatorios
     missing_fields = _get_missing_activation_fields(db_patient)
     if missing_fields:
         detail = "Faltan datos obligatorios para activar: " + ", ".join(missing_fields)
         raise HTTPException(status_code=400, detail=detail)
 
-    # 3. Generar Password Automático (Su CI)
-    hashed_password = hash_password(db_patient.ci)
-    
+    # 3. Determinar credenciales según edad
+    is_minor = db_patient.edad_calc < 18
+
+    if is_minor:
+        # Menor de edad: credenciales del tutor
+        username_email = db_patient.tutor.email.strip()
+        hashed_password = hash_password(db_patient.tutor.ci)
+        credential_note = f"Credenciales del TUTOR — Email: {username_email} | Contraseña inicial: CI del tutor"
+    else:
+        # Mayor de edad: credenciales propias
+        username_email = db_patient.email.strip()
+        hashed_password = hash_password(db_patient.ci)
+        credential_note = f"Credenciales del paciente — Email: {username_email} | Contraseña inicial: CI del paciente"
+
     # 4. Crear Usuario
-    # El email es obligatorio para activar y se usa como credencial.
-    username_email = db_patient.email.strip()
-    
     db_user = models.User(
         email=username_email,
         password_hash=hashed_password,
-        role="PACIENTE", # Rol específico según Req 2.3
+        role="PACIENTE",
         estado="ACTIVO",
     )
     db.add(db_user)
-    await db.flush() # Obtenemos el ID del nuevo usuario
+    await db.flush()
 
-    # 5. Vincular y Activar Paciente
+    _log_audit_event(
+        db=db,
+        actor_id=current_user.id,
+        entidad="patient",
+        entidad_id=db_patient.id,
+        accion="ACTIVAR_PACIENTE",
+        payload={
+            "es_menor": is_minor,
+            "email_credencial": username_email,
+            "nota": credential_note,
+        },
+    )
+
+    # 5. Vincular y cambiar estado
     db_patient.user_id = db_user.id
-    db_patient.estado = "PENDIENTE_DOC" # Actualizamos estado según Req 17
-    
+    db_patient.estado = "PENDIENTE_DOC"
+
     try:
         await db.commit()
         await db.refresh(db_user)
@@ -510,7 +542,10 @@ async def activate_patient_user(
     except Exception as e:
         await db.rollback()
         if "users_email_key" in str(e):
-            raise HTTPException(status_code=400, detail="El email del paciente ya está registrado como usuario.")
+            raise HTTPException(
+                status_code=400,
+                detail="El email ya está registrado. Verifique el email del paciente o del tutor."
+            )
         raise HTTPException(status_code=500, detail=f"Error al generar credenciales: {e}")
 
 @router.get("/{patient_id}", response_model=schemas.PatientDetailResponse)
