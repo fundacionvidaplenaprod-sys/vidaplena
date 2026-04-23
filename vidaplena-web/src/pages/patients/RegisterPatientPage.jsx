@@ -71,6 +71,7 @@ export default function RegisterPatientPage() {
   // VIGILANTES (Watches)
   const fechaNacimiento = watch('fecha_nac');
   const selectedComplications = watch('complications_selected');
+  const currentTreatments = watch('treatments') || [];
 
   // --- LÓGICA DE CARGA DE DATOS (MODO EDICIÓN) ---
   useEffect(() => {
@@ -237,6 +238,23 @@ export default function RegisterPatientPage() {
         setServerError('Cada tratamiento debe tener tipo de insulina y UI por día mayores a 0.');
         return;
       }
+      
+      const insulinsSet = new Set(normalizedTreatments.map(t => t.nombre));
+      if (insulinsSet.size !== normalizedTreatments.length) {
+        setServerError('No puede asignar el mismo tipo de insulina más de una vez.');
+        return;
+      }
+
+      const capitalizeWords = (str) => {
+        if (!str) return str;
+        return str
+          .trim()
+          .toLowerCase()
+          .split(' ')
+          .filter(word => word.length > 0)
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+      };
 
       const parsedPeso = Number(data.peso);
       const parsedAltura = Number(data.altura);
@@ -244,9 +262,9 @@ export default function RegisterPatientPage() {
       // Payload explícito para evitar desalineación con el backend (422).
       const payload = {
         ci: data.ci,
-        nombres: data.nombres,
-        ap_paterno: data.ap_paterno,
-        ap_materno: data.ap_materno || null,
+        nombres: capitalizeWords(data.nombres),
+        ap_paterno: capitalizeWords(data.ap_paterno),
+        ap_materno: capitalizeWords(data.ap_materno) || null,
         fecha_nac: data.fecha_nac,
         peso: Number.isFinite(parsedPeso) ? parsedPeso : null,
         altura: Number.isFinite(parsedAltura) ? parsedAltura : null,
@@ -261,7 +279,11 @@ export default function RegisterPatientPage() {
         tel_referencia: data.tel_referencia || null,
         medical: data.medical,
         medical_info: data.medical,
-        tutor: isMinor ? data.tutor : null,
+        tutor: isMinor ? {
+          ...data.tutor,
+          nombres: capitalizeWords(data.tutor?.nombres),
+          apellidos: capitalizeWords(data.tutor?.apellidos),
+        } : null,
         treatments: normalizedTreatments,
         complications: formattedComplications,
       };
@@ -421,7 +443,18 @@ export default function RegisterPatientPage() {
             <section className="p-6 bg-blue-50/50 rounded-2xl border border-blue-100">
               <div className="flex justify-between items-center mb-4">
                 <h4 className="font-bold text-lg text-blue-800 flex items-center gap-2"><Activity size={20} /> Tratamiento de Insulina</h4>
-                <button type="button" onClick={() => append({ nombre: 'Glargina', dosis_diaria: 0 })} className="text-sm bg-white border border-blue-200 text-blue-600 px-3 py-1 rounded-lg hover:bg-blue-50 font-bold flex items-center gap-1 shadow-sm">
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    const availableInsulins = INSULIN_OPTIONS.map(o => o.value).filter(val => !currentTreatments.some(tx => tx.nombre === val));
+                    if (availableInsulins.length === 0) {
+                      toast.error("El paciente ya tiene asignados todos los tipos de insulina disponibles.");
+                      return;
+                    }
+                    append({ nombre: availableInsulins[0], dosis_diaria: 0 });
+                  }} 
+                  className="text-sm bg-white border border-blue-200 text-blue-600 px-3 py-1 rounded-lg hover:bg-blue-50 font-bold flex items-center gap-1 shadow-sm"
+                >
                   <Plus size={16} /> Agregar
                 </button>
               </div>
@@ -435,9 +468,14 @@ export default function RegisterPatientPage() {
                         {...register(`treatments.${index}.nombre`, { required: "Requerido" })}
                         className="w-full text-sm bg-gray-50 p-2 rounded-lg border border-gray-200"
                       >
-                        {INSULIN_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
+                        {INSULIN_OPTIONS.map((opt) => {
+                          const isSelectedElsewhere = currentTreatments.some((tx, txIndex) => txIndex !== index && tx.nombre === opt.value);
+                          return (
+                            <option key={opt.value} value={opt.value} disabled={isSelectedElsewhere}>
+                              {opt.label} {isSelectedElsewhere ? '(Ya asignada)' : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                     <div className="w-full md:w-1/3">

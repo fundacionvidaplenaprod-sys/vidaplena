@@ -63,3 +63,8 @@ export const deletePatient = async (id) => {
   const response = await client.delete(`/patients/${id}`);
   return response.data;
 };
+
+export const validateCommitmentCode = async (code) => {
+  const response = await client.get(`/patients/validate-commitment-code/${code}`);
+  return response.data;
+};

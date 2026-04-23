@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getPatients, deletePatient } from '../../api/patients';
+import { getPatients, deletePatient, validateCommitmentCode } from '../../api/patients';
 import { useAuth } from '../../context/AuthContext';
 import {
     UserPlus, Search, Eye, Edit2,
@@ -22,6 +22,12 @@ export default function PatientsListPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [patientToDelete, setPatientToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+
+    // Estado para la validación de código
+    const [showValidationModal, setShowValidationModal] = useState(false);
+    const [validationCode, setValidationCode] = useState('');
+    const [validationResult, setValidationResult] = useState(null);
+    const [isValidating, setIsValidating] = useState(false);
 
 
     useEffect(() => {
@@ -52,6 +58,24 @@ export default function PatientsListPage() {
             alert('Error al eliminar el beneficiario. Por favor, intente nuevamente.');
         } finally {
             setIsDeleting(false);
+        }
+    };
+
+    const handleValidateCode = async (e) => {
+        e.preventDefault();
+        if (!validationCode.trim()) return;
+        try {
+            setIsValidating(true);
+            setValidationResult(null);
+            const result = await validateCommitmentCode(validationCode.trim());
+            setValidationResult({ success: true, data: result });
+        } catch (error) {
+            setValidationResult({ 
+                success: false, 
+                error: typeof error === 'string' ? error : error.response?.data?.detail || "Error desconocido al validar"
+            });
+        } finally {
+            setIsValidating(false);
         }
     };
 
@@ -88,12 +112,28 @@ export default function PatientsListPage() {
                     <p className="text-gray-500">Gestión y control de pacientes registrados.</p>
                 </div>
 
-                <Link to="/dashboard/registro-paciente">
-                    <Button className="bg-vida-main hover:bg-vida-hover text-white shadow-lg shadow-vida-main/20 flex items-center gap-2">
-                        <UserPlus size={18} />
-                        Nuevo Registro
-                    </Button>
-                </Link>
+                <div className="flex items-center justify-end gap-3 w-full md:w-auto mt-4 md:mt-0">
+                    <Link to="/dashboard/registro-paciente" className="flex-1 md:flex-none">
+                        <Button className="bg-vida-main hover:bg-vida-hover text-white shadow-lg shadow-vida-main/20 flex items-center justify-center gap-2 w-full">
+                            <UserPlus size={18} />
+                            Nuevo Registro
+                        </Button>
+                    </Link>
+                    {isSuperAdmin && (
+                        <Button 
+                            onClick={() => {
+                                setValidationCode('');
+                                setValidationResult(null);
+                                setShowValidationModal(true);
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 flex items-center justify-center gap-2 flex-1 md:flex-none"
+                        >
+                            <FileCheck size={18} className="flex-shrink-0" />
+                            <span className="hidden sm:inline">Verificar Carta de Compromiso</span>
+                            <span className="sm:hidden">Verificar Carta</span>
+                        </Button>
+                    )}
+                </div>
             </div>
 
             {/* BARRA DE BÚSQUEDA */}
@@ -270,6 +310,81 @@ export default function PatientsListPage() {
                             {isDeleting ? 'Eliminando...' : 'Sí, eliminar'}
                         </Button>
                     </div>
+                </div>
+            </div>
+        )}
+
+        {/* MODAL DE VALIDACIÓN DE CÓDIGO (SUPER_ADMIN) */}
+        {showValidationModal && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-fadeIn">
+                    <div className="flex items-center gap-3 mb-4 border-b border-gray-100 pb-4">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <Key className="text-blue-600" size={20} />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-800">Validar Carta de Compromiso</h3>
+                        </div>
+                    </div>
+                    
+                    <form onSubmit={handleValidateCode} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Código de Seguridad Impreso</label>
+                            <input
+                                type="text"
+                                placeholder="Ej: P5-150-A8F2"
+                                value={validationCode}
+                                onChange={(e) => setValidationCode(e.target.value.toUpperCase())}
+                                className="w-full p-3 rounded-lg bg-gray-50 border border-gray-200 text-center font-mono text-xl tracking-widest focus:ring-2 focus:ring-blue-500 outline-none"
+                                autoFocus
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Busque el código en la esquina inferior del documento PDF.</p>
+                        </div>
+
+                        {/* RESULTADOS DE VALIDACIÓN */}
+                        {validationResult?.success && (
+                            <div className="bg-green-50 border border-green-200 p-4 rounded-xl animate-slideDown">
+                                <div className="flex items-center gap-2 text-green-700 font-bold mb-2">
+                                    <CheckCircle size={18} /> Documento Auténtico
+                                </div>
+                                <div className="text-sm space-y-1 text-green-900">
+                                    <p><span className="font-semibold">Beneficiario/Tutor:</span> {validationResult.data.patient_name}</p>
+                                    <p><span className="font-semibold">C.I.:</span> {validationResult.data.ci}</p>
+                                    <p><span className="font-semibold">Monto Acordado:</span> {validationResult.data.monto} Bs.</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {validationResult?.error && (
+                            <div className="bg-red-50 border border-red-200 p-4 rounded-xl animate-shake">
+                                <div className="flex gap-2 text-red-700 font-bold mb-1">
+                                    <AlertTriangle size={18} className="flex-shrink-0" /> 
+                                    Documento Inválido
+                                </div>
+                                <p className="text-sm text-red-600 font-medium">
+                                    {validationResult.error}
+                                </p>
+                            </div>
+                        )}
+
+                        <div className="flex gap-3 pt-2">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => setShowValidationModal(false)}
+                                className="flex-1"
+                            >
+                                Cerrar
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={isValidating || !validationCode.trim()}
+                                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200"
+                            >
+                                {isValidating ? 'Verificando...' : 'Verificar'}
+                            </Button>
+                        </div>
+                    </form>
                 </div>
             </div>
         )}

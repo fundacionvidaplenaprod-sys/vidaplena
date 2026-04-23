@@ -18,14 +18,14 @@ export default function MyDocumentsPage() {
     const [contributions, setContributions] = useState([]);
     const [voucherUploading, setVoucherUploading] = useState(false);
     const [voucherForm, setVoucherForm] = useState({
-        monto: '50',
+        monto: '100',
         periodo: new Date().toISOString().slice(0, 7),
         fechaPago: new Date().toISOString().slice(0, 10),
         comprobante: null,
     });
 
 
-    const [montoAporte, setMontoAporte] = useState(50); // Mínimo por defecto
+    const [montoAporte, setMontoAporte] = useState(100); // Mínimo por defecto
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [downloading, setDownloading] = useState(false);
     const [insulinDeliveries, setInsulinDeliveries] = useState([]);
@@ -174,8 +174,8 @@ export default function MyDocumentsPage() {
             setShowConfirmModal(true);
             return;
         }
-        if (montoAporte < 50) {
-            toast.error("El aporte mínimo es de 50 Bs.");
+        if (montoAporte < 100) {
+            toast.error("El aporte mínimo es de 100 Bs.");
             return;
         }
         setShowConfirmModal(true);
@@ -743,7 +743,7 @@ export default function MyDocumentsPage() {
                                 <FileText /> Paso 1: Generar Compromiso de Aporte
                             </h3>
                             <p className="text-sm text-white/80 mb-4">
-                                Defina su aporte voluntario mensual (Mínimo 50 Bs) para descargar, imprimir y firmar su declaración jurada.
+                                Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su declaración jurada.
                             </p>
 
                             <div className="flex flex-col sm:flex-row items-end gap-4">
@@ -751,12 +751,22 @@ export default function MyDocumentsPage() {
                                     <label className="block text-xs font-bold mb-1 ml-1">Monto Mensual (Bs)</label>
                                     <input
                                         type="number"
-                                        min="50"
+                                        min="100"
                                         value={montoAporte}
                                         onChange={(e) => setMontoAporte(e.target.value)}
                                         readOnly={hasCommittedAmount}
-                                        className="w-full p-2 rounded-lg text-gray-800 font-bold text-center text-xl outline-none border-2 border-white/30 focus:border-white"
+                                        className={`w-full p-2 rounded-lg text-gray-800 font-bold text-center text-xl outline-none border-2 transition-all ${
+                                            Number(montoAporte) < 100 && !hasCommittedAmount
+                                                ? 'border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]'
+                                                : 'border-white/30 focus:border-white'
+                                        }`}
                                     />
+                                    {Number(montoAporte) < 100 && !hasCommittedAmount && (
+                                        <div className="text-red-100 text-xs mt-1.5 flex items-center bg-red-600/80 p-1.5 rounded-md font-medium animate-pulse">
+                                            <AlertTriangle size={14} className="mr-1.5 flex-shrink-0" />
+                                            Debe ser igual o mayor a 100 Bs.
+                                        </div>
+                                    )}
                                 </div>
                                 <Button
                                     onClick={handleOpenConfirm}

@@ -4,7 +4,9 @@ import random
 import string
 from typing import List, Optional
 from datetime import date
-
+import textwrap
+import hashlib
+from app.core.config import settings
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Query
 from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
@@ -18,6 +20,9 @@ from sqlalchemy import or_, delete
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER, TA_LEFT
 
 from app import models, schemas
 from app.api import deps
@@ -114,27 +119,28 @@ def _log_audit_event(
 
 
 def numero_a_letras(monto: float) -> str:
-    # Diccionarios básicos
     UNIDADES = ["", "UN ", "DOS ", "TRES ", "CUATRO ", "CINCO ", "SEIS ", "SIETE ", "OCHO ", "NUEVE ", "DIEZ ", "ONCE ", "DOCE ", "TRECE ", "CATORCE ", "QUINCE ", "DIECISEIS ", "DIECISIETE ", "DIECIOCHO ", "DIECINUEVE ", "VEINTE "]
     DECENAS = ["UNKNOWN", "DIEZ", "VEINTI", "TREINTA ", "CUARENTA ", "CINCUENTA ", "SESENTA ", "SETENTA ", "OCHENTA ", "NOVENTA "]
     CENTENAS = ["", "CIENTO ", "DOSCIENTOS ", "TRESCIENTOS ", "CUATROCIENTOS ", "QUINIENTOS ", "SEISCIENTOS ", "SETECIENTOS ", "OCHOCIENTOS ", "NOVECIENTOS "]
 
+    def _convertir(entero: int) -> str:
+        if entero == 0: return ""
+        elif entero == 100: return "CIEN "
+        elif entero < 21: return UNIDADES[entero]
+        elif entero < 30: return DECENAS[2] + UNIDADES[entero - 20]
+        elif entero < 100: return DECENAS[int(entero / 10)] + ("Y " if entero % 10 > 0 else "") + UNIDADES[entero % 10]
+        elif entero < 1000: return CENTENAS[int(entero / 100)] + _convertir(entero % 100)
+        elif entero < 2000: return "MIL " + _convertir(entero % 1000)
+        elif entero < 1000000:
+            texto = _convertir(int(entero / 1000)).replace("UN ", "UN MIL ") + _convertir(entero % 1000)
+            if texto.startswith("UN MIL"): texto = texto[3:]
+            return texto
+        return ""
+
     entero = int(monto)
     decimal = int(round((monto - entero) * 100))
-    texto = ""
-
-    if entero == 0: texto = "CERO "
-    elif entero == 100: texto = "CIEN "
-    elif entero < 21: texto = UNIDADES[entero]
-    elif entero < 30: texto = DECENAS[2] + UNIDADES[entero - 20]
-    elif entero < 100: texto = DECENAS[int(entero / 10)] + ("Y " if entero % 10 > 0 else "") + UNIDADES[entero % 10]
-    elif entero < 1000: texto = CENTENAS[int(entero / 100)] + numero_a_letras(entero % 100)
-    elif entero < 2000: texto = "MIL " + numero_a_letras(entero % 1000)
-    elif entero < 1000000:
-        texto = numero_a_letras(int(entero / 1000)).replace("UN ", "UN MIL ") + numero_a_letras(entero % 1000)
-        if texto.startswith("UN MIL"): texto = texto[3:] # Corregir 'UN MIL' a 'MIL'
     
-    # Formato Boliviano estándar
+    texto = "CERO " if entero == 0 else _convertir(entero)
     return f"({texto.strip()} {decimal:02d}/100 BOLIVIANOS)"
 
 # --- Endpoints Principales ---
@@ -1148,20 +1154,19 @@ async def get_patient_warnings(
 
 @router.get("/me/commitment-template")
 async def download_commitment_template(
-    monto_compromiso: float = Query(..., ge=50, description="Monto voluntario (Mínimo 50 Bs)"),
+    monto_compromiso: float = Query(..., ge=100),
     current_user: models.User = Depends(deps.get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Genera PDF con CÓDIGO DE SEGURIDAD.
-    """
-    query = select(models.Patient).where(models.Patient.user_id == current_user.id)
+    # 1. Buscar paciente y tutor
+    query = select(models.Patient).where(models.Patient.user_id == current_user.id).options(selectinload(models.Patient.tutor))
     result = await db.execute(query)
     patient = result.scalars().first()
 
     if not patient:
         raise HTTPException(status_code=400, detail="Sin datos de paciente.")
 
+    # 2. Manejo de Monto Comprometido
     committed_amount = float(patient.monto_aporte_comprometido) if patient.monto_aporte_comprometido is not None else None
     if committed_amount is not None:
         if round(committed_amount, 2) != round(monto_compromiso, 2):
@@ -1175,68 +1180,160 @@ async def download_commitment_template(
         await db.commit()
         committed_amount = monto_compromiso
 
-    # 1. Generar Código de Integridad
-    random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-    security_code = f"P{patient.id}-{int(committed_amount)}-{random_suffix}"
+    # 3. Generar Código de Integridad Determinista
+    # Hacemos un hash de: ID + Monto + SecretKey
+    raw_str = f"{patient.id}-{int(committed_amount)}-{settings.SECRET_KEY}"
+    hash_suffix = hashlib.sha256(raw_str.encode()).hexdigest()[:4].upper()
+    security_code = f"P{patient.id}-{int(committed_amount)}-{hash_suffix}"
 
-    # 2. Crear PDF
-    buffer = io.BytesIO()
-    p = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-    
-    # --- CABECERA ---
-    p.setFont("Helvetica-Bold", 16)
-    p.drawCentredString(width / 2, height - 100, "DECLARACIÓN JURADA DE APORTE VOLUNTARIO")
-    
-    # --- CÓDIGO DE SEGURIDAD ---
-    p.setStrokeColor(colors.grey)
-    p.rect(width - 220, height - 60, 200, 30, fill=0)
-    p.setFont("Courier-Bold", 12)
-    p.drawString(width - 210, height - 50, f"CÓDIGO: {security_code}")
-    p.setFont("Helvetica-Oblique", 8)
-    p.drawString(width - 210, height - 75, "No válido si este código es ilegible")
-
-    # --- CUERPO ---
-    text_y = height - 150
-    p.setFont("Helvetica", 12)
     monto_str = f"{committed_amount:.2f}"
     monto_literal = numero_a_letras(committed_amount)
-
-    lines = [
-        f"Yo, {patient.nombres} {patient.ap_paterno} {patient.ap_materno or ''},",
-        f"con Cédula de Identidad Nº {patient.ci},",
-        "por medio de la presente declaro libre y voluntariamente que:",
-        "",
-        "1. Soy beneficiario activo de la Fundación Vida Plena.",
-        f"2. Me comprometo a realizar un aporte mensual voluntario de Bs. {monto_str}",
-        f"{monto_literal}.",
-        "   para el sostenimiento de los programas de la fundación.",
-        f"3. Entiendo que el incumplimiento reiterado de este aporte o la falta",
-        "   de documentación resultará en la suspensión de los beneficios.",
-        f"4. Entiendo que adulterar este documento es causal de bloqueo.",
-        "",
-        f"Fecha de emisión: {date.today().strftime('%d/%m/%Y')}",
-        "",
-        "",
-        "__________________________",
-        "Firma del Beneficiario",
-        f"CI: {patient.ci}"
-    ]
     
-    for line in lines:
-        p.drawString(80, text_y, line)
-        text_y -= 25
+    tutor = patient.tutor
+    full_name_patient = f"{patient.nombres} {patient.ap_paterno} {patient.ap_materno or ''}".strip().title()
 
-    p.showPage()
-    p.save()
+    # 4. Iniciar PDF
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=72, leftMargin=72,
+        topMargin=52, bottomMargin=52
+    )
+    
+    styles = getSampleStyleSheet()
+    
+    style_title = ParagraphStyle(
+        'TitleStyle', parent=styles['Normal'], fontSize=12,
+        leading=14, alignment=TA_CENTER, spaceAfter=20, fontName='Helvetica-Bold'
+    )
+    style_body = ParagraphStyle(
+        'BodyStyle', parent=styles['Normal'], fontSize=11,
+        leading=16, alignment=TA_JUSTIFY, spaceAfter=3
+    )
+    style_code = ParagraphStyle(
+        'CodeStyle', parent=styles['Normal'], fontSize=10,
+        alignment=TA_LEFT, fontName='Helvetica-Bold'
+    )
+
+    style_warning = ParagraphStyle(
+        'WarnStyle', parent=styles['BodyText'], fontSize=10,
+        alignment=TA_LEFT, fontName='Helvetica-Oblique'
+    )
+
+    story = []
+
+
+    # TÍTULO
+    story.append(Paragraph("DECLARACIÓN JURADA DE APORTE VOLUNTARIO Y COMPROMISO INSTITUCIONAL", style_title))
+    # CÓDIGO DE SEGURIDAD
+    story.append(Paragraph(f"CÓDIGO: {security_code}", style_code))
+    story.append(Paragraph("(Válido únicamente si el código es legible y no presenta alteraciones)", style_warning))
+    story.append(Spacer(1, 20))
+    # TEXTO DINÁMICO
+    if tutor:
+        intro = f"Yo, <b>{tutor.nombres.title()} {tutor.apellidos.title()}</b>, con Cédula de Identidad Nº <b>{tutor.ci}</b>, en calidad de {tutor.parentesco or 'tutor'} del menor <b>{full_name_patient}</b>, mayor de edad y hábil por derecho, en pleno uso de mis facultades, declaro libre y voluntariamente lo siguiente:"
+        clausula_1 = "<b>1. CALIDAD DE BENEFICIARIO:</b> Que acepto y ratifico la condición de beneficiario activo del menor en la <b>Fundación V.I.D.A. Plena</b>, declarando conocer y someterme a sus Estatutos Orgánicos y Reglamento Interno."
+        firma_nombre = f"{tutor.nombres.title()} {tutor.apellidos.title()}"
+        firma_ci = tutor.ci
+    else:
+        intro = f"Yo, <b>{full_name_patient}</b>, con Cédula de Identidad Nº <b>{patient.ci}</b>, mayor de edad y hábil por derecho, en pleno uso de mis facultades, declaro libre y voluntariamente lo siguiente:"
+        clausula_1 = "<b>1. CALIDAD DE BENEFICIARIO:</b> Que acepto y ratifico mi condición de beneficiario activo de la <b>Fundación V.I.D.A. Plena</b>, declarando conocer y someterme a sus Estatutos Orgánicos y Reglamento Interno."
+        firma_nombre = full_name_patient
+        firma_ci = patient.ci
+
+    story.append(Paragraph(intro, style_body))
+    story.append(Paragraph(clausula_1, style_body))
+    
+    clausula_2 = f"<b>2. APORTE DE SOSTENIMIENTO:</b> De conformidad con el <b>Art. 58 y siguientes del Código Civil Boliviano</b> y la naturaleza no lucrativa de la entidad, me comprometo a realizar un aporte mensual de <b>Bs. {monto_str} {monto_literal}</b>. Este monto está destinado exclusivamente al fondo de sostenibilidad de los programas sociales, en cumplimiento del objeto social de la Fundación."
+    story.append(Paragraph(clausula_2, style_body))
+
+    clausula_3 = "<b>3. ORIGEN DE FONDOS:</b> Declaro que los fondos destinados a estos aportes provienen de actividades lícitas, liberando a la Fundación de cualquier responsabilidad conforme a la <b>Ley Nº 004 (Ley de Lucha contra la Corrupción, Enriquecimiento Ilícito e Investigación de Fortunas \"Marcelo Quiroga Santa Cruz\")</b>."
+    story.append(Paragraph(clausula_3, style_body))
+
+    clausula_4 = "<b>4. CUMPLIMIENTO Y REGLAMENTACIÓN:</b> Entiendo que, según el Reglamento Interno de la Fundación, el aporte es fundamental para la operatividad de los programas. El incumplimiento injustificado de mis deberes como beneficiario, incluida la falta de transparencia en la documentación o la desatención de los aportes de sostenibilidad acordados, dará lugar a la revisión de mi permanencia en el programa, previo proceso administrativo interno."
+    story.append(Paragraph(clausula_4, style_body))
+
+    clausula_5 = "<b>5. VERACIDAD:</b> Reconozco que la adulteración de este documento o la falsedad en la información proporcionada constituye una falta grave y causal de baja definitiva, sin perjuicio de las acciones legales previstas en el <b>Código Penal</b> por falsedad ideológica."
+    story.append(Paragraph(clausula_5, style_body))
+
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(f"En conformidad, firmo la presente declaración a los _____ dias del mes de ____________ de {date.today().year}.", style_body))
+
+    story.append(Spacer(1, 60))
+    data_firma = [
+        ["__________________________"],
+        [firma_nombre],
+        [f"C.I. {firma_ci}"]
+    ]
+    tabla_firma = Table(data_firma, colWidths=[200])
+    tabla_firma.setStyle(TableStyle([
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('FONTNAME', (0,1), (0,1), 'Helvetica-Bold'),
+    ]))
+    story.append(tabla_firma)
+
+    # Construir PDF
+    doc.build(story)
     
     buffer.seek(0)
     return StreamingResponse(
         buffer, 
-        media_type="application/pdf",
+        media_type="application/pdf", 
         headers={"Content-Disposition": f'attachment; filename="Compromiso_{security_code}.pdf"'}
     )
 
+
+@router.get("/validate-commitment-code/{code}")
+async def validate_commitment_code(
+    code: str,
+    current_user: models.User = Depends(deps.get_current_super_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Valida un código de seguridad de la Carta de Compromiso (solo Super Admin).
+    Formato esperado: P{id}-{monto}-{suffix}
+    """
+    try:
+        # P5-150-A8F2 -> split('-') -> ['P5', '150', 'A8F2']
+        parts = code.strip().upper().split('-')
+        if len(parts) != 3 or not parts[0].startswith('P'):
+            raise HTTPException(status_code=400, detail="Formato de código inválido.")
+        
+        patient_id = int(parts[0][1:])
+        monto = int(parts[1])
+        provided_suffix = parts[2]
+        
+        # Validar la firma matemática
+        raw_str = f"{patient_id}-{monto}-{settings.SECRET_KEY}"
+        expected_suffix = hashlib.sha256(raw_str.encode()).hexdigest()[:4].upper()
+        
+        if provided_suffix != expected_suffix:
+            raise HTTPException(status_code=400, detail="Código inválido o adulterado (Firma incorrecta).")
+        
+        # Buscar el paciente en la base de datos
+        query = select(models.Patient).where(models.Patient.id == patient_id)
+        result = await db.execute(query)
+        patient = result.scalars().first()
+        
+        if not patient:
+            raise HTTPException(status_code=404, detail="Paciente no encontrado en el sistema.")
+            
+        # Verificar que el monto comprometido coincida
+        if patient.monto_aporte_comprometido is None or int(patient.monto_aporte_comprometido) != monto:
+            raise HTTPException(status_code=400, detail=f"El código es matemáticamente válido, pero el monto actual del paciente en sistema no coincide (Registrado: Bs. {patient.monto_aporte_comprometido}).")
+            
+        # Responder con la confirmación de validación
+        return {
+            "valid": True,
+            "patient_name": f"{patient.nombres} {patient.ap_paterno} {patient.ap_materno or ''}".strip().title(),
+            "ci": patient.ci,
+            "monto": monto
+        }
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=400, detail="Error procesando el código de seguridad.")
 
 @router.put("/{patient_id}/validate", response_model=schemas.PatientResponse)
 async def validate_patient_registration(
