@@ -3,6 +3,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # --- PROYECTO ---
     APP_NAME: str = "VIDAPLENA"
+    ENVIRONMENT: str = "dev" # Valores: 'dev' o 'prod'
+    
     
     API_V1_STR: str = ""
     # --- BASE DE DATOS ---

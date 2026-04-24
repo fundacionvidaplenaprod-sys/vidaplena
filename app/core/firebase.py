@@ -1,6 +1,7 @@
 import firebase_admin
 from firebase_admin import credentials, storage
 import os
+from app.core.config import settings
 
 # Nombre de tu archivo de credenciales (el que descargaste)
 CREDENTIALS_FILE = "firebase_key.json"
@@ -20,7 +21,14 @@ def init_firebase():
         firebase_admin.initialize_app(cred, {
             'storageBucket': BUCKET_NAME
         })
-        print("Firebase Conectado Exitosamente")
+        
+        # EL INTERRUPTOR MÁGICO:
+        # Si el config dice que estamos en desarrollo, secuestramos el tráfico hacia localhost
+        if getattr(settings, 'ENVIRONMENT', 'prod') == 'dev':
+            os.environ["FIREBASE_STORAGE_EMULATOR_HOST"] = "127.0.0.1:9199"
+            print("⚠️ MODO SANDBOX: Conectado al Emulador Local de Firebase Storage")
+        else:
+            print("Firebase Conectado Exitosamente (NUBE DE GOOGLE)")
 
 def upload_file_to_firebase(file_content: bytes, filename: str, content_type: str) -> str:
     """

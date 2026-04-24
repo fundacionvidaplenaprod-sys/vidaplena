@@ -209,7 +209,7 @@ export default function MyDocumentsPage() {
     };
 
     const { logout } = useAuth();
- 
+
     const handleLogout = () => {
         logout();
         navigate('/login');
@@ -522,13 +522,12 @@ export default function MyDocumentsPage() {
                                                     <p className="text-xs text-red-600 mt-1">Observacion: {item.observacion_admin}</p>
                                                 )}
                                             </div>
-                                            <span className={`text-xs font-bold px-2 py-1 rounded-full border ${
-                                                item.estado === 'ACEPTADO'
+                                            <span className={`text-xs font-bold px-2 py-1 rounded-full border ${item.estado === 'ACEPTADO'
                                                     ? 'bg-green-100 text-green-700 border-green-200'
                                                     : item.estado === 'OBSERVADO'
                                                         ? 'bg-red-100 text-red-700 border-red-200'
                                                         : 'bg-yellow-100 text-yellow-700 border-yellow-200'
-                                            }`}>
+                                                }`}>
                                                 {item.estado}
                                             </span>
                                         </div>
@@ -587,10 +586,10 @@ export default function MyDocumentsPage() {
                                                 const dailyUnits = Number(tx.dosis_diaria || 0);
                                                 return (
                                                     <>
-                                            <p className="text-sm font-bold text-gray-800">{tx.nombre || 'Tratamiento sin nombre'}</p>
-                                            <p className="text-xs text-gray-600 mt-1">
-                                                UI por día: {dailyUnits > 0 ? dailyUnits : 'No especificada'}
-                                            </p>
+                                                        <p className="text-sm font-bold text-gray-800">{tx.nombre || 'Tratamiento sin nombre'}</p>
+                                                        <p className="text-xs text-gray-600 mt-1">
+                                                            UI por día: {dailyUnits > 0 ? dailyUnits : 'No especificada'}
+                                                        </p>
                                                     </>
                                                 );
                                             })()}
@@ -700,13 +699,12 @@ export default function MyDocumentsPage() {
                                                     <p className="text-xs text-red-600 mt-1">Observacion: {item.observacion_admin}</p>
                                                 )}
                                             </div>
-                                            <span className={`text-xs font-bold px-2 py-1 rounded-full border ${
-                                                item.estado === 'ACEPTADO'
+                                            <span className={`text-xs font-bold px-2 py-1 rounded-full border ${item.estado === 'ACEPTADO'
                                                     ? 'bg-green-100 text-green-700 border-green-200'
                                                     : item.estado === 'OBSERVADO'
                                                         ? 'bg-red-100 text-red-700 border-red-200'
                                                         : 'bg-yellow-100 text-yellow-700 border-yellow-200'
-                                            }`}>
+                                                }`}>
                                                 {item.estado}
                                             </span>
                                         </div>
@@ -734,151 +732,150 @@ export default function MyDocumentsPage() {
                 )}
 
                 {patientStatus !== 'ACTIVO' && patientStatus !== 'HABILITADO' && (
-                <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
-                    <h2 className="text-2xl font-bold text-gray-800 mb-2">Expediente Digital</h2>
-                    
-                    {!isReadOnly && (
-                        <div className="bg-gradient-to-r from-vida-main to-vida-primary rounded-2xl shadow-lg p-6 mb-8 text-white">
-                            <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
-                                <FileText /> Paso 1: Generar Compromiso de Aporte
-                            </h3>
-                            <p className="text-sm text-white/80 mb-4">
-                                Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su declaración jurada.
-                            </p>
+                    <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-2">Expediente Digital</h2>
 
-                            <div className="flex flex-col sm:flex-row items-end gap-4">
-                                <div className="w-full sm:w-1/3">
-                                    <label className="block text-xs font-bold mb-1 ml-1">Monto Mensual (Bs)</label>
-                                    <input
-                                        type="number"
-                                        min="100"
-                                        value={montoAporte}
-                                        onChange={(e) => setMontoAporte(e.target.value)}
-                                        readOnly={hasCommittedAmount}
-                                        className={`w-full p-2 rounded-lg text-gray-800 font-bold text-center text-xl outline-none border-2 transition-all ${
-                                            Number(montoAporte) < 100 && !hasCommittedAmount
-                                                ? 'border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]'
-                                                : 'border-white/30 focus:border-white'
-                                        }`}
-                                    />
-                                    {Number(montoAporte) < 100 && !hasCommittedAmount && (
-                                        <div className="text-red-100 text-xs mt-1.5 flex items-center bg-red-600/80 p-1.5 rounded-md font-medium animate-pulse">
-                                            <AlertTriangle size={14} className="mr-1.5 flex-shrink-0" />
-                                            Debe ser igual o mayor a 100 Bs.
-                                        </div>
-                                    )}
+                        {!isReadOnly && (
+                            <div className="bg-gradient-to-r from-vida-main to-vida-primary rounded-2xl shadow-lg p-6 mb-8 text-white">
+                                <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
+                                    <FileText /> Paso 1: Generar Compromiso de Aporte Voluntario
+                                </h3>
+                                <p className="text-sm text-white/80 mb-4">
+                                    Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su declaración jurada.
+                                </p>
+
+                                <div className="flex flex-col sm:flex-row items-end gap-4">
+                                    <div className="w-full sm:w-1/3">
+                                        <label className="block text-xs font-bold mb-1 ml-1">Monto Mensual (Bs)</label>
+                                        <input
+                                            type="number"
+                                            min="100"
+                                            value={montoAporte}
+                                            onChange={(e) => setMontoAporte(e.target.value)}
+                                            readOnly={hasCommittedAmount}
+                                            className={`w-full p-2 rounded-lg text-gray-800 font-bold text-center text-xl outline-none border-2 transition-all ${Number(montoAporte) < 100 && !hasCommittedAmount
+                                                    ? 'border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]'
+                                                    : 'border-white/30 focus:border-white'
+                                                }`}
+                                        />
+                                        {Number(montoAporte) < 100 && !hasCommittedAmount && (
+                                            <div className="text-red-100 text-xs mt-1.5 flex items-center bg-red-600/80 p-1.5 rounded-md font-medium animate-pulse">
+                                                <AlertTriangle size={14} className="mr-1.5 flex-shrink-0" />
+                                                Debe ser igual o mayor a 100 Bs.
+                                            </div>
+                                        )}
+                                    </div>
+                                    <Button
+                                        onClick={handleOpenConfirm}
+                                        className="bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200 font-bold shadow-lg w-full sm:w-auto"
+                                    >
+
+                                        <Download size={18} className="mr-2" /> Descargar Formulario
+                                    </Button>
                                 </div>
+                            </div>
+                        )}
+                        <p className="text-gray-500 mb-8">
+                            {isReadOnly
+                                ? "Documentación resguardada."
+                                : "Cargue los documentos solicitados. Los campos de Tutor aparecen automáticamente si aplica."}
+                        </p>
+
+                        {patientStatus === 'PENDIENTE_DOC' && observations.length > 0 && (
+                            <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-6 rounded-r shadow-sm">
+                                <div className="flex items-start">
+                                    <AlertTriangle className="text-yellow-600 mr-3 mt-0.5" size={22} />
+                                    <div>
+                                        <h3 className="font-bold text-yellow-800">Documentos observados</h3>
+                                        <p className="text-sm text-yellow-700 mb-3">
+                                            Revise los motivos y vuelva a subir los documentos observados.
+                                        </p>
+                                        <ul className="space-y-2 text-sm text-yellow-800">
+                                            {observations.map((item, index) => (
+                                                <li key={`${item.doc_key}-${index}`} className="border border-yellow-100 rounded-md p-2 bg-white/60">
+                                                    <span className="font-semibold">
+                                                        {docLabelById[item.doc_key] || item.doc_key}
+                                                    </span>
+                                                    : {item.motivo}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="space-y-4">
+                            {docs.map((doc) => (
+                                <div key={doc.id} className={`border rounded-xl p-4 flex items-center justify-between transition-all ${isReadOnly ? 'bg-gray-50 opacity-90' : 'bg-white hover:shadow-md'}`}>
+                                    <div className="flex items-center gap-4">
+                                        <div className={`p-3 rounded-full ${doc.status === 'SUBIDO' ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-500'}`}>
+                                            {doc.status === 'SUBIDO' ? <CheckCircle size={24} /> : renderIcon(doc.icon)}
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-gray-800">{doc.label}</h3>
+                                            <p className={`text-xs font-bold ${doc.status === 'SUBIDO' ? 'text-green-600' : 'text-orange-500'}`}>
+                                                {doc.status === 'SUBIDO' ? 'Cargado' : 'Pendiente'}
+                                            </p>
+                                            {patientStatus === 'PENDIENTE_DOC' && observedReasonByDocId[doc.id] && (
+                                                <p className="text-xs text-red-600 mt-1">
+                                                    Observado: {observedReasonByDocId[doc.id]}
+                                                </p>
+                                            )}
+                                            {doc.url && isReadOnly && (
+                                                <a href={doc.url} target="_blank" rel="noreferrer" className="text-xs text-blue-500 underline mt-1 block">
+                                                    Ver archivo
+                                                </a>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        {isReadOnly ? (
+                                            <div className="text-gray-400 px-4"> <Lock size={20} /> </div>
+                                        ) : (
+                                            <>
+                                                <input
+                                                    type="file"
+                                                    id={`file-${doc.id}`}
+                                                    className="hidden"
+                                                    accept={doc.icon === 'camera' ? "image/*" : ".pdf,.jpg,.jpeg,.png"}
+                                                    onChange={(e) => e.target.files[0] && handleUpload(doc.id, e.target.files[0])}
+                                                />
+                                                <label
+                                                    htmlFor={`file-${doc.id}`}
+                                                    className={`cursor-pointer px-4 py-2 rounded-lg text-sm font-bold transition-colors inline-block
+                                                    ${doc.status === 'SUBIDO'
+                                                            ? 'bg-gray-100 text-gray-500 border border-gray-300'
+                                                            : 'bg-vida-main text-white hover:bg-vida-hover shadow-lg shadow-vida-main/20'
+                                                        }`}
+                                                >
+                                                    {doc.status === 'SUBIDO' ? 'Cambiar' : 'Subir'}
+                                                </label>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+
+
+                        {!isReadOnly && (
+                            <div className="mt-8 pt-6 border-t border-gray-100 flex justify-end">
                                 <Button
-                                    onClick={handleOpenConfirm}
-                                    className="bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200 font-bold shadow-lg w-full sm:w-auto"
+                                    onClick={handleSubmit}
+                                    disabled={!allUploaded}
+                                    className={`w-full md:w-auto transition-all duration-300 ${allUploaded
+                                        ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200'
+                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                        }`}
                                 >
-                                    
-                                    <Download size={18} className="mr-2" /> Descargar Formulario
+                                    Enviar a Revisión
                                 </Button>
                             </div>
-                        </div>
-                    )}
-                    <p className="text-gray-500 mb-8">
-                        {isReadOnly
-                            ? "Documentación resguardada."
-                            : "Cargue los documentos solicitados. Los campos de Tutor aparecen automáticamente si aplica."}
-                    </p>
-
-                    {patientStatus === 'PENDIENTE_DOC' && observations.length > 0 && (
-                        <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-6 rounded-r shadow-sm">
-                            <div className="flex items-start">
-                                <AlertTriangle className="text-yellow-600 mr-3 mt-0.5" size={22} />
-                                <div>
-                                    <h3 className="font-bold text-yellow-800">Documentos observados</h3>
-                                    <p className="text-sm text-yellow-700 mb-3">
-                                        Revise los motivos y vuelva a subir los documentos observados.
-                                    </p>
-                                    <ul className="space-y-2 text-sm text-yellow-800">
-                                        {observations.map((item, index) => (
-                                            <li key={`${item.doc_key}-${index}`} className="border border-yellow-100 rounded-md p-2 bg-white/60">
-                                                <span className="font-semibold">
-                                                    {docLabelById[item.doc_key] || item.doc_key}
-                                                </span>
-                                                : {item.motivo}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="space-y-4">
-                        {docs.map((doc) => (
-                            <div key={doc.id} className={`border rounded-xl p-4 flex items-center justify-between transition-all ${isReadOnly ? 'bg-gray-50 opacity-90' : 'bg-white hover:shadow-md'}`}>
-                                <div className="flex items-center gap-4">
-                                    <div className={`p-3 rounded-full ${doc.status === 'SUBIDO' ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-500'}`}>
-                                        {doc.status === 'SUBIDO' ? <CheckCircle size={24} /> : renderIcon(doc.icon)}
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-gray-800">{doc.label}</h3>
-                                        <p className={`text-xs font-bold ${doc.status === 'SUBIDO' ? 'text-green-600' : 'text-orange-500'}`}>
-                                            {doc.status === 'SUBIDO' ? 'Cargado' : 'Pendiente'}
-                                        </p>
-                                        {patientStatus === 'PENDIENTE_DOC' && observedReasonByDocId[doc.id] && (
-                                            <p className="text-xs text-red-600 mt-1">
-                                                Observado: {observedReasonByDocId[doc.id]}
-                                            </p>
-                                        )}
-                                        {doc.url && isReadOnly && (
-                                            <a href={doc.url} target="_blank" rel="noreferrer" className="text-xs text-blue-500 underline mt-1 block">
-                                                Ver archivo
-                                            </a>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div>
-                                    {isReadOnly ? (
-                                        <div className="text-gray-400 px-4"> <Lock size={20} /> </div>
-                                    ) : (
-                                        <>
-                                            <input
-                                                type="file"
-                                                id={`file-${doc.id}`}
-                                                className="hidden"
-                                                accept={doc.icon === 'camera' ? "image/*" : ".pdf,.jpg,.jpeg,.png"}
-                                                onChange={(e) => e.target.files[0] && handleUpload(doc.id, e.target.files[0])}
-                                            />
-                                            <label
-                                                htmlFor={`file-${doc.id}`}
-                                                className={`cursor-pointer px-4 py-2 rounded-lg text-sm font-bold transition-colors inline-block
-                                                    ${doc.status === 'SUBIDO'
-                                                        ? 'bg-gray-100 text-gray-500 border border-gray-300'
-                                                        : 'bg-vida-main text-white hover:bg-vida-hover shadow-lg shadow-vida-main/20'
-                                                    }`}
-                                            >
-                                                {doc.status === 'SUBIDO' ? 'Cambiar' : 'Subir'}
-                                            </label>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
+                        )}
                     </div>
-
-                
-
-                    {!isReadOnly && (
-                        <div className="mt-8 pt-6 border-t border-gray-100 flex justify-end">
-                            <Button
-                                onClick={handleSubmit}
-                                disabled={!allUploaded}
-                                className={`w-full md:w-auto transition-all duration-300 ${allUploaded
-                                    ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200'
-                                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                    }`}
-                            >
-                                Enviar a Revisión
-                            </Button>
-                        </div>
-                    )}
-                </div>
                 )}
             </main>
 
