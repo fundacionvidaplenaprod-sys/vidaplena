@@ -1257,8 +1257,11 @@ async def download_commitment_template(
     clausula_5 = "<b>5. VERACIDAD:</b> Reconozco que la adulteración de este documento o la falsedad en la información proporcionada constituye una falta grave y causal de baja definitiva, sin perjuicio de las acciones legales previstas en el <b>Código Penal</b> por falsedad ideológica."
     story.append(Paragraph(clausula_5, style_body))
 
-    story.append(Spacer(1, 10))
-    story.append(Paragraph(f"En conformidad, firmo la presente declaración a los _____ dias del mes de ____________ de {date.today().year}.", style_body))
+    # FECHA AUTOMÁTICA
+    meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    hoy = date.today()
+    fecha_texto = f"En conformidad, firmo la presente declaración a los {hoy.day} días del mes de {meses[hoy.month-1]} de {hoy.year}."
+    story.append(Paragraph(fecha_texto, style_body))
 
     story.append(Spacer(1, 60))
     data_firma = [

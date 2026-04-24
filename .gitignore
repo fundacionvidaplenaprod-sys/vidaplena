@@ -3,3 +3,4 @@
 __pycache__/
 PRIVATE_KEY_DO_NOT_SHARE
 firebase_key.json
+firebase-adminsdk.json

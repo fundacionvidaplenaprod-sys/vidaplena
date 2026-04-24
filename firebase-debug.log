@@ -194,3 +194,59 @@ WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
 
 Issues? Report them at https://github.com/firebase/firebase-tools/issues and attach the *-debug.log files.
  
+[debug] [2026-04-24T01:32:54.931Z] ----------------------------------------------------------------------
+[debug] [2026-04-24T01:32:54.933Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\lapto\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js emulators:start
+[debug] [2026-04-24T01:32:54.934Z] CLI Version:   15.15.0
+[debug] [2026-04-24T01:32:54.934Z] Platform:      win32
+[debug] [2026-04-24T01:32:54.934Z] Node Version:  v24.13.0
+[debug] [2026-04-24T01:32:54.934Z] Time:          Thu Apr 23 2026 21:32:54 GMT-0400 (hora de Bolivia)
+[debug] [2026-04-24T01:32:54.934Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-04-24T01:32:56.540Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-04-24T01:32:56.541Z] > authorizing via signed-in user (fundacionvidaplenaprod@gmail.com)
+[debug] [2026-04-24T01:32:56.596Z] openjdk version "25.0.2" 2026-01-20 LTS
+
+[debug] [2026-04-24T01:32:56.596Z] OpenJDK Runtime Environment Temurin-25.0.2+10 (build 25.0.2+10-LTS)
+OpenJDK 64-Bit Server VM Temurin-25.0.2+10 (build 25.0.2+10-LTS, mixed mode, sharing)
+
+[debug] [2026-04-24T01:32:56.605Z] Parsed Java major version: 25
+[info] i  emulators: Starting emulators: storage {"metadata":{"emulator":{"name":"hub"},"message":"Starting emulators: storage"}}
+[debug] [2026-04-24T01:32:56.627Z] [logging] Logging Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-04-24T01:32:56.627Z] [storage] Storage Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-04-24T01:32:56.627Z] assigned listening specs for emulators {"user":{"hub":[{"address":"127.0.0.1","family":"IPv4","port":4400},{"address":"::1","family":"IPv6","port":4400}],"ui":[{"address":"127.0.0.1","family":"IPv4","port":4000},{"address":"::1","family":"IPv6","port":4000}],"logging":[{"address":"127.0.0.1","family":"IPv4","port":4500}],"storage":[{"address":"127.0.0.1","family":"IPv4","port":9199}]},"metadata":{"message":"assigned listening specs for emulators"}}
+[debug] [2026-04-24T01:32:56.631Z] Found emulator hub locator: {"version":"15.15.0","origins":["http://127.0.0.1:4400","http://[::1]:4400"],"pid":36204}
+[debug] [2026-04-24T01:32:56.631Z] Write emulator hub locator at C:\Users\lapto\AppData\Local\Temp\hub-vidaplenastorage.json
+[debug] [2026-04-24T01:32:56.639Z] Ignoring unsupported arg: port {"metadata":{"emulator":{"name":"storage"},"message":"Ignoring unsupported arg: port"}}
+[warn] !  Unexpected rules runtime error: WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by com.google.protobuf.UnsafeUtil$MemoryAccessor (file:/C:/Users/lapto/.cache/firebase/emulators/cloud-storage-rules-runtime-v1.1.3.jar)
+WARNING: Please consider reporting this to the maintainers of class com.google.protobuf.UnsafeUtil$MemoryAccessor
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+ {"metadata":{"emulator":{"name":"storage"},"message":"Unexpected rules runtime error: WARNING: A terminally deprecated method in sun.misc.Unsafe has been called\nWARNING: sun.misc.Unsafe::arrayBaseOffset has been called by com.google.protobuf.UnsafeUtil$MemoryAccessor (file:/C:/Users/lapto/.cache/firebase/emulators/cloud-storage-rules-runtime-v1.1.3.jar)\nWARNING: Please consider reporting this to the maintainers of class com.google.protobuf.UnsafeUtil$MemoryAccessor\nWARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release\r\n"}}
+[debug] [2026-04-24T01:32:57.329Z] Temp file directory for storage emulator: C:\Users\lapto\AppData\Local\Temp/firebase/storage/blobs {"metadata":{"emulator":{"name":"storage"},"message":"Temp file directory for storage emulator: C:\\Users\\lapto\\AppData\\Local\\Temp/firebase/storage/blobs"}}
+[debug] [2026-04-24T01:32:57.347Z] Could not find VSCode notification endpoint: FetchError: request to http://localhost:40001/vscode/notify failed, reason: . If you are not running the Firebase SQL Connect VSCode extension, this is expected and not an issue.
+[info] 
+┌─────────────────────────────────────────────────────────────┐
+│ ✔  All emulators ready! It is now safe to connect your app. │
+│ i  View Emulator UI at http://127.0.0.1:4000/               │
+└─────────────────────────────────────────────────────────────┘
+
+┌──────────┬────────────────┬───────────────────────────────┐
+│ Emulator │ Host:Port      │ View in Emulator UI           │
+├──────────┼────────────────┼───────────────────────────────┤
+│ Storage  │ 127.0.0.1:9199 │ http://127.0.0.1:4000/storage │
+└──────────┴────────────────┴───────────────────────────────┘
+  Emulator Hub host: 127.0.0.1 port: 4400
+  Other reserved ports: 4500
+
+Issues? Report them at https://github.com/firebase/firebase-tools/issues and attach the *-debug.log files.
+ 
+[debug] [2026-04-24T01:34:16.638Z] Checked if tokens are valid: false, expires at: 1776926710459
+[debug] [2026-04-24T01:34:16.638Z] Checked if tokens are valid: false, expires at: 1776926710459
+[debug] [2026-04-24T01:34:16.638Z] > refreshing access token with scopes: []
+[debug] [2026-04-24T01:34:16.641Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-04-24T01:34:16.642Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-04-24T01:34:16.824Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-04-24T01:34:16.824Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-04-24T01:34:16.833Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/vidaplenastorage/adminSdkConfig [none]
+[debug] [2026-04-24T01:34:17.373Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/vidaplenastorage/adminSdkConfig 200
+[debug] [2026-04-24T01:34:17.374Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/vidaplenastorage/adminSdkConfig {"projectId":"vidaplenastorage","storageBucket":"vidaplenastorage.firebasestorage.app"}
