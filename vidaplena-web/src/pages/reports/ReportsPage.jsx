@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User } from 'lucide-react';
+import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { getAuditLogsReport, getInventoryReport, getPopulationReport } from '../../api/reports';
 import { toast } from 'react-hot-toast';
+import DynamicBeneficiaryReport from './DynamicBeneficiaryReport';
 
 export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
@@ -47,25 +48,54 @@ export default function ReportsPage() {
     loadReports();
   }, []);
 
+  const [activeTab, setActiveTab] = useState('resumen');
+
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto animate-fadeIn">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-800">Reportes Operativos</h1>
-          <p className="text-gray-500">Control ejecutivo de beneficiarios, stock y auditoría.</p>
-        </div>
-        <Button
-          type="button"
-          className="bg-vida-main hover:bg-vida-hover text-white shadow-lg shadow-vida-main/20"
-          onClick={loadReports}
-          disabled={loading}
-        >
-          <RefreshCcw size={18} />
-          {loading ? 'Actualizando...' : 'Actualizar'}
-        </Button>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-800">Reportes Operativos</h1>
+        <p className="text-gray-500">Control ejecutivo de beneficiarios, stock y auditoría.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      {/* TABS NAVEGACIÓN */}
+      <div className="flex border-b border-gray-200 mb-8 overflow-x-auto custom-scrollbar">
+        <button
+          onClick={() => setActiveTab('resumen')}
+          className={`flex items-center gap-2 px-6 py-3 font-semibold text-sm transition-colors whitespace-nowrap border-b-2 ${
+            activeTab === 'resumen' 
+              ? 'border-vida-main text-vida-main bg-vida-main/5' 
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Activity size={18} /> Resumen Operativo
+        </button>
+        <button
+          onClick={() => setActiveTab('beneficiarios')}
+          className={`flex items-center gap-2 px-6 py-3 font-semibold text-sm transition-colors whitespace-nowrap border-b-2 ${
+            activeTab === 'beneficiarios' 
+              ? 'border-vida-main text-vida-main bg-vida-main/5' 
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <FileText size={18} /> Reporte Beneficiarios
+        </button>
+      </div>
+
+      {/* CONTENIDO TABS */}
+      {activeTab === 'resumen' ? (
+        <div className="animate-fadeIn">
+          <div className="flex justify-end mb-4">
+            <Button
+              type="button"
+              className="bg-vida-main hover:bg-vida-hover text-white shadow-lg shadow-vida-main/20"
+              onClick={loadReports}
+              disabled={loading}
+            >
+              <RefreshCcw size={18} />
+              {loading ? 'Actualizando...' : 'Actualizar Datos'}
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <p className="text-xs text-gray-500 uppercase font-semibold">Beneficiarios totales</p>
           <p className="text-2xl font-bold text-gray-800 mt-1">{population?.total_beneficiarios ?? 0}</p>
@@ -272,6 +302,12 @@ export default function ReportsPage() {
           )}
         </section>
       </div>
+        </div>
+      ) : (
+        <div className="animate-fadeIn">
+          <DynamicBeneficiaryReport />
+        </div>
+      )}
     </div>
   );
 }
