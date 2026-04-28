@@ -120,7 +120,7 @@ class Tutor(Base):
     patient_id = Column(BigInteger, ForeignKey("patients.id", ondelete="CASCADE"), unique=True)
     nombres = Column(String(120), nullable=False)
     apellidos = Column(String(160), nullable=False)
-    ci = Column(String(32), unique=True, nullable=False)
+    ci = Column(String(32), nullable=False)
     parentesco = Column(String(50), nullable=True)
     
     direccion = Column(Text)

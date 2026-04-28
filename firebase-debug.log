@@ -250,3 +250,4 @@ Issues? Report them at https://github.com/firebase/firebase-tools/issues and att
 [debug] [2026-04-24T01:34:16.833Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/vidaplenastorage/adminSdkConfig [none]
 [debug] [2026-04-24T01:34:17.373Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/vidaplenastorage/adminSdkConfig 200
 [debug] [2026-04-24T01:34:17.374Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/vidaplenastorage/adminSdkConfig {"projectId":"vidaplenastorage","storageBucket":"vidaplenastorage.firebasestorage.app"}
+[debug] [2026-04-24T03:53:57.504Z] Received signal SIGHUP 1
