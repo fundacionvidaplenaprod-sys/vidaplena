@@ -85,7 +85,7 @@ export default function RegisterPatientPage() {
       setLoadingData(true);
       const data = await getPatientById(id);
 
-      console.log("🔍 DATOS RECIBIDOS DEL BACKEND:", data); // ¡Mira la consola (F12) para ver qué llega!
+
       let fechaFormat = '';
       if (data.fecha_nac) {
         fechaFormat = data.fecha_nac.includes('T')
@@ -149,7 +149,7 @@ export default function RegisterPatientPage() {
       });
 
     } catch (error) {
-      console.error(error);
+
       alert("Error cargando expediente del paciente.");
       navigate('/dashboard');
     } finally {
@@ -301,7 +301,7 @@ export default function RegisterPatientPage() {
       navigate('/dashboard');
 
     } catch (err) {
-      console.error(err);
+
       // Mostrar el error exacto si viene del backend
       if (err.response && err.response.data && err.response.data.detail) {
         if (Array.isArray(err.response.data.detail)) {
