@@ -19,7 +19,7 @@ export default function DashboardLayout() {
         {/* HEADER MÓVIL */}
         <header className="bg-white border-b border-gray-200 h-16 flex items-center px-4 justify-between md:hidden shadow-sm z-10">
           {/* Ajustado al color corporativo */}
-          <span className="font-bold text-vida-primary text-lg">Vida Plena</span>
+          <span className="font-bold text-vida-primary text-lg">V.I.D.A. Plena</span>
           <button 
             onClick={() => setIsSidebarOpen(true)}
             className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"

@@ -10,6 +10,7 @@ import {
   BarChart3,
   Wallet
 } from 'lucide-react';
+import logo from '../../assets/logo.png';
 
 export default function Sidebar({ isOpen, onClose }) {
   const location = useLocation();
@@ -77,12 +78,13 @@ export default function Sidebar({ isOpen, onClose }) {
         `}
       >
         {/* HEADER */}
-        <div className="h-20 flex items-center justify-between px-6 border-b border-white/10">
+        <div className="h-24 flex items-center justify-between px-6 border-b border-white/10">
           <div className="flex items-center gap-3 font-bold text-xl tracking-wide">
-            <div className="w-8 h-8 bg-vida-main text-white rounded-lg flex items-center justify-center shadow-lg shadow-black/20">
-              <LayoutDashboard size={18} />
+            <img src={logo} alt="Fundación V.I.D.A. Plena" className="w-12 h-12 object-contain" />
+            <div className="flex flex-col">
+              <span className="text-sm leading-tight text-vida-main">Fundación</span>
+              <span className="text-lg leading-tight">V.I.D.A. Plena</span>
             </div>
-            <span>Vida Plena</span>
           </div>
           <button onClick={onClose} className="md:hidden text-gray-400 hover:text-white">
             <X size={24} />

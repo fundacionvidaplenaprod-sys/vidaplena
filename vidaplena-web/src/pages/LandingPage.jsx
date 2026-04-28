@@ -61,7 +61,7 @@ export default function LandingPage() {
           <div className="mb-12 text-center max-w-3xl mx-auto">
             <h2 className="text-3xl font-bold text-green-900 mb-4">Nuestra Historia</h2>
             <p className="text-gray-700">
-              La Fundación Vida Plena nace como una iniciativa solidaria orientada a brindar apoyo a personas con diabetes que enfrentan dificultades para acceder a tratamientos esenciales. A través de la gestión transparente de donaciones, la fundación garantiza la distribución oportuna de insulina, promoviendo una mejor calidad de vida y fomentando la conciencia social sobre esta condición.
+              La Fundación V.I.D.A. Plena nace como una iniciativa solidaria orientada a brindar apoyo a personas con diabetes que enfrentan dificultades para acceder a tratamientos esenciales. A través de la gestión transparente de donaciones, la fundación garantiza la distribución oportuna de insulina, promoviendo una mejor calidad de vida y fomentando la conciencia social sobre esta condición.
             </p>
           </div>
 
@@ -167,7 +167,7 @@ export default function LandingPage() {
 
       {/* FOOTER */}
       <footer className="bg-green-900 text-white text-center py-6">
-        <p>© 2026 Fundación Vida Plena - Todos los derechos reservados</p>
+        <p>© 2026 Fundación V.I.D.A. Plena - Todos los derechos reservados</p>
         <p className="text-sm">Desarrollado con enfoque social y tecnológico</p>
       </footer>
     </>

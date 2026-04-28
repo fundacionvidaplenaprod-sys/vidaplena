@@ -151,12 +151,14 @@ export default function DynamicBeneficiaryReport() {
       doc.setFontSize(18);
       doc.setTextColor(30, 58, 138); // blue-900 (vida-primary approx)
       doc.setFont("helvetica", "bold");
-      doc.text("Reporte de Beneficiarios Registrados", margin + 30, 16);
+      doc.text("Fundación V.I.D.A. Plena", margin + 30, 16);
+      doc.setFontSize(14);
+      doc.text("Reporte de Beneficiarios Registrados", margin + 30, 22);
 
-      doc.setFontSize(10);
+      doc.setFontSize(9);
       doc.setTextColor(100, 116, 139); // slate-500
       doc.setFont("helvetica", "normal");
-      doc.text(`Fecha de generación: ${new Date().toLocaleDateString('es-BO')} ${new Date().toLocaleTimeString('es-BO')}`, margin + 30, 23);
+      doc.text(`Fecha de generación: ${new Date().toLocaleDateString('es-BO')} ${new Date().toLocaleTimeString('es-BO')}`, margin + 30, 27);
       
       const filterText = `Total Registros: ${filteredPatients.length} ${filterDiabetes ? `| Filtro Diabetes: ${filterDiabetes}` : ''}`;
       doc.text(filterText, margin + 30, 28);
