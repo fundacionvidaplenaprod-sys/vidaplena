@@ -161,7 +161,7 @@ export default function DynamicBeneficiaryReport() {
       doc.text(`Fecha de generación: ${new Date().toLocaleDateString('es-BO')} ${new Date().toLocaleTimeString('es-BO')}`, margin + 30, 27);
       
       const filterText = `Total Registros: ${filteredPatients.length} ${filterDiabetes ? `| Filtro Diabetes: ${filterDiabetes}` : ''}`;
-      doc.text(filterText, margin + 30, 28);
+      doc.text(filterText, margin + 30, 32);
     };
 
     // Body Data
