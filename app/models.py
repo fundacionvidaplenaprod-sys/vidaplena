@@ -311,3 +311,18 @@ class AuditLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     actor = relationship("User")
+
+class DirectorInsulinDelivery(Base):
+    __tablename__ = "director_insulin_deliveries"
+
+    id = Column(BigInteger, primary_key=True)
+    patient_nombres = Column(String(120), nullable=False)
+    patient_ap_paterno = Column(String(80), nullable=False)
+    patient_ap_materno = Column(String(80), nullable=True)
+    insulin_type = Column(Text, nullable=False)
+    quantity = Column(Text, nullable=False)
+    delivery_date = Column(Date, nullable=False, default=func.current_date())
+    recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    recorded_by = relationship("User")

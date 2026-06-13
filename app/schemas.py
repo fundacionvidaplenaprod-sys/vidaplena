@@ -481,3 +481,32 @@ class CalculationResult(BaseModel):
     
     allocations: List[DonationAllocationResponse]
     excluded_patients: List[ExclusionDetail] = []
+
+# ==========================================
+#   9. SCHEMAS MÓDULO DIRECTORA
+# ==========================================
+
+class DirectorDeliveryCreate(BaseModel):
+    patient_nombres: str
+    patient_ap_paterno: str
+    patient_ap_materno: Optional[str] = None
+    insulin_type: str
+    quantity: str
+    delivery_date: Optional[date] = None
+
+class DirectorDeliveryResponse(BaseModel):
+    id: int
+    patient_nombres: str
+    patient_ap_paterno: str
+    patient_ap_materno: Optional[str] = None
+    insulin_type: str
+    quantity: str
+    delivery_date: date
+    recorded_by_id: Optional[int]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class DirectorPinUpdate(BaseModel):
+    pin: str

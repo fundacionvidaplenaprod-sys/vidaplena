@@ -12,11 +12,34 @@ export default function UsersManagementPage() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     
-    // ESTADOS PARA EL MODAL (Crear/Editar)
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState(null); // null = Modo Crear
     const [formData, setFormData] = useState({ email: '', password: '', role: 'REGISTRADOR' });
     const [processing, setProcessing] = useState(false);
+
+    // PIN MODAL
+    const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+    const [directorPin, setDirectorPin] = useState('');
+    const [pinProcessing, setPinProcessing] = useState(false);
+
+    const handlePinSubmit = async (e) => {
+        e.preventDefault();
+        if (directorPin.length !== 4) {
+            toast.error("El PIN debe ser de 4 dígitos");
+            return;
+        }
+        setPinProcessing(true);
+        try {
+            await client.put('/api/director-deliveries/pin', { pin: directorPin });
+            toast.success("PIN actualizado exitosamente");
+            setIsPinModalOpen(false);
+            setDirectorPin('');
+        } catch (error) {
+            toast.error("Error al actualizar el PIN");
+        } finally {
+            setPinProcessing(false);
+        }
+    };
 
     // Obtener el ID del usuario actual para no auto-eliminarse
     const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -126,9 +149,14 @@ export default function UsersManagementPage() {
                     </h1>
                     <p className="text-gray-500">Administre los accesos de Super Admins y Registradores.</p>
                 </div>
-                <Button onClick={() => openModal()} className="bg-vida-main hover:bg-vida-hover text-white shadow-lg flex items-center gap-2">
-                    <UserPlus size={18} /> Nuevo Usuario
-                </Button>
+                <div className="flex gap-2">
+                    <Button onClick={() => setIsPinModalOpen(true)} className="bg-orange-500 hover:bg-orange-600 text-white shadow-lg flex items-center gap-2">
+                        <Lock size={18} /> PIN Directora
+                    </Button>
+                    <Button onClick={() => openModal()} className="bg-vida-main hover:bg-vida-hover text-white shadow-lg flex items-center gap-2">
+                        <UserPlus size={18} /> Nuevo Usuario
+                    </Button>
+                </div>
             </div>
 
             {/* BUSCADOR */}
@@ -313,6 +341,62 @@ export default function UsersManagementPage() {
                                     disabled={processing}
                                 >
                                     {processing ? 'Guardando...' : 'Guardar'}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL CONFIGURACION PIN DIRECTORA */}
+            {isPinModalOpen && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-slideUp">
+                        <div className="p-6 bg-orange-500 text-white flex justify-between items-center">
+                            <h2 className="text-xl font-bold flex items-center gap-2">
+                                <Lock size={24} /> PIN de Directora
+                            </h2>
+                            <button onClick={() => setIsPinModalOpen(false)} className="text-white/80 hover:text-white transition-colors">
+                                <X size={24} />
+                            </button>
+                        </div>
+                        
+                        <form onSubmit={handlePinSubmit} className="p-6 space-y-6">
+                            <p className="text-sm text-gray-600">
+                                Ingrese el nuevo PIN numérico de 4 dígitos para acceder al módulo de la directora.
+                            </p>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Nuevo PIN (4 dígitos)</label>
+                                <div className="relative">
+                                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                    <input
+                                        type="password"
+                                        maxLength="4"
+                                        pattern="\d{4}"
+                                        required
+                                        placeholder="••••"
+                                        className="w-full pl-10 pr-4 py-3 text-center text-2xl tracking-widest border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                                        value={directorPin}
+                                        onChange={(e) => setDirectorPin(e.target.value.replace(/\D/g, ''))}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="pt-4 flex gap-3">
+                                <Button 
+                                    type="button" 
+                                    variant="secondary" 
+                                    className="flex-1 bg-gray-100 text-gray-700"
+                                    onClick={() => setIsPinModalOpen(false)}
+                                >
+                                    Cancelar
+                                </Button>
+                                <Button 
+                                    type="submit" 
+                                    className="flex-1 bg-orange-500 hover:bg-orange-600 text-white"
+                                    disabled={pinProcessing || directorPin.length !== 4}
+                                >
+                                    {pinProcessing ? 'Guardando...' : 'Actualizar PIN'}
                                 </Button>
                             </div>
                         </form>

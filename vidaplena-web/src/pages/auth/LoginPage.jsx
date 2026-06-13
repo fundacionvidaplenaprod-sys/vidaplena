@@ -104,6 +104,16 @@ export default function LoginPage() {
                                 <>Entrar al Sistema <LogIn size={20} className="ml-2" /></>
                             )}
                         </Button>
+
+                        <div className="mt-6 text-center">
+                            <button 
+                                type="button"
+                                onClick={() => navigate('/directora')}
+                                className="text-sm font-medium text-gray-400 hover:text-vida-primary transition-colors underline"
+                            >
+                                Acceso rápido: Módulo de Directora
+                            </button>
+                        </div>
                     </form>
                 </div>
             </div>

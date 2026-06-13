@@ -14,6 +14,7 @@ import DashboardHome from './pages/dashboard/DashboardHome';
 import DonationsWarehousePage from './pages/warehouse/DonationsWarehousePage';
 import ReportsPage from './pages/reports/ReportsPage';
 import LandingPage from './pages/LandingPage';
+import DirectorDeliveryPage from './pages/director/DirectorDeliveryPage';
 
 function App() {
   return (
@@ -44,6 +45,9 @@ function App() {
         {/* 3. ZONA PACIENTE (Totalmente separada) */}
         {/* IMPORTANTE: Esta ruta NO está dentro de dashboard */}
         <Route path="/mi-portal" element={<MyDocumentsPage />} />
+
+        {/* 4. ZONA DIRECTORA (Ruta oculta con PIN local) */}
+        <Route path="/directora" element={<DirectorDeliveryPage />} />
 
         {/* 4. Error 404 */}
         <Route path="*" element={<div className="p-10 text-center"><h1>404 - Página no encontrada</h1></div>} />
