@@ -34,7 +34,15 @@ export default function DirectorDeliveryPage() {
   
   const [insulinType, setInsulinType] = useState("");
   const [quantity, setQuantity] = useState("");
-  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0]);
+
+  const getLocalDateString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const [deliveryDate, setDeliveryDate] = useState(getLocalDateString());
 
   const [lastDelivery, setLastDelivery] = useState(null);
   const [alertWarning, setAlertWarning] = useState(false);
@@ -184,6 +192,7 @@ export default function DirectorDeliveryPage() {
       setApMaterno("");
       setInsulinType("");
       setQuantity("");
+      setDeliveryDate(getLocalDateString());
       setAlertWarning(false);
       setLastDelivery(null);
     } catch (error) {
