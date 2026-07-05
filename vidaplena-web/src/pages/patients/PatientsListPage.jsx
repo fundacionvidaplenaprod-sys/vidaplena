@@ -174,15 +174,15 @@ export default function PatientsListPage() {
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center">
                                                 <div className="h-10 w-10 rounded-full bg-vida-light/20 flex items-center justify-center text-vida-primary font-bold text-sm">
-                                                    {patient.nombres.charAt(0)}{patient.ap_paterno.charAt(0)}
+                                                    {patient.nombres?.charAt(0) || ""}{patient.ap_paterno?.charAt(0) || ""}
                                                 </div>
                                                 <div className="ml-4">
-                                                    <div className="text-sm font-bold text-gray-900">{patient.nombres} {patient.ap_paterno}</div>
-                                                    <div className="text-xs text-gray-500">{patient.ap_materno}</div>
+                                                    <div className="text-sm font-bold text-gray-900">{patient.nombres} {patient.ap_paterno || ""}</div>
+                                                    <div className="text-xs text-gray-500">{patient.ap_materno || ""}</div>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">{patient.ci}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">{patient.ci || "Sin registrar"}</td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className="text-sm text-gray-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-100">
                                                 {patient.medical?.tipo_diabetes || '-'}

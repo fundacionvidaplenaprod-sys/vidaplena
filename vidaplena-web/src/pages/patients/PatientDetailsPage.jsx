@@ -45,8 +45,8 @@ export default function PatientDetailsPage() {
             await activatePatient(id);
 
             const isMinor = patient.edad_calc < 18;
-            const username = isMinor ? patient.tutor?.email : (patient.email || patient.ci);
-            const password = isMinor ? patient.tutor?.ci : patient.ci;
+            const username = isMinor ? patient.tutor?.email : (patient.email || patient.ci || `paciente_${patient.id}`);
+            const password = isMinor ? patient.tutor?.ci : (patient.ci || "12345678");
 
             setCredentials({ username, password });
             setShowCredsModal(true);
@@ -115,19 +115,19 @@ export default function PatientDetailsPage() {
                         <ArrowLeft size={24} className="text-gray-500" />
                     </button>
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
-                            {patient.nombres} {patient.ap_paterno} {patient.ap_materno}
+                        <h1 className="text-3xl font-bold text-gray-900 mb-1">
+                            {patient.nombres} {patient.ap_paterno || ""} {patient.ap_materno || ""}
 
                             {/* BOTÓN EDITAR (Lleva al formulario completo) */}
                             <button
                                 onClick={() => navigate(`/dashboard/editar-paciente/${patient.id}`)}
-                                className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-vida-main hover:text-white transition-colors"
+                                className="p-2 ml-3 bg-gray-100 text-gray-600 rounded-lg hover:bg-vida-main hover:text-white transition-colors"
                                 title="Editar Expediente Completo"
                             >
                                 <Edit2 size={18} />
                             </button>
                         </h1>
-                        <p className="text-gray-500 text-sm">C.I. {patient.ci} {patient.complemento_ci}</p>
+                        <p className="text-gray-500 text-sm">C.I. {patient.ci || "Sin registrar"} {patient.complemento_ci || ""}</p>
                     </div>
                 </div>
 
@@ -179,7 +179,7 @@ export default function PatientDetailsPage() {
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
                                     <span className="block text-gray-400 text-xs uppercase font-bold">Fecha Nacimiento</span>
-                                    <span className="font-medium text-gray-700">{formatDate(patient.fecha_nac)}</span>
+                                    <span className="font-medium text-gray-700">{patient.fecha_nac ? formatDate(patient.fecha_nac) : "Sin registrar"}</span>
                                 </div>
                                 <div>
                                     <span className="block text-gray-400 text-xs uppercase font-bold">Edad</span>

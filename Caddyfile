@@ -1,0 +1,3 @@
+api.vidaplenafundacion.org {
+    reverse_proxy backend:8000
+}

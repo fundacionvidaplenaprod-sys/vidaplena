@@ -183,11 +183,11 @@ class PatientTreatmentResponse(PatientTreatmentBase):
 # ==========================================
 
 class PatientBase(BaseModel):
-    ci: str = Field(..., max_length=32)
+    ci: Optional[str] = Field(None, max_length=32)
     nombres: str = Field(..., max_length=120)
-    ap_paterno: str = Field(..., max_length=80)
+    ap_paterno: Optional[str] = Field(None, max_length=80)
     ap_materno: Optional[str] = Field(None, max_length=80)
-    fecha_nac: date
+    fecha_nac: Optional[date] = None
     genero: Optional[str] = Field(None, max_length=20)
     
     depto: Optional[str] = Field(None, max_length=80)

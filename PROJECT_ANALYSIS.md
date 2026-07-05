@@ -97,3 +97,22 @@ VIDAPLENA/
 ### Reportes (`/reports`)
 - Generación de reportes gerenciales con métricas sobre pacientes, entregas, donaciones y tipos de complicaciones.
 - Exportación en pantalla y generación de documentos estructurados en PDF mediante el frontend.
+
+---
+
+## 5. Esquema de Base de Datos (Modelos)
+
+El sistema utiliza **PostgreSQL** administrado por **SQLAlchemy**. A continuación se presentan las entidades principales y sus relaciones:
+
+- **Users (`users`)**: Entidad de autenticación y autorización. Almacena credenciales, roles (`SUPER_ADMIN`, `REGISTRADOR`, `PACIENTE`) y estado de la cuenta.
+- **Patients (`patients`)**: El núcleo del expediente médico. 
+  - Relacionado 1:1 con un `User` si es un paciente que puede iniciar sesión.
+  - Almacena datos personales, datos físicos (peso, altura, IMC), dirección y enlaces a la **documentación digital** subida (fotos de CI, certificado médico, etc.) que se almacenan en Firebase Storage u otros proveedores en la nube.
+- **Tutors (`tutors`)**: Información del tutor legal o familiar de contacto (Relación 1:1 con `patients`).
+- **Patient Medical (`patient_medical`)**: Diagnóstico principal, hospital base y médico tratante (Relación 1:1 con `patients`).
+- **Complication Types & Patient Complications**: Un catálogo administrable de tipos de complicaciones diabéticas (`complication_types`) y una tabla intermedia (`patient_complications`) que asocia múltiples complicaciones a un paciente.
+- **Patient Treatments (`patient_treatments`)**: Registro de los requerimientos de insulina basal, insulina rápida y material (jeringas) de cada paciente (Relación 1:N).
+- **Contributions (`monthly_contributions`)**: Seguimiento de los pagos o aportes mensuales realizados por el paciente.
+- **Donations & Lots (`donation_lots`)**: Registro de lotes de insulinas ingresadas al inventario de la fundación, con tipo, cantidad y fecha de vencimiento.
+- **Allocations & Deliveries (`donation_allocations`, `deliveries`)**: `donation_allocations` reserva insulinas de un lote para un paciente específico, y `deliveries` registra la entrega física o consumo de esas insulinas, generando constancias en PDF.
+- **Director Deliveries (`director_insulin_deliveries`)**: Tabla independiente que alimenta el "Módulo de Directora". Registra entregas de forma rápida, libre de ataduras al expediente estructurado del paciente, para agilizar operaciones en campo.
