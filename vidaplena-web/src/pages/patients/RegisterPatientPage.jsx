@@ -42,6 +42,7 @@ export default function RegisterPatientPage() {
   const [isMinor, setIsMinor] = useState(false);
   const [serverError, setServerError] = useState(null);
   const [loadingData, setLoadingData] = useState(false); // Estado de carga para edición
+  const [hasInitialCi, setHasInitialCi] = useState(false);
 
   const { register, control, handleSubmit, watch, trigger, reset, setValue, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
@@ -116,7 +117,7 @@ export default function RegisterPatientPage() {
         nombres: data.nombres,
         ap_paterno: data.ap_paterno,
         ap_materno: data.ap_materno || '',
-        ci: data.ci,
+        ci: data.ci || '',
         // --- AQUÍ ESTÁ LA CORRECCIÓN DE TUS CAMPOS ---
         fecha_nac: fechaFormat,         // Asignamos la fecha formateada
         peso: data.peso || '',          // Evitamos undefined
@@ -124,6 +125,9 @@ export default function RegisterPatientPage() {
         imc: data.imc || '',            // Nuevo dato IMC
         tipo_sangre: data.tipo_sangre || '', // Asegura que coincida con las opciones del <select>
         // ---------------------------------------------
+        
+        // Registrar si tenía CI inicialmente
+        ...(() => { setHasInitialCi(!!data.ci); return {}; })(),
 
         departamento: data.depto || data.departamento || 'La Paz',
         municipio: data.municipio,
@@ -352,7 +356,7 @@ export default function RegisterPatientPage() {
                 <Input label="Ap. Materno" {...register('ap_materno')} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mt-4">
-                <Input label={<LabelRequired text="C.I." />} {...register('ci', { required: "Requerido" })} error={errors.ci} disabled={isEditMode} className={isEditMode ? "bg-gray-100" : ""} />
+                <Input label={<LabelRequired text="C.I." />} {...register('ci', { required: "Requerido" })} error={errors.ci} disabled={isEditMode && hasInitialCi} className={(isEditMode && hasInitialCi) ? "bg-gray-100" : ""} />
                 <Input type="date" label={<LabelRequired text="Nacimiento" />} {...register('fecha_nac', { required: "Requerido" })} error={errors.fecha_nac} />
                 <div className="flex flex-col gap-1">
                   <label htmlFor="tipo_sangre" className="text-sm font-bold text-gray-700 ml-1">Tipo Sangre <span className="text-red-500">*</span></label>

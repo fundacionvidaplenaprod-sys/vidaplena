@@ -81,9 +81,9 @@ export default function PatientsListPage() {
 
     // Filtrado simple
     const filteredPatients = patients.filter(p =>
-        p.nombres.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.ap_paterno.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.ci.includes(searchTerm)
+        (p.nombres?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+        (p.ap_paterno?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+        (p.ci?.includes(searchTerm) || false)
     );
 
     const getStatusBadge = (status) => {

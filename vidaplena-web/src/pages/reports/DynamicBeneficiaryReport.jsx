@@ -28,9 +28,9 @@ const imageToBase64 = (url) => {
 
 const ALL_COLUMNS = [
   { id: 'nombres', label: 'Nombres', getValue: p => p.nombres },
-  { id: 'ap_paterno', label: 'Ap. Paterno', getValue: p => p.ap_paterno },
+  { id: 'ap_paterno', label: 'Ap. Paterno', getValue: p => p.ap_paterno || '-' },
   { id: 'ap_materno', label: 'Ap. Materno', getValue: p => p.ap_materno || '-' },
-  { id: 'ci', label: 'CI', getValue: p => p.ci },
+  { id: 'ci', label: 'CI', getValue: p => p.ci || '-' },
   { id: 'edad', label: 'Edad', getValue: p => {
       if (!p.fecha_nac) return '-';
       const diff = new Date() - new Date(p.fecha_nac);
@@ -100,7 +100,7 @@ export default function DynamicBeneficiaryReport() {
   const filteredPatients = useMemo(() => {
     return patients.filter(p => {
       const matchSearch = searchTerm === '' || 
-        `${p.nombres} ${p.ap_paterno} ${p.ap_materno} ${p.ci}`.toLowerCase().includes(searchTerm.toLowerCase());
+        `${p.nombres || ""} ${p.ap_paterno || ""} ${p.ap_materno || ""} ${p.ci || ""}`.toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchDiabetes = filterDiabetes === '' || 
         (p.medical?.tipo_diabetes && p.medical.tipo_diabetes.toUpperCase().includes(filterDiabetes.toUpperCase()));
