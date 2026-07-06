@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getPatients, deletePatient, validateCommitmentCode } from '../../api/patients';
+import { getPaginatedPatients, deletePatient, validateCommitmentCode } from '../../api/patients';
 import { useAuth } from '../../context/AuthContext';
 import {
     UserPlus, Search, Eye, Edit2,
@@ -19,25 +19,14 @@ export default function PatientsListPage() {
     const isSuperAdmin = user?.role === 'SUPER_ADMIN';
     const [patients, setPatients] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [patientToDelete, setPatientToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
-    const [skip, setSkip] = useState(0);
-    const [hasMore, setHasMore] = useState(true);
+    
+    // Pagination states
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
     const limit = 20;
-
-    const observer = useRef();
-    const lastElementRef = useCallback(node => {
-        if (loading || loadingMore) return;
-        if (observer.current) observer.current.disconnect();
-        observer.current = new IntersectionObserver(entries => {
-            if (entries[0].isIntersecting && hasMore) {
-                setSkip(prev => prev + limit);
-            }
-        });
-        if (node) observer.current.observe(node);
-    }, [loading, loadingMore, hasMore]);
 
     // Estado para la validación de código
     const [showValidationModal, setShowValidationModal] = useState(false);
@@ -46,45 +35,31 @@ export default function PatientsListPage() {
     const [isValidating, setIsValidating] = useState(false);
 
 
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setSkip(0);
-            loadPatients(0, true);
-        }, 500);
-        return () => clearTimeout(timer);
-    }, [searchTerm]);
-
-    useEffect(() => {
-        if (skip > 0) {
-            loadPatients(skip, false);
-        }
-    }, [skip]);
-
-    const loadPatients = async (currentSkip, isReset = false) => {
+    const loadPatients = useCallback(async (currentPage, search) => {
         try {
-            if (isReset) {
-                setLoading(true);
-            } else {
-                setLoadingMore(true);
-            }
-            const data = await getPatients(currentSkip, limit, searchTerm);
-            
-            setHasMore(data.length === limit);
-
-            if (isReset) {
-                setPatients(data);
-            } else {
-                setPatients(prev => {
-                    const existingIds = new Set(prev.map(p => p.id));
-                    const newPatients = data.filter(p => !existingIds.has(p.id));
-                    return [...prev, ...newPatients];
-                });
-            }
+            setLoading(true);
+            const data = await getPaginatedPatients((currentPage - 1) * limit, limit, search);
+            setPatients(data.items);
+            setTotalPages(Math.ceil(data.total / limit) || 1);
         } catch (error) {
             console.error("Error cargando pacientes", error);
         } finally {
             setLoading(false);
-            setLoadingMore(false);
+        }
+    }, [limit]);
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setPage(1);
+            loadPatients(1, searchTerm);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchTerm, loadPatients]);
+
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            setPage(newPage);
+            loadPatients(newPage, searchTerm);
         }
     };
 
@@ -201,15 +176,13 @@ export default function PatientsListPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {loading && skip === 0 ? (
+                            {loading ? (
                                 <tr><td colSpan="5" className="px-6 py-10 text-center text-gray-400">Cargando...</td></tr>
                             ) : patients.length === 0 ? (
                                 <tr><td colSpan="5" className="px-6 py-10 text-center text-gray-400">No se encontraron registros.</td></tr>
                             ) : (
-                                patients.map((patient, index) => {
-                                    const isLast = index === patients.length - 1;
-                                    return (
-                                    <tr ref={isLast ? lastElementRef : null} key={patient.id} className="hover:bg-gray-50/80 transition-colors">
+                                patients.map((patient) => (
+                                    <tr key={patient.id} className="hover:bg-gray-50/80 transition-colors">
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center">
                                                 <div className="h-10 w-10 rounded-full bg-vida-light/20 flex items-center justify-center text-vida-primary font-bold text-sm">
@@ -306,15 +279,36 @@ export default function PatientsListPage() {
                                             </div>
                                         </td>
                                     </tr>
-                                    );
-                                })
-                            )}
-                            {loadingMore && (
-                                <tr><td colSpan="5" className="px-6 py-4 text-center text-gray-400 text-sm font-medium">Cargando más beneficiarios...</td></tr>
+                                ))
                             )}
                         </tbody>
                     </table>
                 </div>
+                
+                {/* PAGINACIÓN */}
+                {!loading && totalPages > 1 && (
+                    <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50">
+                        <div className="text-sm text-gray-500">
+                            Página <span className="font-medium text-gray-900">{page}</span> de <span className="font-medium text-gray-900">{totalPages}</span>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => handlePageChange(page - 1)}
+                                disabled={page === 1}
+                                className="px-4 py-2 border border-gray-200 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Anterior
+                            </button>
+                            <button
+                                onClick={() => handlePageChange(page + 1)}
+                                disabled={page === totalPages}
+                                className="px-4 py-2 border border-gray-200 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Siguiente
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
 

@@ -510,3 +510,7 @@ class DirectorDeliveryResponse(BaseModel):
 
 class DirectorPinUpdate(BaseModel):
     pin: str
+
+class PaginatedPatientResponse(BaseModel):
+    total: int
+    items: List[PatientResponse]

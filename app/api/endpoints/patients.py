@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import or_, delete
+from sqlalchemy import or_, delete, func
 
 # ReportLab para PDFs
 from reportlab.pdfgen import canvas
@@ -461,6 +461,49 @@ async def read_patients(
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     return result.scalars().all()
+
+@router.get("/paginated", response_model=schemas.PaginatedPatientResponse)
+async def read_paginated_patients(
+    skip: int = 0,
+    limit: int = 20,
+    search: str = None,
+    db: AsyncSession = Depends(get_db),
+):
+    base_query = select(models.Patient)
+
+    if search:
+        search_term = f"%{search}%"
+        base_query = base_query.where(
+            or_(
+                models.Patient.nombres.ilike(search_term),
+                models.Patient.ap_paterno.ilike(search_term),
+                models.Patient.ap_materno.ilike(search_term),
+                models.Patient.ci.ilike(search_term)
+            )
+        )
+
+    # Count total
+    count_query = select(func.count()).select_from(base_query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one()
+
+    # Get items
+    items_query = (
+        base_query
+        .options(
+            selectinload(models.Patient.tutor),
+            selectinload(models.Patient.medical),
+            selectinload(models.Patient.treatments),
+            selectinload(models.Patient.complications),
+        )
+        .order_by(models.Patient.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    items_result = await db.execute(items_query)
+    items = items_result.scalars().all()
+
+    return {"total": total, "items": items}
 
 @router.put("/{patient_id}/activate", response_model=schemas.UserResponse)
 async def activate_patient_user(

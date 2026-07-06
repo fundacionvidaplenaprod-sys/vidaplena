@@ -23,6 +23,16 @@ export const getPatients = async (skip = 0, limit = 10000, search = '') => {
     }
 };
 
+export const getPaginatedPatients = async (skip = 0, limit = 20, search = '') => {
+    try {
+      const response = await client.get('/patients/paginated', { params: { skip, limit, search } });
+      return response.data;
+    } catch (error) {
+      console.error("Error al obtener pacientes paginados:", error);
+      throw error;
+    }
+};
+
 // 1. Obtener un paciente por ID
 export const getPatientById = async (id) => {
     const response = await client.get(`/patients/${id}`);
