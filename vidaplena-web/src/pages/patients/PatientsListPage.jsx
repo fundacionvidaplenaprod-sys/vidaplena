@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getPatients, deletePatient, validateCommitmentCode } from '../../api/patients';
 import { useAuth } from '../../context/AuthContext';
@@ -19,9 +19,25 @@ export default function PatientsListPage() {
     const isSuperAdmin = user?.role === 'SUPER_ADMIN';
     const [patients, setPatients] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [patientToDelete, setPatientToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [skip, setSkip] = useState(0);
+    const [hasMore, setHasMore] = useState(true);
+    const limit = 20;
+
+    const observer = useRef();
+    const lastElementRef = useCallback(node => {
+        if (loading || loadingMore) return;
+        if (observer.current) observer.current.disconnect();
+        observer.current = new IntersectionObserver(entries => {
+            if (entries[0].isIntersecting && hasMore) {
+                setSkip(prev => prev + limit);
+            }
+        });
+        if (node) observer.current.observe(node);
+    }, [loading, loadingMore, hasMore]);
 
     // Estado para la validación de código
     const [showValidationModal, setShowValidationModal] = useState(false);
@@ -31,18 +47,44 @@ export default function PatientsListPage() {
 
 
     useEffect(() => {
-        loadPatients();
-    }, []);
+        const timer = setTimeout(() => {
+            setSkip(0);
+            loadPatients(0, true);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
 
-    const loadPatients = async () => {
+    useEffect(() => {
+        if (skip > 0) {
+            loadPatients(skip, false);
+        }
+    }, [skip]);
+
+    const loadPatients = async (currentSkip, isReset = false) => {
         try {
-            setLoading(true);
-            const data = await getPatients();
-            setPatients(data);
+            if (isReset) {
+                setLoading(true);
+            } else {
+                setLoadingMore(true);
+            }
+            const data = await getPatients(currentSkip, limit, searchTerm);
+            
+            setHasMore(data.length === limit);
+
+            if (isReset) {
+                setPatients(data);
+            } else {
+                setPatients(prev => {
+                    const existingIds = new Set(prev.map(p => p.id));
+                    const newPatients = data.filter(p => !existingIds.has(p.id));
+                    return [...prev, ...newPatients];
+                });
+            }
         } catch (error) {
             console.error("Error cargando pacientes", error);
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
     };
 
@@ -79,12 +121,7 @@ export default function PatientsListPage() {
         }
     };
 
-    // Filtrado simple
-    const filteredPatients = patients.filter(p =>
-        (p.nombres?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-        (p.ap_paterno?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-        (p.ci?.includes(searchTerm) || false)
-    );
+    // Eliminado filtrado local ya que se filtra en backend
 
     const getStatusBadge = (status) => {
         const styles = {
@@ -164,13 +201,15 @@ export default function PatientsListPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {loading ? (
+                            {loading && skip === 0 ? (
                                 <tr><td colSpan="5" className="px-6 py-10 text-center text-gray-400">Cargando...</td></tr>
-                            ) : filteredPatients.length === 0 ? (
+                            ) : patients.length === 0 ? (
                                 <tr><td colSpan="5" className="px-6 py-10 text-center text-gray-400">No se encontraron registros.</td></tr>
                             ) : (
-                                filteredPatients.map((patient) => (
-                                    <tr key={patient.id} className="hover:bg-gray-50/80 transition-colors">
+                                patients.map((patient, index) => {
+                                    const isLast = index === patients.length - 1;
+                                    return (
+                                    <tr ref={isLast ? lastElementRef : null} key={patient.id} className="hover:bg-gray-50/80 transition-colors">
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center">
                                                 <div className="h-10 w-10 rounded-full bg-vida-light/20 flex items-center justify-center text-vida-primary font-bold text-sm">
@@ -267,7 +306,11 @@ export default function PatientsListPage() {
                                             </div>
                                         </td>
                                     </tr>
-                                ))
+                                    );
+                                })
+                            )}
+                            {loadingMore && (
+                                <tr><td colSpan="5" className="px-6 py-4 text-center text-gray-400 text-sm font-medium">Cargando más beneficiarios...</td></tr>
                             )}
                         </tbody>
                     </table>

@@ -13,9 +13,9 @@ export const createPatient = async (patientData) => {
   }
 };
 
-export const getPatients = async () => {
+export const getPatients = async (skip = 0, limit = 10000, search = '') => {
     try {
-      const response = await client.get('/patients/');
+      const response = await client.get('/patients/', { params: { skip, limit, search } });
       return response.data;
     } catch (error) {
       console.error("Error al obtener pacientes:", error);
