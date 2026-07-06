@@ -32,7 +32,7 @@ async def read_user_me(
 @router.get("/", response_model=List[schemas.UserResponse])
 async def read_users(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 10000,
     role: Optional[str] = None,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),

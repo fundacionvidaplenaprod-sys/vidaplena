@@ -426,7 +426,7 @@ async def complete_registration(
 @router.get("/", response_model=List[schemas.PatientResponse])
 async def read_patients(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 10000,
     search: str = None,
     estado: str = None,
     db: AsyncSession = Depends(get_db),
