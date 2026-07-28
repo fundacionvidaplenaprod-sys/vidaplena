@@ -3,7 +3,7 @@ import uuid
 import random
 import string
 from typing import List, Optional
-from datetime import date
+from datetime import date, timedelta
 import textwrap
 import hashlib
 from app.core.config import settings
@@ -27,8 +27,9 @@ from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER, TA_LEFT
 from app import models, schemas
 from app.api import deps
 from app.db import get_db
-from app.core.security import hash_password
+from app.core.security import hash_password, create_access_token
 from app.core.firebase import upload_file_to_firebase
+from app.core.text_normalize import normalize_name
 
 router = APIRouter()
 
@@ -231,6 +232,148 @@ async def create_patient(
              raise HTTPException(status_code=400, detail="El CI del Tutor ya está registrado.")
         
         raise HTTPException(status_code=500, detail=f"Error creando paciente: {str(e)}")
+
+async def _find_beneficiary_match(
+    db: AsyncSession, nombres: str, ap_paterno: Optional[str], ap_materno: Optional[str]
+) -> Optional[models.PreregisteredBeneficiary]:
+    """
+    Busca en el padrón precargado (pacientes.csv) un beneficiario cuyo nombre
+    coincida de forma tolerante (sin tildes/mayúsculas) con los datos dados.
+    """
+    norm_nombres = normalize_name(nombres)
+    norm_ap_paterno = normalize_name(ap_paterno)
+    norm_ap_materno = normalize_name(ap_materno)
+
+    if not norm_nombres:
+        return None
+
+    result = await db.execute(select(models.PreregisteredBeneficiary))
+    candidates = result.scalars().all()
+
+    for candidate in candidates:
+        if normalize_name(candidate.nombres) != norm_nombres:
+            continue
+
+        cand_ap_paterno = normalize_name(candidate.ap_paterno)
+        if cand_ap_paterno and norm_ap_paterno and cand_ap_paterno != norm_ap_paterno:
+            continue
+        if cand_ap_paterno and not norm_ap_paterno:
+            continue
+
+        cand_ap_materno = normalize_name(candidate.ap_materno)
+        if cand_ap_materno and norm_ap_materno and cand_ap_materno != norm_ap_materno:
+            continue
+
+        return candidate
+
+    return None
+
+
+@router.post("/check-beneficiary", response_model=schemas.BeneficiaryCheckResponse)
+async def check_beneficiary(
+    payload: schemas.BeneficiaryCheckRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Verifica (público, sin login) si un nombre coincide con la lista de
+    beneficiarios ya conocidos por la Fundación. Usado por el autoregistro.
+    """
+    match = await _find_beneficiary_match(db, payload.nombres, payload.ap_paterno, payload.ap_materno)
+    return {"match": match is not None}
+
+
+@router.post("/self-register", response_model=schemas.Token, status_code=status.HTTP_201_CREATED)
+async def self_register_patient(
+    patient_in: schemas.PatientSelfRegisterCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Autoregistro público de beneficiarios desde el Login. Crea el usuario
+    (rol PACIENTE) y la ficha del paciente en un solo paso, y devuelve un
+    token de acceso para dejar al beneficiario logueado directamente en su
+    portal de carga de documentos.
+    """
+    # 1. Revalidar coincidencia contra el padrón (nunca confiar solo en el frontend)
+    match = await _find_beneficiary_match(db, patient_in.nombres, patient_in.ap_paterno, patient_in.ap_materno)
+    if not match:
+        raise HTTPException(
+            status_code=400,
+            detail="No encontramos este nombre en la base de datos de beneficiarios de la Fundación.",
+        )
+
+    # 2. Validar edad / CI
+    age = calculate_age(patient_in.fecha_nac)
+    is_minor = age < 18
+    if is_minor and not patient_in.tutor:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El paciente es menor ({age} años). Es OBLIGATORIO registrar Tutor.",
+        )
+    if not is_minor and not (patient_in.ci and patient_in.ci.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="El Carnet de Identidad (CI) es obligatorio para beneficiarios mayores de edad.",
+        )
+
+    # 3. Verificar que el correo no esté tomado
+    existing_user_q = await db.execute(select(models.User).where(models.User.email == patient_in.email))
+    if existing_user_q.scalars().first():
+        raise HTTPException(status_code=400, detail="El correo electrónico ya está registrado.")
+
+    try:
+        # 4. Crear Usuario
+        db_user = models.User(
+            email=patient_in.email,
+            password_hash=hash_password(patient_in.password),
+            role="PACIENTE",
+            estado="ACTIVO",
+        )
+        db.add(db_user)
+        await db.flush()
+
+        # 5. Crear Paciente (misma lógica anidada que create_patient)
+        patient_data = patient_in.model_dump(exclude={"tutor", "medical", "treatments", "complications", "password"})
+        patient_data["estado"] = "PENDIENTE_DOC"
+        patient_data["user_id"] = db_user.id
+
+        db_patient = models.Patient(**patient_data)
+        db.add(db_patient)
+        await db.flush()
+
+        if patient_in.tutor:
+            db.add(models.Tutor(**patient_in.tutor.model_dump(), patient_id=db_patient.id))
+
+        if patient_in.medical:
+            db.add(models.PatientMedical(**patient_in.medical.model_dump(), patient_id=db_patient.id))
+
+        for treatment in patient_in.treatments:
+            db.add(models.PatientTreatment(**treatment.model_dump(), patient_id=db_patient.id))
+
+        for comp_in in patient_in.complications:
+            db.add(models.PatientComplication(
+                patient_id=db_patient.id,
+                complication_code=comp_in.complication_code,
+                detalle=comp_in.detalle,
+            ))
+
+        match.matched_patient_id = db_patient.id
+
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        err_msg = str(e).lower()
+        if "users_email_key" in err_msg:
+            raise HTTPException(status_code=400, detail="El correo electrónico ya está registrado.")
+        if "patients_ci_key" in err_msg:
+            raise HTTPException(status_code=400, detail="Ya existe un paciente con este CI.")
+        if "tutors_ci_key" in err_msg:
+            raise HTTPException(status_code=400, detail="El CI del Tutor ya está registrado.")
+        raise HTTPException(status_code=500, detail=f"Error creando el registro: {str(e)}")
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(subject=db_user.id, expires_delta=access_token_expires)
+    return {"access_token": access_token, "token_type": "bearer"}
+
 
 @router.get("/me", response_model=schemas.PatientDetailResponse)
 async def read_patient_me(

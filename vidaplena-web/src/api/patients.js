@@ -78,3 +78,23 @@ export const validateCommitmentCode = async (code) => {
   const response = await client.get(`/patients/validate-commitment-code/${code}`);
   return response.data;
 };
+
+// --- AUTOREGISTRO PÚBLICO DE BENEFICIARIOS ---
+export const checkBeneficiary = async ({ nombres, ap_paterno, ap_materno }) => {
+  const response = await client.post('/patients/check-beneficiary', {
+    nombres,
+    ap_paterno: ap_paterno || null,
+    ap_materno: ap_materno || null,
+  });
+  return response.data;
+};
+
+export const selfRegisterPatient = async (payload) => {
+  try {
+    const response = await client.post('/patients/self-register', payload);
+    return response.data;
+  } catch (error) {
+    console.error('Error en autoregistro:', error);
+    throw error.response?.data?.detail || 'Error desconocido al registrarse';
+  }
+};

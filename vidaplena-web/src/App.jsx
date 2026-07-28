@@ -7,6 +7,7 @@ import PatientsListPage from './pages/patients/PatientsListPage';
 import RegisterPatientPage from './pages/patients/RegisterPatientPage';
 import PatientDetailsPage from './pages/patients/PatientDetailsPage';
 import MyDocumentsPage from './pages/patients/MyDocumentsPage';
+import SelfRegisterPatientPage from './pages/patients/SelfRegisterPatientPage';
 import PatientReviewPage from './pages/admin/PatientReviewPage';
 import UsersManagementPage from './pages/admin/UsersManagementPage';
 import ContributionsReviewPage from './pages/admin/ContributionsReviewPage';
@@ -45,6 +46,7 @@ function App() {
         {/* 3. ZONA PACIENTE (Totalmente separada) */}
         {/* IMPORTANTE: Esta ruta NO está dentro de dashboard */}
         <Route path="/mi-portal" element={<MyDocumentsPage />} />
+        <Route path="/registro-beneficiario" element={<SelfRegisterPatientPage />} />
 
         {/* 4. ZONA DIRECTORA (Ruta oculta con PIN local) */}
         <Route path="/directora" element={<DirectorDeliveryPage />} />

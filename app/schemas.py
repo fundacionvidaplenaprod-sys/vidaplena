@@ -315,6 +315,23 @@ class PatientFullCreate(PatientCreate):
     complications: List[PatientComplicationCreate] = []
 
 
+# --- AUTOREGISTRO PÚBLICO DE BENEFICIARIOS ---
+class BeneficiaryCheckRequest(BaseModel):
+    nombres: str = Field(..., max_length=120)
+    ap_paterno: Optional[str] = Field(None, max_length=80)
+    ap_materno: Optional[str] = Field(None, max_length=80)
+
+
+class BeneficiaryCheckResponse(BaseModel):
+    match: bool
+
+
+class PatientSelfRegisterCreate(PatientFullCreate):
+    email: EmailStr
+    password: str = Field(..., min_length=4, max_length=128)
+    fecha_nac: date
+
+
 # ==========================================
 #   5. GESTIÓN DE DONACIONES Y APORTES 📦
 # ==========================================

@@ -12,6 +12,21 @@ class PatientState(Base):
     __tablename__ = "patient_states"
     code = Column(Text, primary_key=True)
 
+class PreregisteredBeneficiary(Base):
+    """
+    Padrón de beneficiarios ya conocidos por la Fundación (importado de
+    pacientes.csv), usado para validar el autoregistro público de pacientes.
+    """
+    __tablename__ = "preregistered_beneficiaries"
+
+    id = Column(BigInteger, primary_key=True)
+    nombres = Column(String(120), nullable=False)
+    ap_paterno = Column(String(80), nullable=True)
+    ap_materno = Column(String(80), nullable=True)
+    depto = Column(String(80), nullable=True)
+    matched_patient_id = Column(BigInteger, ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class User(Base):
     __tablename__ = "users"
 
@@ -35,7 +50,7 @@ class Patient(Base):
 
     id = Column(BigInteger, primary_key=True)
     user_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), unique=True)
-    ci = Column(String(32), unique=True, nullable=False)
+    ci = Column(String(32), unique=True, nullable=True)
     nombres = Column(String(120), nullable=False)
     ap_paterno = Column(String(80), nullable=False)
     ap_materno = Column(String(80))

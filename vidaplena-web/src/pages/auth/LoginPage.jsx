@@ -106,7 +106,17 @@ export default function LoginPage() {
                         </Button>
 
                         <div className="mt-6 text-center">
-                            <button 
+                            <button
+                                type="button"
+                                onClick={() => navigate('/registro-beneficiario')}
+                                className="text-sm font-bold text-vida-main hover:text-vida-primary transition-colors underline"
+                            >
+                                ¿Eres beneficiario de la Fundación? Haz clic aquí para registrarte
+                            </button>
+                        </div>
+
+                        <div className="mt-3 text-center">
+                            <button
                                 type="button"
                                 onClick={() => navigate('/directora')}
                                 className="text-sm font-medium text-gray-400 hover:text-vida-primary transition-colors underline"
