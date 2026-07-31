@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { INSULIN_OPTIONS } from '../../constants/insulins';
 import {
   User, MapPin, Phone, Mail, Lock, ShieldCheck,
-  HeartPulse, Activity, AlertTriangle, Plus, Trash2, CheckCircle, PhoneCall
+  HeartPulse, Activity, AlertTriangle, Plus, Trash2, CheckCircle, MessageCircle
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -24,7 +24,8 @@ const COMPLICATION_OPTIONS = [
   { code: 'OTRAS', label: 'Otras (Especificar)' },
 ];
 
-const CONTACTO_RESPONSABLE = { nombre: 'Diego', telefono: '72966106' };
+const WHATSAPP_CONTACT = '59172966106';
+const WHATSAPP_DISPLAY = '+591 72966106';
 
 const LabelRequired = ({ text }) => (
   <span className="flex items-center gap-1 font-semibold text-gray-700 text-sm">
@@ -320,9 +321,9 @@ export default function SelfRegisterPatientPage() {
                         <h4 className="font-bold text-red-800">No encontramos tu nombre en nuestra base de datos</h4>
                         <p className="text-sm text-red-700 mt-1">
                           Si crees que se trata de un error, o eres una persona nueva que aún no está registrada,
-                          por favor contáctate con <b>{CONTACTO_RESPONSABLE.nombre}</b> al{' '}
-                          <a href={`tel:${CONTACTO_RESPONSABLE.telefono}`} className="underline font-bold inline-flex items-center gap-1">
-                            <PhoneCall size={14} /> {CONTACTO_RESPONSABLE.telefono}
+                          por favor comunícate al WhatsApp{' '}
+                          <a href={`https://wa.me/${WHATSAPP_CONTACT}`} target="_blank" rel="noreferrer" className="underline font-bold inline-flex items-center gap-1">
+                            <MessageCircle size={14} /> {WHATSAPP_DISPLAY}
                           </a>.
                         </p>
                         <button
@@ -345,9 +346,9 @@ export default function SelfRegisterPatientPage() {
                         <h4 className="font-bold text-amber-800">Este beneficiario ya tiene una cuenta registrada</h4>
                         <p className="text-sm text-amber-700 mt-1">
                           Si esta cuenta no es tuya, si necesitas corregir tus datos, o crees que es un error,
-                          por favor contáctate con <b>{CONTACTO_RESPONSABLE.nombre}</b> al{' '}
-                          <a href={`tel:${CONTACTO_RESPONSABLE.telefono}`} className="underline font-bold inline-flex items-center gap-1">
-                            <PhoneCall size={14} /> {CONTACTO_RESPONSABLE.telefono}
+                          por favor comunícate al WhatsApp{' '}
+                          <a href={`https://wa.me/${WHATSAPP_CONTACT}`} target="_blank" rel="noreferrer" className="underline font-bold inline-flex items-center gap-1">
+                            <MessageCircle size={14} /> {WHATSAPP_DISPLAY}
                           </a>.
                         </p>
                       </div>

@@ -37,8 +37,7 @@ router = APIRouter()
 MAX_FILE_SIZE_MB = 2
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/jpg"]
-CONTACTO_RESPONSABLE_NOMBRE = "Diego"
-CONTACTO_RESPONSABLE_TELEFONO = "72966106"
+WHATSAPP_CONTACTO = "+59172966106"
 
 # --- Funciones Auxiliares ---
 
@@ -310,8 +309,8 @@ async def self_register_patient(
             status_code=400,
             detail=(
                 "Este beneficiario ya tiene una cuenta registrada en el sistema. "
-                "Si crees que es un error o necesitas corregirla, contáctate con "
-                f"{CONTACTO_RESPONSABLE_NOMBRE} al {CONTACTO_RESPONSABLE_TELEFONO}."
+                "Si crees que es un error o necesitas corregirla, comunícate al WhatsApp "
+                f"{WHATSAPP_CONTACTO}."
             ),
         )
 
