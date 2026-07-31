@@ -65,6 +65,53 @@ async def test_self_register_adult_happy_path(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_self_register_blocks_second_registration_for_same_beneficiary(client, db_session):
+    """
+    Reproduce el bug reportado: una vez que un beneficiario ya se autoregistró,
+    un segundo intento con el mismo nombre (distinto correo/CI) debe bloquearse
+    en vez de crear un paciente duplicado.
+    """
+    suffix = str(uuid.uuid4())[:8]
+    nombres = f"Duplicado{suffix}"
+    await _seed_beneficiary(db_session, nombres, "Prueba")
+
+    base_payload = {
+        "nombres": nombres,
+        "ap_paterno": "Prueba",
+        "fecha_nac": "1990-01-01",
+        "medical": {"tipo_diabetes": "Tipo 1"},
+        "treatments": [{"nombre": "Glargina", "dosis_diaria": 10}],
+        "complications": [],
+    }
+
+    first = await client.post("/patients/self-register", json={
+        **base_payload,
+        "email": f"dup1_{suffix}@test.com",
+        "password": f"CI-{suffix}-1",
+        "ci": f"CI-{suffix}-1",
+    })
+    assert first.status_code == 201, first.text
+
+    # check-beneficiary ahora debe reportar que ya está registrado
+    check = await client.post("/patients/check-beneficiary", json={
+        "nombres": nombres, "ap_paterno": "Prueba"
+    })
+    assert check.status_code == 200
+    assert check.json()["match"] is True
+    assert check.json()["already_registered"] is True
+
+    # Un segundo self-register con el mismo nombre (distinto correo/CI) debe bloquearse
+    second = await client.post("/patients/self-register", json={
+        **base_payload,
+        "email": f"dup2_{suffix}@test.com",
+        "password": f"CI-{suffix}-2",
+        "ci": f"CI-{suffix}-2",
+    })
+    assert second.status_code == 400
+    assert "ya tiene una cuenta registrada" in second.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_self_register_rejects_when_no_match(client, db_session):
     payload = {
         "email": f"noexiste_{uuid.uuid4().hex[:8]}@test.com",

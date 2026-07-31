@@ -108,10 +108,16 @@ export default function SelfRegisterPatientPage() {
     }
     try {
       setMatchStatus('checking');
-      const { match } = await checkBeneficiary({
+      const { match, already_registered } = await checkBeneficiary({
         nombres: nombresVal, ap_paterno: apPaternoVal, ap_materno: apMaternoVal
       });
-      setMatchStatus(match ? 'match' : 'no-match');
+      if (!match) {
+        setMatchStatus('no-match');
+      } else if (already_registered) {
+        setMatchStatus('already-registered');
+      } else {
+        setMatchStatus('match');
+      }
     } catch (error) {
       setMatchStatus('idle');
       toast.error('No se pudo verificar el nombre. Intenta nuevamente.');
@@ -326,6 +332,24 @@ export default function SelfRegisterPatientPage() {
                         >
                           Corregir mi nombre e intentar de nuevo
                         </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {matchStatus === 'already-registered' && (
+                  <div className="mt-6 bg-amber-50 border-l-4 border-amber-500 p-5 rounded-r-xl animate-fadeIn">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="text-amber-500 mt-0.5 flex-shrink-0" size={24} />
+                      <div>
+                        <h4 className="font-bold text-amber-800">Este beneficiario ya tiene una cuenta registrada</h4>
+                        <p className="text-sm text-amber-700 mt-1">
+                          Si esta cuenta no es tuya, si necesitas corregir tus datos, o crees que es un error,
+                          por favor contáctate con <b>{CONTACTO_RESPONSABLE.nombre}</b> al{' '}
+                          <a href={`tel:${CONTACTO_RESPONSABLE.telefono}`} className="underline font-bold inline-flex items-center gap-1">
+                            <PhoneCall size={14} /> {CONTACTO_RESPONSABLE.telefono}
+                          </a>.
+                        </p>
                       </div>
                     </div>
                   </div>

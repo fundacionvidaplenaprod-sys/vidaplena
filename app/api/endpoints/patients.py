@@ -37,6 +37,8 @@ router = APIRouter()
 MAX_FILE_SIZE_MB = 2
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/jpg"]
+CONTACTO_RESPONSABLE_NOMBRE = "Diego"
+CONTACTO_RESPONSABLE_TELEFONO = "72966106"
 
 # --- Funciones Auxiliares ---
 
@@ -279,7 +281,10 @@ async def check_beneficiary(
     beneficiarios ya conocidos por la Fundación. Usado por el autoregistro.
     """
     match = await _find_beneficiary_match(db, payload.nombres, payload.ap_paterno, payload.ap_materno)
-    return {"match": match is not None}
+    return {
+        "match": match is not None,
+        "already_registered": bool(match and match.matched_patient_id is not None),
+    }
 
 
 @router.post("/self-register", response_model=schemas.Token, status_code=status.HTTP_201_CREATED)
@@ -299,6 +304,15 @@ async def self_register_patient(
         raise HTTPException(
             status_code=400,
             detail="No encontramos este nombre en la base de datos de beneficiarios de la Fundación.",
+        )
+    if match.matched_patient_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Este beneficiario ya tiene una cuenta registrada en el sistema. "
+                "Si crees que es un error o necesitas corregirla, contáctate con "
+                f"{CONTACTO_RESPONSABLE_NOMBRE} al {CONTACTO_RESPONSABLE_TELEFONO}."
+            ),
         )
 
     # 2. Validar edad / CI

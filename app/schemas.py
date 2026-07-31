@@ -324,6 +324,7 @@ class BeneficiaryCheckRequest(BaseModel):
 
 class BeneficiaryCheckResponse(BaseModel):
     match: bool
+    already_registered: bool = False
 
 
 class PatientSelfRegisterCreate(PatientFullCreate):
