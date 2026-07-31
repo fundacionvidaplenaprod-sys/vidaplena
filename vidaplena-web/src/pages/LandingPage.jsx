@@ -23,8 +23,11 @@ export default function LandingPage() {
             <a href="#donar" className="hover:text-green-800">Donar</a>
           </div>
 
-          {/* Botón especial (Visible en Móvil y Desktop) */}
-          <div className="flex items-center">
+          {/* Botones especiales (Visible en Móvil y Desktop) */}
+          <div className="flex items-center gap-2 md:gap-3">
+            <Link to="/agendar-cita" className="bg-orange-600 text-white px-3 py-1.5 md:px-4 md:py-2 rounded-full hover:bg-orange-700 transition text-sm md:text-base font-semibold">
+              Agendar Cita
+            </Link>
             <Link to="/login" className="border-2 border-green-900 text-green-900 px-3 py-1.5 md:px-4 md:py-2 rounded-full hover:bg-green-900 hover:text-white transition text-sm md:text-base font-semibold">
               Acceso al Sistema
             </Link>
@@ -47,9 +50,14 @@ export default function LandingPage() {
             Gestión transparente y dotación de insulinas de donación
           </p>
 
-          <a href="#donar" className="bg-orange-600 hover:bg-orange-700 px-6 py-3 rounded-full text-lg font-semibold transition">
-            Donar Ahora
-          </a>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <Link to="/agendar-cita" className="bg-orange-600 hover:bg-orange-700 px-6 py-3 rounded-full text-lg font-semibold transition">
+              Agendar Cita
+            </Link>
+            <a href="#donar" className="border-2 border-white hover:bg-white hover:text-green-900 px-6 py-3 rounded-full text-lg font-semibold transition">
+              Donar Ahora
+            </a>
+          </div>
         </div>
       </section>
 

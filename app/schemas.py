@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, model_validator
@@ -531,3 +531,69 @@ class DirectorPinUpdate(BaseModel):
 class PaginatedPatientResponse(BaseModel):
     total: int
     items: List[PatientResponse]
+
+# ==========================================
+#   10. SCHEMAS SAPAM (AGENDAMIENTO DE CITAS)
+# ==========================================
+
+class AppointmentConfigResponse(BaseModel):
+    monto_donacion: float
+    duracion_cita_minutos: int
+    dias_max_anticipacion: int
+    whatsapp_contacto: str
+    horarios: dict
+
+class SlotAvailability(BaseModel):
+    hora: str
+    disponible: bool
+
+class AppointmentAvailabilityResponse(BaseModel):
+    fecha: date
+    disponible: bool
+    motivo: Optional[str] = None
+    slots: List[SlotAvailability] = []
+
+class AppointmentBookingResponse(BaseModel):
+    id: int
+    security_code: str
+    fecha_cita: date
+    hora_cita: time
+    nombre_completo: str
+
+class BlockedDayCreate(BaseModel):
+    fecha: date
+    motivo: Optional[str] = None
+
+class BlockedDayResponse(BaseModel):
+    id: int
+    fecha: date
+    motivo: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ClinicalNoteUpdate(BaseModel):
+    nota: str = Field(..., min_length=1)
+
+class AppointmentAgendaItem(BaseModel):
+    id: int
+    nombres: str
+    ap_paterno: str
+    ap_materno: Optional[str] = None
+    ci: str
+    fecha_nac: date
+    hora_cita: time
+    nota_consulta: Optional[str] = None
+    nota_consulta_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class AppointmentHistoryItem(BaseModel):
+    id: int
+    fecha_cita: date
+    hora_cita: time
+    estado: str
+    nota_consulta: Optional[str] = None
+    nota_consulta_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)

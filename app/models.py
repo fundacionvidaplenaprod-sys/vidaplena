@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, 
-    ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, 
+    BigInteger, Boolean, CheckConstraint, Column, Date, DateTime,
+    ForeignKey, Integer, Numeric, String, Text, Time, UniqueConstraint,
     func, Float
 )
 from sqlalchemy.dialects import postgresql
@@ -341,3 +341,58 @@ class DirectorInsulinDelivery(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     recorded_by = relationship("User")
+
+
+class DoctorBlockedDay(Base):
+    """Días en los que la doctora no puede atender (bloqueados manualmente)."""
+    __tablename__ = "doctor_blocked_days"
+
+    id = Column(BigInteger, primary_key=True)
+    fecha = Column(Date, unique=True, nullable=False)
+    motivo = Column(Text, nullable=True)
+    created_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    creator = relationship("User")
+
+
+class Appointment(Base):
+    """
+    Cita de atención médica agendada públicamente (SAPAM). No requiere
+    cuenta de usuario: cualquier persona puede solicitar una cita indicando
+    sus datos y validando una donación institucional (verificada por OCR).
+    """
+    __tablename__ = "appointments"
+
+    id = Column(BigInteger, primary_key=True)
+    nombres = Column(String(120), nullable=False)
+    ap_paterno = Column(String(80), nullable=False)
+    ap_materno = Column(String(80), nullable=True)
+    ci = Column(String(32), nullable=False)
+    fecha_nac = Column(Date, nullable=False)
+
+    fecha_cita = Column(Date, nullable=False)
+    hora_cita = Column(Time, nullable=False)
+
+    estado = Column(String(20), nullable=False)  # CONFIRMADA | RECHAZADA
+
+    url_comprobante = Column(String(500), nullable=True)
+    ocr_monto_detectado = Column(Numeric(12, 2), nullable=True)
+    ocr_fecha_detectada = Column(Date, nullable=True)
+    ocr_hora_detectada = Column(Time, nullable=True)
+    motivo_rechazo = Column(Text, nullable=True)
+
+    security_code = Column(String(32), unique=True, nullable=True)
+
+    # Historia clínica simple: una nota de texto por cita, con fecha y autor.
+    nota_consulta = Column(Text, nullable=True)
+    nota_consulta_at = Column(DateTime(timezone=True), nullable=True)
+    nota_consulta_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("estado IN ('CONFIRMADA','RECHAZADA')", name="ck_appointment_estado"),
+    )
+
+    nota_consulta_author = relationship("User")

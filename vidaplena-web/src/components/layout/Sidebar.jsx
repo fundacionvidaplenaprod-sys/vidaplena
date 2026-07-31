@@ -8,7 +8,8 @@ import {
   UserPlus,
   Package,
   BarChart3,
-  Wallet
+  Wallet,
+  CalendarClock
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -60,6 +61,11 @@ export default function Sidebar({ isOpen, onClose }) {
       path: '/dashboard/usuarios',
       label: 'Gestión Usuarios',
       icon: <UserPlus size={20} />
+    });
+    menuItems.push({
+      path: '/dashboard/agenda-medica',
+      label: 'Agenda Médica',
+      icon: <CalendarClock size={20} />
     });
   }
 

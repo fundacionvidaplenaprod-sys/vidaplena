@@ -16,6 +16,8 @@ import DonationsWarehousePage from './pages/warehouse/DonationsWarehousePage';
 import ReportsPage from './pages/reports/ReportsPage';
 import LandingPage from './pages/LandingPage';
 import DirectorDeliveryPage from './pages/director/DirectorDeliveryPage';
+import AppointmentBookingPage from './pages/appointments/AppointmentBookingPage';
+import DoctorAgendaPage from './pages/admin/DoctorAgendaPage';
 
 function App() {
   return (
@@ -41,12 +43,14 @@ function App() {
           <Route path="revision-aportes" element={<ContributionsReviewPage />} />
           <Route path="almacen-donaciones" element={<DonationsWarehousePage />} />
           <Route path="reportes" element={<ReportsPage />} />
+          <Route path="agenda-medica" element={<DoctorAgendaPage />} />
         </Route>
 
         {/* 3. ZONA PACIENTE (Totalmente separada) */}
         {/* IMPORTANTE: Esta ruta NO está dentro de dashboard */}
         <Route path="/mi-portal" element={<MyDocumentsPage />} />
         <Route path="/registro-beneficiario" element={<SelfRegisterPatientPage />} />
+        <Route path="/agendar-cita" element={<AppointmentBookingPage />} />
 
         {/* 4. ZONA DIRECTORA (Ruta oculta con PIN local) */}
         <Route path="/directora" element={<DirectorDeliveryPage />} />

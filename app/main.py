@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.core.config import settings
 # Importamos todos los endpoints, INCLUYENDO auth
-from app.api.endpoints import patients, admin_complications, users, auth, donations,contributions, reports, director_deliveries
+from app.api.endpoints import patients, admin_complications, users, auth, donations,contributions, reports, director_deliveries, appointments
 from app.core.firebase import init_firebase
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -38,6 +38,7 @@ def create_app() -> FastAPI:
     app.include_router(contributions.router, prefix="/contributions", tags=["Aportes"]) 
     app.include_router(reports.router, prefix="/reports", tags=["Reportes Gerenciales"])
     app.include_router(director_deliveries.router, prefix="/api/director-deliveries", tags=["Director Deliveries"])
+    app.include_router(appointments.router, prefix="/appointments", tags=["Citas (SAPAM)"])
 
     @app.get("/health", tags=["health"])
     def health():
