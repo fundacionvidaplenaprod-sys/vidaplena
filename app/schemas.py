@@ -593,6 +593,7 @@ class AppointmentHistoryItem(BaseModel):
     fecha_cita: date
     hora_cita: time
     estado: str
+    motivo_rechazo: Optional[str] = None
     nota_consulta: Optional[str] = None
     nota_consulta_at: Optional[datetime] = None
 

@@ -254,6 +254,9 @@ export default function DoctorAgendaPage() {
                 <p className="font-bold text-gray-800">
                   {item.fecha_cita} {item.hora_cita} — <span className={item.estado === 'CONFIRMADA' ? 'text-green-600' : 'text-red-500'}>{item.estado}</span>
                 </p>
+                {item.motivo_rechazo && (
+                  <p className="text-sm text-red-600 mt-2 bg-red-50 rounded-lg p-2">{item.motivo_rechazo}</p>
+                )}
                 {item.nota_consulta && (
                   <p className="text-sm text-gray-600 mt-2 bg-gray-50 rounded-lg p-2">{item.nota_consulta}</p>
                 )}

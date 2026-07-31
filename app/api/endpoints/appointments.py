@@ -188,35 +188,62 @@ async def book_appointment(
     # 3. OCR y verificación
     ocr_monto = ocr_fecha = ocr_hora = None
     motivo_rechazo = None
+    user_message = None
     verificado = False
+    contact_suffix = f"Si crees que esto es un error, comunícate al WhatsApp {WHATSAPP_CONTACT}."
+
     try:
         ocr_result = extract_receipt_data(file_content, comprobante.content_type)
         ocr_monto = ocr_result.get("monto")
         ocr_fecha = ocr_result.get("fecha")
         ocr_hora = ocr_result.get("hora")
+        raw_text = (ocr_result.get("raw_text") or "").strip()
 
-        now = datetime.now()
-        checks = []
-
-        if ocr_monto is None or abs(ocr_monto - DONATION_AMOUNT) > 0.01:
-            checks.append("monto")
-        if ocr_fecha is None or ocr_fecha != now.date():
-            checks.append("fecha")
-        if ocr_hora is None:
-            checks.append("hora")
+        if not raw_text:
+            motivo_rechazo = "OCR no detectó texto en la imagen."
+            user_message = (
+                "No pudimos leer texto en tu comprobante. Asegúrate de que la foto o captura esté "
+                f"clara y completa, e inténtalo de nuevo. {contact_suffix}"
+            )
         else:
-            receipt_dt = datetime.combine(ocr_fecha or now.date(), ocr_hora)
-            window_start = now - timedelta(minutes=VERIFICATION_WINDOW_MINUTES)
-            if not (window_start <= receipt_dt <= now):
-                checks.append("hora")
+            now = datetime.now()
+            problems = []
 
-        if checks:
-            motivo_rechazo = f"No coincide: {', '.join(checks)}."
-        else:
-            verificado = True
+            if ocr_monto is None:
+                problems.append("no detectamos el monto")
+            elif abs(ocr_monto - DONATION_AMOUNT) > 0.01:
+                problems.append(
+                    f"el monto detectado (Bs. {ocr_monto:.2f}) no coincide con el esperado (Bs. {DONATION_AMOUNT:.2f})"
+                )
+
+            if ocr_fecha is None:
+                problems.append("no detectamos la fecha")
+            elif ocr_fecha != now.date():
+                problems.append(f"la fecha detectada ({ocr_fecha.strftime('%d/%m/%Y')}) no es la de hoy")
+
+            if ocr_hora is None:
+                problems.append("no detectamos la hora")
+            else:
+                receipt_dt = datetime.combine(ocr_fecha or now.date(), ocr_hora)
+                window_start = now - timedelta(minutes=VERIFICATION_WINDOW_MINUTES)
+                if not (window_start <= receipt_dt <= now):
+                    problems.append(
+                        f"la hora detectada ({ocr_hora.strftime('%H:%M')}) es de hace más de "
+                        f"{VERIFICATION_WINDOW_MINUTES} minutos"
+                    )
+
+            if problems:
+                motivo_rechazo = "; ".join(problems).capitalize() + "."
+                user_message = f"No pudimos verificar tu comprobante: {'; '.join(problems)}. {contact_suffix}"
+            else:
+                verificado = True
     except Exception as e:
         print(f"Error OCR (citas): {e}")
-        motivo_rechazo = "No se pudo procesar el comprobante (error de OCR)."
+        motivo_rechazo = f"Error técnico de OCR: {e}"
+        user_message = (
+            "Tuvimos un problema técnico al procesar tu comprobante (no relacionado a tus datos). "
+            f"Intenta nuevamente en unos minutos. {contact_suffix}"
+        )
 
     # 4. Guardar el intento (confirmado o rechazado)
     appointment = models.Appointment(
@@ -238,7 +265,7 @@ async def book_appointment(
 
     if not verificado:
         await db.commit()
-        raise HTTPException(status_code=400, detail=NO_MATCH_MESSAGE)
+        raise HTTPException(status_code=400, detail=user_message or NO_MATCH_MESSAGE)
 
     try:
         await db.flush()
