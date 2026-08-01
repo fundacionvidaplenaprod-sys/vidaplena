@@ -196,9 +196,11 @@ export default function RegisterPatientPage() {
     let isValid = false;
     if (step === 1) {
       const fields = [
-        'nombres', 'ap_paterno', 'ci', 'fecha_nac', 'peso', 'altura', 'imc', 'tipo_sangre',
+        'nombres', 'ap_paterno', 'fecha_nac', 'peso', 'altura', 'imc', 'tipo_sangre',
         'departamento', 'municipio', 'zona', 'direccion', 'tel_contacto'
       ];
+      // CI es obligatorio solo para mayores de edad
+      if (!isMinor) fields.push('ci');
       if (isMinor) fields.push('tutor.nombres', 'tutor.apellidos', 'tutor.ci', 'tutor.direccion', 'tutor.telefonos');
       isValid = await trigger(fields);
     } else if (step === 2) {
@@ -356,7 +358,16 @@ export default function RegisterPatientPage() {
                 <Input label="Ap. Materno" {...register('ap_materno')} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mt-4">
-                <Input label={<LabelRequired text="C.I." />} {...register('ci', { required: "Requerido" })} error={errors.ci} disabled={isEditMode && hasInitialCi} className={(isEditMode && hasInitialCi) ? "bg-gray-100" : ""} />
+                <Input
+                  label={isMinor
+                    ? <span className="flex items-center gap-1 font-semibold text-gray-700 text-sm">C.I. <span className="text-gray-400 font-normal text-xs">(opcional para menores)</span></span>
+                    : <LabelRequired text="C.I." />
+                  }
+                  {...register('ci', { required: isMinor ? false : "Requerido" })}
+                  error={errors.ci}
+                  disabled={isEditMode && hasInitialCi}
+                  className={(isEditMode && hasInitialCi) ? "bg-gray-100" : ""}
+                />
                 <Input type="date" label={<LabelRequired text="Nacimiento" />} {...register('fecha_nac', { required: "Requerido" })} error={errors.fecha_nac} />
                 <div className="flex flex-col gap-1">
                   <label htmlFor="tipo_sangre" className="text-sm font-bold text-gray-700 ml-1">Tipo Sangre <span className="text-red-500">*</span></label>
