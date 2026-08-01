@@ -286,6 +286,78 @@ async def check_beneficiary(
     }
 
 
+@router.get("/admin/beneficiaries", response_model=List[schemas.BeneficiaryAdminItem])
+async def search_beneficiaries_admin(
+    q: str = Query(..., min_length=2, max_length=120),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Búsqueda administrativa (SUPER_ADMIN) del padrón precargado de beneficiarios,
+    para corregir registros con nombres/apellidos incompletos que impiden que el
+    autoregistro público encuentre la coincidencia. Herramienta temporal.
+    """
+    norm_q = normalize_name(q)
+    result = await db.execute(select(models.PreregisteredBeneficiary))
+    candidates = result.scalars().all()
+
+    matches = [
+        c for c in candidates
+        if norm_q in normalize_name(" ".join(filter(None, [c.nombres, c.ap_paterno, c.ap_materno])))
+    ]
+    matches.sort(key=lambda c: (c.nombres or "", c.ap_paterno or ""))
+
+    return [
+        {
+            "id": c.id,
+            "nombres": c.nombres,
+            "ap_paterno": c.ap_paterno,
+            "ap_materno": c.ap_materno,
+            "depto": c.depto,
+            "already_registered": c.matched_patient_id is not None,
+        }
+        for c in matches[:50]
+    ]
+
+
+@router.put("/admin/beneficiaries/{beneficiary_id}", response_model=schemas.BeneficiaryAdminItem)
+async def update_beneficiary_admin(
+    beneficiary_id: int,
+    payload: schemas.BeneficiaryUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Corrige nombres/apellidos/depto de un beneficiario del padrón precargado
+    (SUPER_ADMIN). Herramienta temporal para resolver casos donde el padrón
+    solo tiene un nombre/apellido y el paciente real tiene dos, impidiendo el
+    autoregistro.
+    """
+    result = await db.execute(
+        select(models.PreregisteredBeneficiary).where(models.PreregisteredBeneficiary.id == beneficiary_id)
+    )
+    beneficiary = result.scalar_one_or_none()
+    if not beneficiary:
+        raise HTTPException(status_code=404, detail="Beneficiario no encontrado en el padrón.")
+
+    beneficiary.nombres = payload.nombres.strip()
+    beneficiary.ap_paterno = (payload.ap_paterno or "").strip() or None
+    beneficiary.ap_materno = (payload.ap_materno or "").strip() or None
+    beneficiary.depto = (payload.depto or "").strip() or None
+
+    await db.commit()
+    await db.refresh(beneficiary)
+
+    return {
+        "id": beneficiary.id,
+        "nombres": beneficiary.nombres,
+        "ap_paterno": beneficiary.ap_paterno,
+        "ap_materno": beneficiary.ap_materno,
+        "depto": beneficiary.depto,
+        "already_registered": beneficiary.matched_patient_id is not None,
+    }
+
+
 @router.post("/self-register", response_model=schemas.Token, status_code=status.HTTP_201_CREATED)
 async def self_register_patient(
     patient_in: schemas.PatientSelfRegisterCreate,

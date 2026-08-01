@@ -9,7 +9,8 @@ import {
   Package,
   BarChart3,
   Wallet,
-  CalendarClock
+  CalendarClock,
+  UserCog
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -66,6 +67,11 @@ export default function Sidebar({ isOpen, onClose }) {
       path: '/dashboard/agenda-medica',
       label: 'Agenda Médica',
       icon: <CalendarClock size={20} />
+    });
+    menuItems.push({
+      path: '/dashboard/corregir-beneficiarios',
+      label: 'Corregir Nombres',
+      icon: <UserCog size={20} />
     });
   }
 

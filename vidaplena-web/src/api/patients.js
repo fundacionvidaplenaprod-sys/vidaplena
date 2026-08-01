@@ -98,3 +98,19 @@ export const selfRegisterPatient = async (payload) => {
     throw error.response?.data?.detail || 'Error desconocido al registrarse';
   }
 };
+
+// --- Corrección administrativa del padrón (SUPER_ADMIN, herramienta temporal) ---
+export const searchBeneficiariesAdmin = async (q) => {
+  const response = await client.get('/patients/admin/beneficiaries', { params: { q } });
+  return response.data;
+};
+
+export const updateBeneficiaryAdmin = async (id, { nombres, ap_paterno, ap_materno, depto }) => {
+  const response = await client.put(`/patients/admin/beneficiaries/${id}`, {
+    nombres,
+    ap_paterno: ap_paterno || null,
+    ap_materno: ap_materno || null,
+    depto: depto || null,
+  });
+  return response.data;
+};

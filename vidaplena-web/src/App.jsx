@@ -18,6 +18,7 @@ import LandingPage from './pages/LandingPage';
 import DirectorDeliveryPage from './pages/director/DirectorDeliveryPage';
 import AppointmentBookingPage from './pages/appointments/AppointmentBookingPage';
 import DoctorAgendaPage from './pages/admin/DoctorAgendaPage';
+import BeneficiaryNamesPage from './pages/admin/BeneficiaryNamesPage';
 
 function App() {
   return (
@@ -44,6 +45,7 @@ function App() {
           <Route path="almacen-donaciones" element={<DonationsWarehousePage />} />
           <Route path="reportes" element={<ReportsPage />} />
           <Route path="agenda-medica" element={<DoctorAgendaPage />} />
+          <Route path="corregir-beneficiarios" element={<BeneficiaryNamesPage />} />
         </Route>
 
         {/* 3. ZONA PACIENTE (Totalmente separada) */}

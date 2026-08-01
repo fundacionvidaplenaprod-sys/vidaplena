@@ -327,6 +327,23 @@ class BeneficiaryCheckResponse(BaseModel):
     already_registered: bool = False
 
 
+# --- Corrección administrativa del padrón (SUPER_ADMIN, herramienta temporal) ---
+class BeneficiaryAdminItem(BaseModel):
+    id: int
+    nombres: str
+    ap_paterno: Optional[str] = None
+    ap_materno: Optional[str] = None
+    depto: Optional[str] = None
+    already_registered: bool = False
+
+
+class BeneficiaryUpdate(BaseModel):
+    nombres: str = Field(..., min_length=1, max_length=120)
+    ap_paterno: Optional[str] = Field(None, max_length=80)
+    ap_materno: Optional[str] = Field(None, max_length=80)
+    depto: Optional[str] = Field(None, max_length=80)
+
+
 class PatientSelfRegisterCreate(PatientFullCreate):
     email: EmailStr
     password: str = Field(..., min_length=4, max_length=128)
