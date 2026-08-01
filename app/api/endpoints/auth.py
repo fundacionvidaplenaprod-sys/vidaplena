@@ -18,14 +18,18 @@ async def login_access_token(
     db: AsyncSession = Depends(get_db),
     form_data: OAuth2PasswordRequestForm = Depends()
 ) -> Any:
-    # 1. Buscar usuario
+    # 1. Buscar TODOS los usuarios con ese email (puede haber varios PACIENTE con tutor)
     query = select(models.User).where(models.User.email == form_data.username)
     result = await db.execute(query)
-    user = result.scalars().first()
+    candidates = result.scalars().all()
 
-    # 2. Validar password (OJO: Asegúrate que tu modelo usa hashed_password o password)
-    # Si tu modelo tiene 'hashed_password', usa esta línea:
-    if not user or not security.verify_password(form_data.password, user.password_hash):
+    # 2. Encontrar el que coincida con la contraseña
+    user = next(
+        (u for u in candidates if security.verify_password(form_data.password, u.password_hash)),
+        None
+    )
+
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email o contraseña incorrectos",

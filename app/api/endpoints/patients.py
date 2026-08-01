@@ -328,10 +328,24 @@ async def self_register_patient(
             detail="El Carnet de Identidad (CI) es obligatorio para beneficiarios mayores de edad.",
         )
 
-    # 3. Verificar que el correo no esté tomado
-    existing_user_q = await db.execute(select(models.User).where(models.User.email == patient_in.email))
-    if existing_user_q.scalars().first():
-        raise HTTPException(status_code=400, detail="El correo electrónico ya está registrado.")
+    # 3. Verificar el correo
+    # Se permite que un tutor comparta su email para cuentas de menores (PACIENTE),
+    # pero NO se permite si el email pertenece a un ADMIN/REGISTRADOR, ni si ya
+    # existe una cuenta PACIENTE con exactamente la misma contraseña.
+    existing_users_q = await db.execute(select(models.User).where(models.User.email == patient_in.email))
+    existing_users = existing_users_q.scalars().all()
+
+    if any(u.role != 'PACIENTE' for u in existing_users):
+        raise HTTPException(
+            status_code=400,
+            detail="El correo electrónico ya está en uso por una cuenta de administración. Usa otro correo."
+        )
+    from app.core.security import verify_password as _vp
+    if any(_vp(patient_in.password, u.password_hash) for u in existing_users):
+        raise HTTPException(
+            status_code=400,
+            detail="Ya existe una cuenta con este correo y contraseña. Si es tuyo, inicia sesión directamente."
+        )
 
     try:
         # 4. Crear Usuario
