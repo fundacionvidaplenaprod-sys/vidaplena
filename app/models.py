@@ -198,6 +198,8 @@ class PatientTreatment(Base):
 
     dosis = Column(String(80))
     frecuencia = Column(String(80))
+    tiempo_uso_meses = Column(Integer, nullable=True)
+    tiempo_uso_anios = Column(Integer, nullable=True)
 
     patient = relationship("Patient", back_populates="treatments")
 

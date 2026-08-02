@@ -56,7 +56,7 @@ export default function RegisterPatientPage() {
       tutor: { nombres: '', apellidos: '', ci: '', direccion: '', telefonos: '', email: '' },
 
       // 3.2 Información Médica
-      medical: { tipo_diabetes: '', tiempo_enfermedad: '' },
+      medical: { tipo_diabetes: '', tiempo_enfermedad_anios: '', tiempo_enfermedad_meses: '' },
 
       // Arrays
       treatments: [{ nombre: 'Glargina', dosis_diaria: 0 }],
@@ -236,6 +236,8 @@ export default function RegisterPatientPage() {
         return {
           nombre: (tx.nombre || '').trim(),
           dosis_diaria: dailyUnits,
+          tiempo_uso_anios: tx.tiempo_uso_anios ? Number(tx.tiempo_uso_anios) : null,
+          tiempo_uso_meses: tx.tiempo_uso_meses ? Number(tx.tiempo_uso_meses) : null,
         };
       });
 
@@ -283,7 +285,13 @@ export default function RegisterPatientPage() {
         email: data.email || null,
         tel_contacto: data.tel_contacto || null,
         tel_referencia: data.tel_referencia || null,
-        medical: data.medical,
+        medical: {
+          tipo_diabetes: data.medical?.tipo_diabetes,
+          tiempo_enfermedad: [
+            data.medical?.tiempo_enfermedad_anios ? `${data.medical.tiempo_enfermedad_anios} años` : '',
+            data.medical?.tiempo_enfermedad_meses ? `${data.medical.tiempo_enfermedad_meses} meses` : '',
+          ].filter(Boolean).join(' ') || null,
+        },
         medical_info: data.medical,
         tutor: isMinor ? {
           ...data.tutor,
@@ -370,12 +378,11 @@ export default function RegisterPatientPage() {
                 />
                 <Input type="date" label={<LabelRequired text="Nacimiento" />} {...register('fecha_nac', { required: "Requerido" })} error={errors.fecha_nac} />
                 <div className="flex flex-col gap-1">
-                  <label htmlFor="tipo_sangre" className="text-sm font-bold text-gray-700 ml-1">Tipo Sangre <span className="text-red-500">*</span></label>
-                  <select id="tipo_sangre" {...register('tipo_sangre', { required: "Requerido" })} className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none">
+                  <label htmlFor="tipo_sangre" className="text-sm font-bold text-gray-700 ml-1">Tipo Sangre</label>
+                  <select id="tipo_sangre" {...register('tipo_sangre')} className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none">
                     <option value="">--</option>
                     {TIPOS_SANGRE.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
-                  {errors.tipo_sangre && <span className="text-red-500 text-xs font-bold">{errors.tipo_sangre.message}</span>}
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-4">
@@ -451,7 +458,31 @@ export default function RegisterPatientPage() {
                   </select>
                   {errors.medical?.tipo_diabetes && <span className="text-red-500 text-xs font-bold">{errors.medical.tipo_diabetes.message}</span>}
                 </div>
-                <Input label={<LabelRequired text="Tiempo con la enfermedad" />} placeholder="Ej: 2 años" {...register('medical.tiempo_enfermedad', { required: "Requerido" })} error={errors.medical?.tiempo_enfermedad} />
+                <div>
+                  <label className="text-sm font-bold text-gray-700 ml-1 block mb-1">Tiempo con la enfermedad</label>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <input
+                        type="number"
+                        min="0" max="99"
+                        placeholder="Años"
+                        {...register('medical.tiempo_enfermedad_anios', { min: 0, max: 99 })}
+                        className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none text-sm"
+                      />
+                      <span className="text-xs text-gray-400 ml-1">Años</span>
+                    </div>
+                    <div className="flex-1">
+                      <input
+                        type="number"
+                        min="0" max="11"
+                        placeholder="Meses"
+                        {...register('medical.tiempo_enfermedad_meses', { min: 0, max: 11 })}
+                        className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none text-sm"
+                      />
+                      <span className="text-xs text-gray-400 ml-1">Meses</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -508,6 +539,29 @@ export default function RegisterPatientPage() {
                         placeholder="Ej: 24"
                       />
                     </div>
+                    <div className="w-full md:w-1/4">
+                      <label className="text-xs font-bold text-gray-500 ml-1">Tiempo uso</label>
+                      <div className="flex gap-1">
+                        <div className="flex-1">
+                          <input
+                            type="number" min="0" max="99"
+                            placeholder="Años"
+                            {...register(`treatments.${index}.tiempo_uso_anios`, { min: 0, max: 99 })}
+                            className="w-full text-sm bg-gray-50 p-2 rounded-lg border border-gray-200 outline-none"
+                          />
+                          <span className="text-xs text-gray-400">Años</span>
+                        </div>
+                        <div className="flex-1">
+                          <input
+                            type="number" min="0" max="11"
+                            placeholder="Mes"
+                            {...register(`treatments.${index}.tiempo_uso_meses`, { min: 0, max: 11 })}
+                            className="w-full text-sm bg-gray-50 p-2 rounded-lg border border-gray-200 outline-none"
+                          />
+                          <span className="text-xs text-gray-400">Meses</span>
+                        </div>
+                      </div>
+                    </div>
                     <div className="flex items-end h-full pb-1">
                       {index > 0 && (
                         <button type="button" onClick={() => remove(index)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={18} /></button>
@@ -519,7 +573,7 @@ export default function RegisterPatientPage() {
             </section>
 
             <section className="bg-gray-50 p-6 rounded-2xl">
-              <h4 className="font-bold text-gray-700 mb-4">Complicaciones</h4>
+              <h4 className="font-bold text-gray-700 mb-4">Complicaciones de la diabetes y/o Enf. Concomitantes</h4>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {COMPLICATION_OPTIONS.map((opt) => (
                   <label key={opt.code} className="flex items-center gap-3 cursor-pointer p-2 hover:bg-white rounded-lg transition-colors select-none">

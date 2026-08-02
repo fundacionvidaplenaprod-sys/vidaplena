@@ -148,6 +148,8 @@ class PatientTreatmentBase(BaseModel):
     dosis_diaria: Optional[float] = 0.0
     dosis: Optional[str] = Field(None, max_length=80)
     frecuencia: Optional[str] = Field(None, max_length=80)
+    tiempo_uso_meses: Optional[int] = Field(None, ge=0, le=99)
+    tiempo_uso_anios: Optional[int] = Field(None, ge=0, le=99)
 
     @model_validator(mode="before")
     @classmethod
