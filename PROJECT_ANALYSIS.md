@@ -86,7 +86,7 @@ VIDAPLENA/
 - Módulo central donde se registran los pacientes y su expediente.
 - Incluye el seguimiento de:
   - **Donaciones** (Donaciones recibidas por el paciente u otorgadas).
-  - **Aportes** (Contribuciones económicas o en especie).
+  - **Aportes Voluntarios con Lectura Inteligente (OCR)**: Al subir su comprobante mensual (`VoluntaryContributionModal.jsx`), el motor OCR (`/api/v1/contributions/ocr-preview`) detecta de forma automática y precarga el monto, fecha y hora del recibo. A diferencia del SAPAM, no impone un monto fijo, permitiendo al paciente confirmar o editar libremente su aporte.
   - **Complicaciones Médicas** (Tipos administrables por el Super Admin).
 
 ### Módulo Especializado de la Directora (`/directora`)
@@ -112,6 +112,7 @@ VIDAPLENA/
     3. Al verificar por WhatsApp que el voucher enviado por el paciente es auténtico y correcto, el administrador presiona el botón **`Aprobar (verificado por WhatsApp)`**.
     4. El sistema ejecuta el endpoint `POST /api/v1/appointments/{id}/approve`, cambiando el estado a `CONFIRMADA`, registrando la auditoría del usuario que aprobó (`revisado_manualmente_por`, `revisado_manualmente_at`) y generando el `security_code`.
     5. Inmediatamente se habilita el botón **`Descargar ficha`** en la misma interfaz para que el administrador descargue el PDF y se lo envíe al paciente por WhatsApp (o para que el paciente lo descargue desde el portal).
+- **Exención por Vulnerabilidad ("Caso Social")**: Para pacientes en situación de vulnerabilidad o de escasos recursos que no pueden realizar el aporte de 70.00 Bs, el `SUPER_ADMIN` puede exonerar el pago y confirmar la cita directamente sin requerir voucher (`POST /api/v1/appointments/{id}/approve-social-case`), registrando el motivo de exención (`motivo_exencion`) y auditoría del usuario que autoriza (`eximido_por`, `eximido_at`).
 - **Separación de Roles (Administración vs. Atención)**: 
   - Todas las tareas administrativas (aprobación manual por WhatsApp, historial por C.I. y bloqueo/desbloqueo de fechas no laborables en `doctor_blocked_days`) están restringidas estrictamente al rol **`SUPER_ADMIN`** (`get_current_super_user`).
   - La consulta de la agenda del día y el registro de notas clínicas de evolución (`nota_consulta`) están habilitadas tanto para `SUPER_ADMIN` como para el personal médico/directora (`REGISTRADOR`) mediante la dependencia `get_current_staff_user`.
@@ -134,8 +135,8 @@ El sistema utiliza **PostgreSQL** administrado por **SQLAlchemy**. A continuaci�
 - **Patient Medical (`patient_medical`)**: Diagnóstico principal, hospital base y médico tratante (Relación 1:1 con `patients`).
 - **Complication Types & Patient Complications**: Un catálogo administrable de tipos de complicaciones diabéticas (`complication_types`) y una tabla intermedia (`patient_complications`) que asocia múltiples complicaciones a un paciente.
 - **Patient Treatments (`patient_treatments`)**: Registro de los requerimientos de insulina basal, insulina rápida y material (jeringas) de cada paciente (Relación 1:N).
-- **Contributions (`monthly_contributions`)**: Seguimiento de los pagos o aportes mensuales realizados por el paciente.
+- **Contributions (`monthly_contributions`)**: Seguimiento de los pagos o aportes mensuales realizados por el paciente. Se complementa con el servicio OCR (`/contributions/ocr-preview`) para detectar de manera inteligente monto, fecha y hora al cargar recibos.
 - **Donations & Lots (`donation_lots`)**: Registro de lotes de insulinas ingresadas al inventario de la fundación, con tipo, cantidad y fecha de vencimiento.
 - **Allocations & Deliveries (`donation_allocations`, `deliveries`)**: `donation_allocations` reserva insulinas de un lote para un paciente específico, y `deliveries` registra la entrega física o consumo de esas insulinas, generando constancias en PDF.
 - **Director Deliveries (`director_insulin_deliveries`)**: Tabla independiente que alimenta el "Módulo de Directora". Registra entregas de forma rápida, libre de ataduras al expediente estructurado del paciente, para agilizar operaciones en campo.
-- **Appointments (`appointments`) & Blocked Days (`doctor_blocked_days`)**: Entidades del Módulo SAPAM para la reserva de citas médicas y control de agenda. `appointments` registra datos del solicitante, horario, resultados de validación OCR del voucher de 70 Bs, auditoría de aprobación manual (`revisado_manualmente_por`) y notas clínicas; `doctor_blocked_days` almacena las fechas no disponibles en la agenda médica.
+- **Appointments (`appointments`) & Blocked Days (`doctor_blocked_days`)**: Entidades del Módulo SAPAM para la reserva de citas médicas y control de agenda. `appointments` registra datos del solicitante, horario, resultados de validación OCR del voucher de 70 Bs, auditoría de aprobación manual (`revisado_manualmente_por`), exención por vulnerabilidad social (`eximido_por`, `motivo_exencion`) y notas clínicas; `doctor_blocked_days` almacena las fechas no disponibles en la agenda médica.
