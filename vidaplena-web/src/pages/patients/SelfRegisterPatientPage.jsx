@@ -75,6 +75,12 @@ export default function SelfRegisterPatientPage() {
   const nombresVal = watch('nombres');
   const apPaternoVal = watch('ap_paterno');
   const apMaternoVal = watch('ap_materno');
+  const tiempoEnfAnios = watch('medical.tiempo_enfermedad_anios');
+  const tiempoEnfMeses = watch('medical.tiempo_enfermedad_meses');
+
+  // Helpers de validación inline (mismo patrón que alerta de monto/compromiso)
+  const isAniosInvalid = (v) => v !== '' && v !== null && v !== undefined && (Number(v) < 0 || Number(v) > 99);
+  const isMesesInvalid = (v) => v !== '' && v !== null && v !== undefined && (Number(v) < 0 || Number(v) > 11);
 
   useEffect(() => {
     if (fechaNacimiento) {
@@ -520,8 +526,18 @@ export default function SelfRegisterPatientPage() {
                           min="0" max="99"
                           placeholder="Años"
                           {...register('medical.tiempo_enfermedad_anios', { min: 0, max: 99 })}
-                          className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none text-sm"
+                          className={`w-full bg-vida-bg p-3 rounded-xl border-2 focus:bg-white outline-none text-sm transition-all ${
+                            isAniosInvalid(tiempoEnfAnios)
+                              ? 'border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'
+                              : 'border-transparent'
+                          }`}
                         />
+                        {isAniosInvalid(tiempoEnfAnios) && (
+                          <div className="text-red-100 text-xs mt-1 flex items-center bg-red-600/80 px-2 py-1 rounded-md font-medium animate-pulse">
+                            <AlertTriangle size={12} className="mr-1 flex-shrink-0" />
+                            Máx. 99 años
+                          </div>
+                        )}
                         <span className="text-xs text-gray-400 ml-1">Años</span>
                       </div>
                       <div className="flex-1">
@@ -530,8 +546,18 @@ export default function SelfRegisterPatientPage() {
                           min="0" max="11"
                           placeholder="Meses"
                           {...register('medical.tiempo_enfermedad_meses', { min: 0, max: 11 })}
-                          className="w-full bg-vida-bg p-3 rounded-xl border border-transparent focus:bg-white outline-none text-sm"
+                          className={`w-full bg-vida-bg p-3 rounded-xl border-2 focus:bg-white outline-none text-sm transition-all ${
+                            isMesesInvalid(tiempoEnfMeses)
+                              ? 'border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'
+                              : 'border-transparent'
+                          }`}
                         />
+                        {isMesesInvalid(tiempoEnfMeses) && (
+                          <div className="text-red-100 text-xs mt-1 flex items-center bg-red-600/80 px-2 py-1 rounded-md font-medium animate-pulse">
+                            <AlertTriangle size={12} className="mr-1 flex-shrink-0" />
+                            Máx. 11 meses
+                          </div>
+                        )}
                         <span className="text-xs text-gray-400 ml-1">Meses</span>
                       </div>
                     </div>
@@ -596,8 +622,18 @@ export default function SelfRegisterPatientPage() {
                               type="number" min="0" max="99"
                               placeholder="Años"
                               {...register(`treatments.${index}.tiempo_uso_anios`, { min: 0, max: 99 })}
-                              className="w-full text-sm bg-gray-50 p-2 rounded-lg border border-gray-200 outline-none"
+                              className={`w-full text-sm bg-gray-50 p-2 rounded-lg border-2 outline-none transition-all ${
+                                isAniosInvalid(currentTreatments[index]?.tiempo_uso_anios)
+                                  ? 'border-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]'
+                                  : 'border-gray-200'
+                              }`}
                             />
+                            {isAniosInvalid(currentTreatments[index]?.tiempo_uso_anios) && (
+                              <div className="text-red-100 text-xs mt-0.5 flex items-center bg-red-600/80 px-1.5 py-0.5 rounded font-medium animate-pulse">
+                                <AlertTriangle size={10} className="mr-1 flex-shrink-0" />
+                                Máx. 99
+                              </div>
+                            )}
                             <span className="text-xs text-gray-400">Años</span>
                           </div>
                           <div className="flex-1">
@@ -605,8 +641,18 @@ export default function SelfRegisterPatientPage() {
                               type="number" min="0" max="11"
                               placeholder="Mes"
                               {...register(`treatments.${index}.tiempo_uso_meses`, { min: 0, max: 11 })}
-                              className="w-full text-sm bg-gray-50 p-2 rounded-lg border border-gray-200 outline-none"
+                              className={`w-full text-sm bg-gray-50 p-2 rounded-lg border-2 outline-none transition-all ${
+                                isMesesInvalid(currentTreatments[index]?.tiempo_uso_meses)
+                                  ? 'border-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]'
+                                  : 'border-gray-200'
+                              }`}
                             />
+                            {isMesesInvalid(currentTreatments[index]?.tiempo_uso_meses) && (
+                              <div className="text-red-100 text-xs mt-0.5 flex items-center bg-red-600/80 px-1.5 py-0.5 rounded font-medium animate-pulse">
+                                <AlertTriangle size={10} className="mr-1 flex-shrink-0" />
+                                Máx. 11
+                              </div>
+                            )}
                             <span className="text-xs text-gray-400">Meses</span>
                           </div>
                         </div>
