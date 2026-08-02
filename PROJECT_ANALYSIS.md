@@ -40,7 +40,7 @@ VIDAPLENA/
 │
 ├── app/                        # CÓDIGO FUENTE DEL BACKEND
 │   ├── api/                    # Endpoints de la API organizados por módulos
-│   │   ├── endpoints/          # (auth.py, users.py, patients.py, director_deliveries.py, etc.)
+│   │   ├── endpoints/          # (auth.py, users.py, patients.py, appointments.py, director_deliveries.py, etc.)
 │   │   └── deps.py             # Dependencias (Inyección de Base de Datos, Verificación de JWT)
 │   ├── core/                   # Configuración global, Seguridad, Firebase init
 │   ├── db.py                   # Configuración del Motor Asíncrono de BD
@@ -58,11 +58,12 @@ VIDAPLENA/
 │   │   ├── components/         # Componentes reutilizables (Botones, Inputs, Layouts)
 │   │   ├── context/            # AuthContext.jsx (Manejo global de estado de sesión)
 │   │   └── pages/              # Vistas organizadas por roles y características
-│   │       ├── admin/          # Panel de Super Admin (Gestión de Usuarios, Complicaciones)
+│   │       ├── admin/          # Panel de Super Admin (Gestión de Usuarios, Agenda Médica - DoctorAgendaPage)
 │   │       ├── auth/           # Login
 │   │       ├── dashboard/      # Dashboard principal (Inicio, Reportes)
 │   │       ├── director/       # Módulo especializado de entrega rápida (DirectorDeliveryPage)
-│   │       └── patients/       # Gestión completa de pacientes (Registro, Historial)
+│   │       ├── patients/       # Gestión completa de pacientes (Registro, Historial)
+│   │       └── AppointmentBookingPage.jsx # Reserva pública de citas y validación OCR de vouchers
 │   ├── index.html              # Plantilla HTML principal
 │   ├── package.json            # Dependencias de NPM
 │   └── tailwind.config.js      # Configuración de colores de la marca (vida-primary, vida-main, etc.)
@@ -94,6 +95,23 @@ VIDAPLENA/
 - **Bloqueo Inteligente**: Se bloquea manualmente o por inactividad (3 minutos sin interacciones).
 - **Alerta de Duplicados**: Busca en tiempo real entregas de insulina previas a pacientes con el mismo nombre y apellido en los últimos 25 días.
 
+### Módulo de Reserva de Cita Médica (SAPAM) (`/agendar-cita` y `/dashboard/agenda-medica`)
+- **Reserva Pública sin Sesión**: Cualquier paciente puede solicitar una cita de atención médica en los horarios disponibles indicando sus datos personales básicos (Nombres, Apellidos, CI y Fecha de Nacimiento).
+- **Validación Automática de Comprobante (OCR)**: Para confirmar la cita, el sistema solicita cargar la foto de un comprobante de aporte/donación con valor a **70.00 Bs**. El motor OCR (`extract_receipt_data`) verifica de forma automatizada:
+  - El monto exacto (Bs. 70.00).
+  - La fecha del comprobante (debe ser la fecha actual).
+  - La hora de transacción (dentro de una ventana temporal reciente).
+- **Emisión Automática de Ficha PDF**: Si la validación OCR es exitosa, la cita queda `CONFIRMADA`, se genera un código de seguridad único (`security_code`, ej. `CITA-...`) y se emite la **Ficha de Atención Médica en PDF** para el paciente.
+- **Mecanismo Administrativo de Solución a Rechazos OCR (Atención por WhatsApp)**:
+  - Cuando el OCR rechaza el voucher (por imagen borrosa, iluminación, corte de texto o fallo técnico), la cita se guarda con estado `RECHAZADA` junto con el `motivo_rechazo` y se instruye al paciente a comunicarse al número oficial de **WhatsApp** de la fundación.
+  - **Dispensación manual de la ficha por el personal administrativo**:
+    1. El personal autorizado (`SUPER_ADMIN`) accede a la sección **Agenda Médica** (`/dashboard/agenda-medica`) y entra a la pestaña **"Historial por C.I."**.
+    2. Busca por el carnet de identidad del paciente, listándose todas sus citas (incluyendo las rechazadas con su motivo).
+    3. Al verificar por WhatsApp que el voucher enviado por el paciente es auténtico y correcto, el administrador presiona el botón **`Aprobar (verificado por WhatsApp)`**.
+    4. El sistema ejecuta el endpoint `POST /api/v1/appointments/{id}/approve`, cambiando el estado a `CONFIRMADA`, registrando la auditoría del usuario que aprobó (`revisado_manualmente_por`, `revisado_manualmente_at`) y generando el `security_code`.
+    5. Inmediatamente se habilita el botón **`Descargar ficha`** en la misma interfaz para que el administrador descargue el PDF y se lo envíe al paciente por WhatsApp (o para que el paciente lo descargue desde el portal).
+- **Gestión de Agenda y Notas Clínicas**: Permite a los profesionales médicos consultar la agenda del día, bloquear días no laborables o feriados (`doctor_blocked_days`) y agregar notas clínicas de evolución por cada cita atendida.
+
 ### Reportes (`/reports`)
 - Generación de reportes gerenciales con métricas sobre pacientes, entregas, donaciones y tipos de complicaciones.
 - Exportación en pantalla y generación de documentos estructurados en PDF mediante el frontend.
@@ -116,3 +134,4 @@ El sistema utiliza **PostgreSQL** administrado por **SQLAlchemy**. A continuaci�
 - **Donations & Lots (`donation_lots`)**: Registro de lotes de insulinas ingresadas al inventario de la fundación, con tipo, cantidad y fecha de vencimiento.
 - **Allocations & Deliveries (`donation_allocations`, `deliveries`)**: `donation_allocations` reserva insulinas de un lote para un paciente específico, y `deliveries` registra la entrega física o consumo de esas insulinas, generando constancias en PDF.
 - **Director Deliveries (`director_insulin_deliveries`)**: Tabla independiente que alimenta el "Módulo de Directora". Registra entregas de forma rápida, libre de ataduras al expediente estructurado del paciente, para agilizar operaciones en campo.
+- **Appointments (`appointments`) & Blocked Days (`doctor_blocked_days`)**: Entidades del Módulo SAPAM para la reserva de citas médicas y control de agenda. `appointments` registra datos del solicitante, horario, resultados de validación OCR del voucher de 70 Bs, auditoría de aprobación manual (`revisado_manualmente_por`) y notas clínicas; `doctor_blocked_days` almacena las fechas no disponibles en la agenda médica.
