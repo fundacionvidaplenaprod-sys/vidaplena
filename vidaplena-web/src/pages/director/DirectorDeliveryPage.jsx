@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import client from '../../api/axios';
-import { Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle, Calendar, Package, Save, Clock, User, FileText, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getAgenda, updateClinicalNote } from '../../api/appointments';
 
 // Custom hook para debounce
 function useDebounce(value, delay) {
@@ -49,6 +50,50 @@ export default function DirectorDeliveryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
+
+  // Navegación de pestañas en módulo directora
+  const [activeTab, setActiveTab] = useState("ENTREGA"); // "ENTREGA" | "CITAS"
+  const [agendaDate, setAgendaDate] = useState(getLocalDateString());
+  const [agendaList, setAgendaList] = useState([]);
+  const [loadingAgenda, setLoadingAgenda] = useState(false);
+  const [notesState, setNotesState] = useState({}); // { [id]: string }
+  const [savingNoteId, setSavingNoteId] = useState(null);
+
+  const loadDirectorAgenda = async (fechaStr) => {
+    try {
+      setLoadingAgenda(true);
+      const data = await getAgenda(fechaStr);
+      setAgendaList(data || []);
+      const initialNotes = {};
+      (data || []).forEach(item => {
+        initialNotes[item.id] = item.nota_consulta || "";
+      });
+      setNotesState(initialNotes);
+    } catch (error) {
+      toast.error('No se pudo cargar la agenda del día');
+    } finally {
+      setLoadingAgenda(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isUnlocked && activeTab === "CITAS") {
+      loadDirectorAgenda(agendaDate);
+    }
+  }, [isUnlocked, activeTab, agendaDate]);
+
+  const handleSaveClinicalNote = async (appointmentId) => {
+    try {
+      setSavingNoteId(appointmentId);
+      const notaText = notesState[appointmentId] || "";
+      await updateClinicalNote(appointmentId, notaText);
+      toast.success('Nota clínica guardada correctamente');
+    } catch (error) {
+      toast.error('Error al guardar la nota clínica');
+    } finally {
+      setSavingNoteId(null);
+    }
+  };
 
   // Valores debounced
   const debouncedNombres = useDebounce(nombres, 500);
@@ -254,15 +299,47 @@ export default function DirectorDeliveryPage() {
   return (
     <div className="min-h-screen bg-gray-50 p-6 md:p-12 font-sans">
       <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800">Registro Rápido de Entrega</h1>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+          <div>
+            <h1 className="text-4xl font-bold text-gray-800">Módulo de Atención — Directora</h1>
+            <p className="text-gray-500 mt-1">Gestión rápida de entrega de insulinas y atención de citas del día</p>
+          </div>
           <button onClick={handleLock} className="bg-gray-800 text-white px-6 py-2 rounded-full font-semibold hover:bg-gray-700">
             Bloquear Pantalla
           </button>
         </div>
 
+        {/* PESTAÑAS DE NAVEGACIÓN RÁPIDA */}
+        <div className="flex flex-wrap gap-3 mb-6">
+          <button
+            type="button"
+            onClick={() => setActiveTab("ENTREGA")}
+            className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-lg transition-all ${
+              activeTab === "ENTREGA"
+                ? "bg-green-600 text-white shadow-lg"
+                : "bg-white text-gray-700 hover:bg-gray-100 shadow"
+            }`}
+          >
+            <Package className="w-5 h-5" />
+            Entrega Rápida de Insulina
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("CITAS")}
+            className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-lg transition-all ${
+              activeTab === "CITAS"
+                ? "bg-blue-600 text-white shadow-lg"
+                : "bg-white text-gray-700 hover:bg-gray-100 shadow"
+            }`}
+          >
+            <Calendar className="w-5 h-5" />
+            Agenda de Citas del Día
+          </button>
+        </div>
+
         <div className="bg-white rounded-3xl shadow-lg p-8">
           
+          {activeTab === "ENTREGA" && (
           <form onSubmit={handleSubmitDelivery} className="space-y-8">
             
             {/* DATOS DEL PACIENTE */}
@@ -376,6 +453,110 @@ export default function DirectorDeliveryPage() {
               {submitting ? 'Registrando...' : 'Confirmar Registro'}
             </button>
           </form>
+          )}
+
+          {activeTab === "CITAS" && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50 p-6 rounded-2xl border border-gray-200">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <Calendar className="w-6 h-6 text-blue-600" />
+                    Atención de Citas Programadas
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Vista de atención médica para consulta y registro de evolución de pacientes con cita confirmada.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="font-bold text-gray-700">Fecha:</label>
+                  <input
+                    type="date"
+                    value={agendaDate}
+                    onChange={(e) => setAgendaDate(e.target.value)}
+                    className="p-3 border-2 border-gray-300 rounded-xl font-semibold text-gray-800 bg-white"
+                  />
+                </div>
+              </div>
+
+              {loadingAgenda && (
+                <div className="text-center py-12 text-gray-500 flex flex-col items-center gap-2">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                  <span>Cargando agenda médica...</span>
+                </div>
+              )}
+
+              {!loadingAgenda && agendaList.length === 0 && (
+                <div className="text-center py-12 bg-gray-50 rounded-2xl border border-gray-200 text-gray-500">
+                  <Clock className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                  <p className="text-lg font-semibold">No hay citas confirmadas para esta fecha ({agendaDate}).</p>
+                </div>
+              )}
+
+              {!loadingAgenda && agendaList.length > 0 && (
+                <div className="space-y-4">
+                  {agendaList.map((item) => (
+                    <div key={item.id} className="bg-gray-50 border-2 border-gray-200 rounded-2xl p-6 transition hover:border-blue-300">
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 pb-4 mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="bg-blue-600 text-white font-bold px-4 py-2 rounded-xl text-lg flex items-center gap-2">
+                            <Clock className="w-5 h-5" />
+                            {item.hora_cita}
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                              <User className="w-5 h-5 text-blue-600" />
+                              {item.nombres} {item.ap_paterno} {item.ap_materno || ''}
+                            </h3>
+                            <p className="text-sm text-gray-500">
+                              C.I.: <strong>{item.ci}</strong> | Nacimiento: <strong>{item.fecha_nac}</strong>
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-4 h-4" /> Confirmada
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* NOTA DE EVOLUCIÓN / CONSULTA */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-gray-700 flex items-center gap-1">
+                          <FileText className="w-4 h-4 text-blue-600" />
+                          Nota Clínica / Evolución de la Consulta:
+                        </label>
+                        <textarea
+                          rows="3"
+                          placeholder="Escriba aquí los detalles de la consulta, diagnóstico, indicaciones o tratamiento recomendado..."
+                          value={notesState[item.id] || ""}
+                          onChange={(e) => setNotesState((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                          className="w-full p-3 border-2 border-gray-300 rounded-xl text-gray-800 focus:border-blue-500 outline-none"
+                        />
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveClinicalNote(item.id)}
+                            disabled={savingNoteId === item.id}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center gap-2 transition disabled:opacity-50"
+                          >
+                            {savingNoteId === item.id ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" /> Guardando...
+                              </>
+                            ) : (
+                              <>
+                                <Save className="w-4 h-4" /> Guardar Nota Clínica
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
       </div>

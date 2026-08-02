@@ -71,3 +71,27 @@ async def superuser_token(client, db_session):
     
     app.dependency_overrides.pop(deps.get_current_super_user, None)
     app.dependency_overrides.pop(deps.get_current_active_user, None)
+
+@pytest_asyncio.fixture(scope="function")
+async def patient_token(client, db_session):
+    # Usuario PACIENTE activo, sin privilegios de SUPER_ADMIN.
+    from app.api import deps
+
+    patient_user = models.User(
+        email=f"paciente_{uuid.uuid4().hex[:8]}@test.com",
+        password_hash="fakehash",
+        role="PACIENTE",
+        estado="ACTIVO"
+    )
+    db_session.add(patient_user)
+    await db_session.commit()
+    await db_session.refresh(patient_user)
+
+    async def override_get_current_active_user():
+        return patient_user
+
+    app.dependency_overrides[deps.get_current_active_user] = override_get_current_active_user
+
+    yield patient_user
+
+    app.dependency_overrides.pop(deps.get_current_active_user, None)

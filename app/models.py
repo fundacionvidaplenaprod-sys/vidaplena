@@ -386,6 +386,18 @@ class Appointment(Base):
 
     security_code = Column(String(32), unique=True, nullable=True)
 
+    # Aprobación manual (SUPER_ADMIN): cuando el OCR rechazó la cita pero el
+    # paciente se comunicó por WhatsApp y se verificó que el comprobante sí
+    # era válido, la doctora puede aprobar la cita manualmente.
+    revisado_manualmente_por = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    revisado_manualmente_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Exención de pago ("Caso Social"): la doctora/SUPER_ADMIN puede confirmar
+    # la cita sin voucher para pacientes en situación de vulnerabilidad.
+    eximido_por = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    eximido_at = Column(DateTime(timezone=True), nullable=True)
+    motivo_exencion = Column(Text, nullable=True)
+
     # Historia clínica simple: una nota de texto por cita, con fecha y autor.
     nota_consulta = Column(Text, nullable=True)
     nota_consulta_at = Column(DateTime(timezone=True), nullable=True)
@@ -397,4 +409,6 @@ class Appointment(Base):
         CheckConstraint("estado IN ('CONFIRMADA','RECHAZADA')", name="ck_appointment_estado"),
     )
 
-    nota_consulta_author = relationship("User")
+    nota_consulta_author = relationship("User", foreign_keys=[nota_consulta_by])
+    revisado_por = relationship("User", foreign_keys=[revisado_manualmente_por])
+    eximido_por_user = relationship("User", foreign_keys=[eximido_por])

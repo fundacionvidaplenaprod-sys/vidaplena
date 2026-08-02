@@ -66,3 +66,15 @@ def get_current_super_user(
             status_code=403, detail="El usuario no tiene suficientes privilegios"
         )
     return current_user
+
+def get_current_staff_user(
+    current_user: models.User = Depends(get_current_active_user),
+) -> models.User:
+    """
+    Verifica que el usuario sea SUPER_ADMIN o REGISTRADOR (personal médico / dirección).
+    """
+    if current_user.role not in ["SUPER_ADMIN", "REGISTRADOR"]:
+        raise HTTPException(
+            status_code=403, detail="El usuario no tiene suficientes privilegios para acceder a atención médica"
+        )
+    return current_user

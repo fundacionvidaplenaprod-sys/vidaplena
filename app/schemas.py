@@ -390,6 +390,12 @@ class ContributionResponse(ContributionBase):
     def tiene_comprobante(self) -> bool:
         return bool(self.url_comprobante)
 
+class ContributionOcrPreviewResponse(BaseModel):
+    monto: Optional[float] = None
+    fecha: Optional[date] = None
+    hora: Optional[time] = None
+
+
 class ContributionReviewResponse(BaseModel):
     id: int
     patient_id: int
@@ -614,7 +620,15 @@ class AppointmentHistoryItem(BaseModel):
     hora_cita: time
     estado: str
     motivo_rechazo: Optional[str] = None
+    security_code: Optional[str] = None
+    revisado_manualmente_at: Optional[datetime] = None
+    eximido_at: Optional[datetime] = None
+    motivo_exencion: Optional[str] = None
     nota_consulta: Optional[str] = None
     nota_consulta_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SocialCaseApproval(BaseModel):
+    motivo: Optional[str] = Field(None, max_length=300)

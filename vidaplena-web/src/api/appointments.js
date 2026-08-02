@@ -61,3 +61,15 @@ export const getHistoryByCi = async (ci) => {
   const response = await client.get('/appointments/history', { params: { ci } });
   return response.data;
 };
+
+export const approveAppointment = async (appointmentId) => {
+  const response = await client.post(`/appointments/${appointmentId}/approve`);
+  return response.data;
+};
+
+export const approveSocialCase = async (appointmentId, motivo) => {
+  const response = await client.post(`/appointments/${appointmentId}/approve-social-case`, {
+    motivo: motivo || null,
+  });
+  return response.data;
+};

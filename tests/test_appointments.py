@@ -2,6 +2,7 @@ import io
 from datetime import date, datetime, time, timedelta
 
 import pytest
+from sqlalchemy import select
 
 from app import models
 from app.api.endpoints import appointments as appointments_module
@@ -234,3 +235,194 @@ async def test_super_admin_can_manage_blocked_days_and_clinical_notes(client, mo
     res_history = await client.get("/appointments/history", params={"ci": "CI-NOTE1"})
     assert res_history.status_code == 200
     assert res_history.json()[0]["nota_consulta"] == "Se recetó insulina."
+
+
+async def _book_rejected(client, monkeypatch, fecha, hora, ci_suffix):
+    """Agenda una cita cuyo OCR no coincide (queda RECHAZADA) y devuelve su id."""
+    monkeypatch.setattr(appointments_module, "upload_file_to_firebase", _fake_upload)
+    monkeypatch.setattr(appointments_module, "extract_receipt_data", _make_ocr_mismatch())
+
+    res = await client.post(
+        "/appointments/book",
+        data=_booking_form(fecha, hora, ci_suffix),
+        files=_fake_file(),
+    )
+    assert res.status_code == 400
+
+    result = await client.get("/appointments/history", params={"ci": f"CI-{ci_suffix}"})
+    # /appointments/history requiere SUPER_ADMIN; el llamador debe tener el token activo.
+    appointment_id = result.json()[0]["id"]
+    return appointment_id
+
+
+@pytest.mark.asyncio
+async def test_approve_rejected_appointment_confirms_and_issues_ficha(client, monkeypatch, superuser_token):
+    fecha = _next_valid_business_date(min_offset=7)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+
+    appointment_id = await _book_rejected(client, monkeypatch, fecha, hora, "APR1")
+
+    res_history_before = await client.get("/appointments/history", params={"ci": "CI-APR1"})
+    assert res_history_before.json()[0]["estado"] == "RECHAZADA"
+    assert res_history_before.json()[0]["security_code"] is None
+
+    res_approve = await client.post(f"/appointments/{appointment_id}/approve")
+    assert res_approve.status_code == 200, res_approve.text
+    body = res_approve.json()
+    assert body["estado"] == "CONFIRMADA"
+    assert body["security_code"]
+    assert body["revisado_manualmente_at"] is not None
+
+    # Ahora la ficha debe poder descargarse con el código emitido.
+    ficha = await client.get(
+        f"/appointments/{appointment_id}/ficha.pdf", params={"code": body["security_code"]}
+    )
+    assert ficha.status_code == 200
+    assert ficha.headers["content-type"] == "application/pdf"
+
+    # El horario aprobado ahora debe figurar como ocupado.
+    res_avail = await client.get("/appointments/availability", params={"fecha": fecha.isoformat()})
+    slot = next(s for s in res_avail.json()["slots"] if s["hora"] == hora)
+    assert slot["disponible"] is False
+
+
+@pytest.mark.asyncio
+async def test_approve_requires_super_admin(client, db_session):
+    fecha = _next_valid_business_date(min_offset=8)
+    appointment = models.Appointment(
+        nombres="Paciente", ap_paterno="Prueba", ci="CI-APR2",
+        fecha_nac=date(1990, 1, 1), fecha_cita=fecha, hora_cita=time(9, 0),
+        estado="RECHAZADA", motivo_rechazo="Prueba",
+    )
+    db_session.add(appointment)
+    await db_session.commit()
+    await db_session.refresh(appointment)
+
+    res = await client.post(f"/appointments/{appointment.id}/approve")
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_approve_nonexistent_appointment(client, superuser_token):
+    res = await client.post("/appointments/999999999/approve")
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_approve_already_confirmed_appointment_rejected(client, monkeypatch, superuser_token):
+    monkeypatch.setattr(appointments_module, "upload_file_to_firebase", _fake_upload)
+    monkeypatch.setattr(appointments_module, "extract_receipt_data", _make_ocr_match())
+
+    fecha = _next_valid_business_date(min_offset=9)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+    res_book = await client.post(
+        "/appointments/book",
+        data=_booking_form(fecha, hora, "APR3"),
+        files=_fake_file(),
+    )
+    appointment_id = res_book.json()["id"]
+
+    res = await client.post(f"/appointments/{appointment_id}/approve")
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_approve_rejects_when_slot_taken_by_another_confirmed(client, monkeypatch, superuser_token):
+    fecha = _next_valid_business_date(min_offset=10)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+
+    # Primero, una reserva rechazada para ese horario.
+    appointment_id = await _book_rejected(client, monkeypatch, fecha, hora, "APR4")
+
+    # Luego, otra persona reserva y confirma ese mismo horario legítimamente.
+    monkeypatch.setattr(appointments_module, "upload_file_to_firebase", _fake_upload)
+    monkeypatch.setattr(appointments_module, "extract_receipt_data", _make_ocr_match())
+    res_book2 = await client.post(
+        "/appointments/book",
+        data=_booking_form(fecha, hora, "APR4B"),
+        files=_fake_file(),
+    )
+    assert res_book2.status_code == 201, res_book2.text
+
+    res_approve = await client.post(f"/appointments/{appointment_id}/approve")
+    assert res_approve.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_approve_social_case_confirms_without_voucher_and_issues_ficha(client, monkeypatch, superuser_token):
+    fecha = _next_valid_business_date(min_offset=11)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+
+    appointment_id = await _book_rejected(client, monkeypatch, fecha, hora, "SOC1")
+
+    res_approve = await client.post(
+        f"/appointments/{appointment_id}/approve-social-case", json={"motivo": "Sin recursos tras evaluación"}
+    )
+    assert res_approve.status_code == 200, res_approve.text
+    body = res_approve.json()
+    assert body["estado"] == "CONFIRMADA"
+    assert body["security_code"]
+    assert body["eximido_at"] is not None
+    assert body["motivo_exencion"] == "Sin recursos tras evaluación"
+
+    ficha = await client.get(
+        f"/appointments/{appointment_id}/ficha.pdf", params={"code": body["security_code"]}
+    )
+    assert ficha.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_approve_social_case_defaults_motivo(client, monkeypatch, superuser_token):
+    fecha = _next_valid_business_date(min_offset=12)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+    appointment_id = await _book_rejected(client, monkeypatch, fecha, hora, "SOC2")
+
+    res_approve = await client.post(f"/appointments/{appointment_id}/approve-social-case", json={})
+    assert res_approve.status_code == 200, res_approve.text
+    assert res_approve.json()["motivo_exencion"] == "Caso Social"
+
+
+@pytest.mark.asyncio
+async def test_approve_social_case_requires_super_admin(client, db_session):
+    fecha = _next_valid_business_date(min_offset=13)
+    appointment = models.Appointment(
+        nombres="Paciente", ap_paterno="Prueba", ci="CI-SOC3",
+        fecha_nac=date(1990, 1, 1), fecha_cita=fecha, hora_cita=time(9, 0),
+        estado="RECHAZADA", motivo_rechazo="Prueba",
+    )
+    db_session.add(appointment)
+    await db_session.commit()
+    await db_session.refresh(appointment)
+
+    res = await client.post(f"/appointments/{appointment.id}/approve-social-case", json={})
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_approve_social_case_not_found(client, superuser_token):
+    res = await client.post("/appointments/999999999/approve-social-case", json={})
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_approve_social_case_already_confirmed_rejected(client, monkeypatch, superuser_token):
+    monkeypatch.setattr(appointments_module, "upload_file_to_firebase", _fake_upload)
+    monkeypatch.setattr(appointments_module, "extract_receipt_data", _make_ocr_match())
+
+    fecha = _next_valid_business_date(min_offset=14)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+    res_book = await client.post(
+        "/appointments/book",
+        data=_booking_form(fecha, hora, "SOC4"),
+        files=_fake_file(),
+    )
+    appointment_id = res_book.json()["id"]
+
+    res = await client.post(f"/appointments/{appointment_id}/approve-social-case", json={})
+    assert res.status_code == 400

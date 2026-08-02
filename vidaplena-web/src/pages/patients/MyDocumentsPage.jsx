@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { LogOut, UploadCloud, CheckCircle, FileText, Lock, Clock, Camera, Users, Download, AlertTriangle, Pill, Wallet, CalendarDays } from 'lucide-react';
+import { LogOut, UploadCloud, CheckCircle, FileText, Lock, Clock, Camera, Users, Download, AlertTriangle, Pill, Wallet, CalendarDays, HandCoins } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/ui/Button';
 import { toast } from 'react-hot-toast';
 import { uploadDocument } from '../../api/patients';
 import { getMyDeliveryReceipt, listMyInsulinDeliveries } from '../../api/donations';
+import { VoluntaryContributionModal } from '../../components/patients/VoluntaryContributionModal';
 import client from '../../api/axios';
 
 export default function MyDocumentsPage() {
@@ -16,14 +17,7 @@ export default function MyDocumentsPage() {
     const [loading, setLoading] = useState(true);
     const [observations, setObservations] = useState([]);
     const [contributions, setContributions] = useState([]);
-    const [voucherUploading, setVoucherUploading] = useState(false);
-    const [voucherForm, setVoucherForm] = useState({
-        monto: '100',
-        periodo: new Date().toISOString().slice(0, 7),
-        fechaPago: new Date().toISOString().slice(0, 10),
-        comprobante: null,
-    });
-
+    const [showContributionModal, setShowContributionModal] = useState(false);
 
     const [montoAporte, setMontoAporte] = useState(100); // Mínimo por defecto
     const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -108,7 +102,6 @@ export default function MyDocumentsPage() {
 
                 if (resolvedCommittedAmount) {
                     setMontoAporte(resolvedCommittedAmount);
-                    setVoucherForm((prev) => ({ ...prev, monto: String(resolvedCommittedAmount) }));
                 }
 
                 const getDocUrl = (shortKey, urlKey) => {
@@ -248,60 +241,6 @@ export default function MyDocumentsPage() {
         }
     };
 
-    const handleVoucherChange = (field, value) => {
-        setVoucherForm((prev) => ({ ...prev, [field]: value }));
-    };
-
-    const handleVoucherUpload = async (event) => {
-        event.preventDefault();
-        if (!voucherForm.comprobante) {
-            toast.error('Adjunte un comprobante antes de enviar.');
-            return;
-        }
-        if (!voucherForm.periodo || !voucherForm.fechaPago) {
-            toast.error('Complete periodo y fecha de pago.');
-            return;
-        }
-
-        const montoNum = Number(voucherForm.monto);
-        if (!Number.isFinite(montoNum) || montoNum <= 0) {
-            toast.error('Ingrese un monto válido.');
-            return;
-        }
-        const effectiveAmount = hasCommittedAmount ? committedAmount : montoNum;
-        if (hasCommittedAmount && Math.abs(montoNum - committedAmount) > 0.001) {
-            toast.error(`El monto debe coincidir con su compromiso: Bs. ${committedAmount.toFixed(2)}.`);
-            return;
-        }
-        if (isDuplicateVoucherPeriod) {
-            toast.error(`El aporte del periodo ${voucherForm.periodo} ya fue validado y no puede reemplazarse.`);
-            return;
-        }
-
-        try {
-            setVoucherUploading(true);
-            const formData = new FormData();
-            formData.append('monto', String(effectiveAmount));
-            formData.append('periodo', voucherForm.periodo);
-            formData.append('fecha_pago', voucherForm.fechaPago);
-            formData.append('comprobante', voucherForm.comprobante);
-
-            await client.post('/contributions/me', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
-
-            toast.success('Voucher enviado. Quedó en estado DECLARADO.');
-            setVoucherForm((prev) => ({ ...prev, comprobante: null }));
-            await loadContributions();
-        } catch (error) {
-            console.error(error);
-            const detail = error?.response?.data?.detail;
-            toast.error(typeof detail === 'string' ? detail : 'No se pudo subir el voucher.');
-        } finally {
-            setVoucherUploading(false);
-        }
-    };
-
     // Helper para iconos
     const renderIcon = (type) => {
         if (type === 'camera') return <Camera size={24} />;
@@ -323,8 +262,6 @@ export default function MyDocumentsPage() {
     const committedAmount = parseCommittedAmount(patientProfile?.monto_aporte_comprometido) || 0;
     const hasCommittedAmount = committedAmount > 0;
     const currentPeriodContribution = contributions.find((item) => item.periodo === currentPeriod);
-    const selectedPeriodContribution = contributions.find((item) => item.periodo === voucherForm.periodo);
-    const isDuplicateVoucherPeriod = selectedPeriodContribution?.estado === 'ACEPTADO';
     const todayDoseTotal = (patientProfile?.treatments || []).reduce((acc, treatment) => {
         return acc + Number(treatment.dosis_diaria || 0);
     }, 0);
@@ -438,73 +375,18 @@ export default function MyDocumentsPage() {
                         {insulinDeliveriesSection}
 
                         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
-                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Cargar voucher de aporte</h2>
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Aporte de donación</h2>
                             <p className="text-gray-500 mb-6">
                                 Aunque su expediente aun este en revision, puede registrar su aporte mensual para evitar bloqueos en la distribucion.
                             </p>
 
-                            <form onSubmit={handleVoucherUpload} className="grid md:grid-cols-2 gap-4 mb-6">
-                                <div>
-                                    <label className="text-sm font-semibold text-gray-700 block mb-1">Periodo (YYYY-MM)</label>
-                                    <input
-                                        type="month"
-                                        value={voucherForm.periodo}
-                                        onChange={(e) => handleVoucherChange('periodo', e.target.value)}
-                                        className="w-full border rounded-lg px-3 py-2 text-sm"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-sm font-semibold text-gray-700 block mb-1">Fecha de pago</label>
-                                    <input
-                                        type="date"
-                                        value={voucherForm.fechaPago}
-                                        onChange={(e) => handleVoucherChange('fechaPago', e.target.value)}
-                                        className="w-full border rounded-lg px-3 py-2 text-sm"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-sm font-semibold text-gray-700 block mb-1">Monto (Bs)</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        step="0.01"
-                                        value={hasCommittedAmount ? String(committedAmount) : voucherForm.monto}
-                                        onChange={(e) => handleVoucherChange('monto', e.target.value)}
-                                        readOnly={hasCommittedAmount}
-                                        className="w-full border rounded-lg px-3 py-2 text-sm"
-                                        required
-                                    />
-                                    {hasCommittedAmount && (
-                                        <p className="text-xs text-gray-500 mt-1">Monto fijo según compromiso firmado.</p>
-                                    )}
-                                </div>
-                                <div>
-                                    <label className="text-sm font-semibold text-gray-700 block mb-1">Comprobante</label>
-                                    <input
-                                        type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png"
-                                        onChange={(e) => handleVoucherChange('comprobante', e.target.files?.[0] || null)}
-                                        className="w-full border rounded-lg px-3 py-2 text-sm"
-                                        required
-                                    />
-                                </div>
-                                <div className="md:col-span-2 flex justify-end">
-                                    <Button
-                                        type="submit"
-                                        disabled={voucherUploading || isDuplicateVoucherPeriod}
-                                        className="bg-vida-main hover:bg-vida-hover text-white"
-                                    >
-                                        {voucherUploading ? 'Subiendo...' : isDuplicateVoucherPeriod ? 'Periodo validado' : 'Subir voucher'}
-                                    </Button>
-                                </div>
-                            </form>
-                            {isDuplicateVoucherPeriod && (
-                                <p className="text-xs text-amber-700 mb-4">
-                                    El periodo {voucherForm.periodo} ya fue validado. Para corregir, contacte a administración.
-                                </p>
-                            )}
+                            <Button
+                                type="button"
+                                onClick={() => setShowContributionModal(true)}
+                                className="w-auto px-5 mb-6 inline-flex items-center gap-2"
+                            >
+                                <HandCoins size={18} /> Registrar Aporte Voluntario
+                            </Button>
 
                             <h3 className="font-bold text-gray-800 mb-3">Historial de aportes</h3>
                             <div className="space-y-2">
@@ -617,71 +499,16 @@ export default function MyDocumentsPage() {
                         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Aporte voluntario mensual</h2>
                             <p className="text-gray-500 mb-6">
-                                Suba el voucher para validacion. Sin aporte aceptado del periodo, la distribucion puede bloquearse.
+                                Registre su aporte para validacion. Sin aporte aceptado del periodo, la distribucion puede bloquearse.
                             </p>
 
-                            <form onSubmit={handleVoucherUpload} className="grid md:grid-cols-2 gap-4 mb-6">
-                                <div>
-                                    <label className="text-sm font-semibold text-gray-700 block mb-1">Periodo (YYYY-MM)</label>
-                                    <input
-                                        type="month"
-                                        value={voucherForm.periodo}
-                                        onChange={(e) => handleVoucherChange('periodo', e.target.value)}
-                                        className="w-full border rounded-lg px-3 py-2 text-sm"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-sm font-semibold text-gray-700 block mb-1">Fecha de pago</label>
-                                    <input
-                                        type="date"
-                                        value={voucherForm.fechaPago}
-                                        onChange={(e) => handleVoucherChange('fechaPago', e.target.value)}
-                                        className="w-full border rounded-lg px-3 py-2 text-sm"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-sm font-semibold text-gray-700 block mb-1">Monto (Bs)</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        step="0.01"
-                                        value={hasCommittedAmount ? String(committedAmount) : voucherForm.monto}
-                                        onChange={(e) => handleVoucherChange('monto', e.target.value)}
-                                        readOnly={hasCommittedAmount}
-                                        className="w-full border rounded-lg px-3 py-2 text-sm"
-                                        required
-                                    />
-                                    {hasCommittedAmount && (
-                                        <p className="text-xs text-gray-500 mt-1">Monto fijo según compromiso firmado.</p>
-                                    )}
-                                </div>
-                                <div>
-                                    <label className="text-sm font-semibold text-gray-700 block mb-1">Comprobante</label>
-                                    <input
-                                        type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png"
-                                        onChange={(e) => handleVoucherChange('comprobante', e.target.files?.[0] || null)}
-                                        className="w-full border rounded-lg px-3 py-2 text-sm"
-                                        required
-                                    />
-                                </div>
-                                <div className="md:col-span-2 flex justify-end">
-                                    <Button
-                                        type="submit"
-                                        disabled={voucherUploading || isDuplicateVoucherPeriod}
-                                        className="bg-vida-main hover:bg-vida-hover text-white"
-                                    >
-                                        {voucherUploading ? 'Subiendo...' : isDuplicateVoucherPeriod ? 'Periodo validado' : 'Subir voucher'}
-                                    </Button>
-                                </div>
-                            </form>
-                            {isDuplicateVoucherPeriod && (
-                                <p className="text-xs text-amber-700 mb-4">
-                                    El periodo {voucherForm.periodo} ya fue validado. Para corregir, contacte a administración.
-                                </p>
-                            )}
+                            <Button
+                                type="button"
+                                onClick={() => setShowContributionModal(true)}
+                                className="w-auto px-5 mb-6 inline-flex items-center gap-2"
+                            >
+                                <HandCoins size={18} /> Registrar Aporte Voluntario
+                            </Button>
 
                             <h3 className="font-bold text-gray-800 mb-3">Historial de aportes</h3>
                             <div className="space-y-2">
@@ -914,6 +741,18 @@ export default function MyDocumentsPage() {
                     </div>
                 </div>
             )}
+
+            <VoluntaryContributionModal
+                isOpen={showContributionModal}
+                onClose={() => setShowContributionModal(false)}
+                hasCommittedAmount={hasCommittedAmount}
+                committedAmount={committedAmount}
+                contributions={contributions}
+                onSuccess={() => {
+                    setShowContributionModal(false);
+                    loadContributions();
+                }}
+            />
 
         </div>
     );

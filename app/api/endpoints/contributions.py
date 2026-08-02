@@ -10,6 +10,7 @@ from app import models, schemas
 from app.api import deps
 from app.db import get_db
 from app.core.firebase import upload_file_to_firebase
+from app.core.ocr import extract_receipt_data
 
 router = APIRouter()
 
@@ -25,6 +26,34 @@ async def get_patient_from_user(user_id: int, db: AsyncSession) -> models.Patien
     result = await db.execute(query)
     patient = result.scalars().first()
     return patient
+
+# 0. PACIENTE: Leer comprobante con OCR (solo lectura, no crea el aporte)
+@router.post("/ocr-preview", response_model=schemas.ContributionOcrPreviewResponse)
+async def preview_contribution_ocr(
+    comprobante: UploadFile = File(...),
+    current_user: models.User = Depends(deps.get_current_active_user),
+):
+    """
+    Extrae monto/fecha/hora del comprobante con el mismo motor OCR usado para
+    las citas médicas, para precargar el formulario de aporte voluntario. A
+    diferencia de las citas, el monto no se valida contra ningún valor fijo:
+    el aporte es voluntario y el paciente confirma/edita el monto detectado.
+    """
+    if comprobante.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Tipo de archivo inválido.")
+
+    content = await comprobante.read()
+    if len(content) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="El archivo excede los 2MB.")
+
+    try:
+        result = extract_receipt_data(content, comprobante.content_type)
+    except Exception as e:
+        print(f"Error OCR (aportes): {e}")
+        raise HTTPException(status_code=500, detail="No se pudo leer el comprobante. Ingrese el monto manualmente.")
+
+    return {"monto": result.get("monto"), "fecha": result.get("fecha"), "hora": result.get("hora")}
+
 
 # 1. PACIENTE: Subir aporte (Estado: DECLARADO)
 @router.post("/me", response_model=schemas.ContributionResponse, status_code=status.HTTP_201_CREATED)

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { CalendarClock, Ban, Search, Save, Trash2, Plus } from 'lucide-react';
+import { CalendarClock, Ban, Search, Save, Trash2, Plus, CheckCircle2, Download, HeartHandshake } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import {
@@ -11,6 +11,9 @@ import {
   deleteBlockedDay,
   updateClinicalNote,
   getHistoryByCi,
+  approveAppointment,
+  approveSocialCase,
+  getFichaUrl,
 } from '../../api/appointments';
 
 function todayIso() {
@@ -38,6 +41,8 @@ export default function DoctorAgendaPage() {
   const [ciQuery, setCiQuery] = useState('');
   const [history, setHistory] = useState(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [approvingId, setApprovingId] = useState(null);
+  const [approvingSocialId, setApprovingSocialId] = useState(null);
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -113,6 +118,41 @@ export default function DoctorAgendaPage() {
       loadBlockedDays();
     } catch (error) {
       toast.error('No se pudo eliminar el bloqueo.');
+    }
+  };
+
+  const handleApprove = async (appointmentId) => {
+    const confirmado = window.confirm(
+      '¿Confirmas que verificaste el comprobante manualmente (por WhatsApp) y es válido? Se aprobará la cita y quedará confirmada.'
+    );
+    if (!confirmado) return;
+    try {
+      setApprovingId(appointmentId);
+      await approveAppointment(appointmentId);
+      toast.success('Cita aprobada. Ya se puede emitir la ficha.');
+      handleSearchHistory();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'No se pudo aprobar la cita.');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleApproveSocialCase = async (appointmentId) => {
+    const confirmado = window.confirm(
+      '¿Confirmas que este paciente califica como Caso Social y se le exime del aporte de donación? Se confirmará la cita sin voucher.'
+    );
+    if (!confirmado) return;
+    const motivo = window.prompt('Motivo de la exención (opcional):', 'Caso Social') || 'Caso Social';
+    try {
+      setApprovingSocialId(appointmentId);
+      await approveSocialCase(appointmentId, motivo);
+      toast.success('Ficha solidaria generada. Ya se puede descargar.');
+      handleSearchHistory();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'No se pudo generar la ficha solidaria.');
+    } finally {
+      setApprovingSocialId(null);
     }
   };
 
@@ -251,11 +291,53 @@ export default function DoctorAgendaPage() {
           <div className="space-y-3">
             {history?.map((item) => (
               <div key={item.id} className="bg-white border border-gray-200 rounded-xl p-4">
-                <p className="font-bold text-gray-800">
-                  {item.fecha_cita} {item.hora_cita} — <span className={item.estado === 'CONFIRMADA' ? 'text-green-600' : 'text-red-500'}>{item.estado}</span>
-                </p>
+                <div className="flex justify-between items-start gap-3 flex-wrap">
+                  <p className="font-bold text-gray-800">
+                    {item.fecha_cita} {item.hora_cita} — <span className={item.estado === 'CONFIRMADA' ? 'text-green-600' : 'text-red-500'}>{item.estado}</span>
+                  </p>
+                  <div className="flex gap-2">
+                    {item.estado === 'RECHAZADA' && (
+                      <Button
+                        type="button"
+                        onClick={() => handleApprove(item.id)}
+                        disabled={approvingId === item.id || approvingSocialId === item.id}
+                        className="w-auto px-3 py-1.5 text-xs inline-flex items-center gap-1"
+                      >
+                        <CheckCircle2 size={14} /> {approvingId === item.id ? 'Aprobando...' : 'Aprobar (verificado por WhatsApp)'}
+                      </Button>
+                    )}
+                    {item.estado === 'RECHAZADA' && (
+                      <Button
+                        type="button"
+                        onClick={() => handleApproveSocialCase(item.id)}
+                        disabled={approvingId === item.id || approvingSocialId === item.id}
+                        className="w-auto px-3 py-1.5 text-xs inline-flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white"
+                      >
+                        <HeartHandshake size={14} /> {approvingSocialId === item.id ? 'Generando...' : 'Aprobar como Caso Social'}
+                      </Button>
+                    )}
+                    {item.security_code && (
+                      <a
+                        href={getFichaUrl(item.id, item.security_code)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-bold text-vida-main hover:text-vida-primary inline-flex items-center gap-1 px-3 py-1.5"
+                      >
+                        <Download size={14} /> Descargar ficha
+                      </a>
+                    )}
+                  </div>
+                </div>
                 {item.motivo_rechazo && (
                   <p className="text-sm text-red-600 mt-2 bg-red-50 rounded-lg p-2">{item.motivo_rechazo}</p>
+                )}
+                {item.revisado_manualmente_at && (
+                  <p className="text-xs text-amber-600 mt-2">Aprobada manualmente (verificación por WhatsApp).</p>
+                )}
+                {item.eximido_at && (
+                  <p className="text-xs text-purple-600 mt-2">
+                    Ficha solidaria — {item.motivo_exencion || 'Caso Social'}.
+                  </p>
                 )}
                 {item.nota_consulta && (
                   <p className="text-sm text-gray-600 mt-2 bg-gray-50 rounded-lg p-2">{item.nota_consulta}</p>

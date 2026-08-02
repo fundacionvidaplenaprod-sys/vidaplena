@@ -350,6 +350,109 @@ async def download_ficha(
 #   PANEL DOCTORA (SOLO SUPER_ADMIN)
 # ==========================================
 
+@router.post("/{appointment_id}/approve", response_model=schemas.AppointmentHistoryItem)
+async def approve_appointment_manually(
+    appointment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Aprueba manualmente una cita que el OCR rechazó, para el caso en que el
+    paciente se comunicó (WhatsApp) y se verificó que su comprobante sí era
+    válido. Genera el código de seguridad para poder emitir la ficha.
+    """
+    appointment = await db.get(models.Appointment, appointment_id)
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Cita no encontrada.")
+    if appointment.estado == "CONFIRMADA":
+        raise HTTPException(status_code=400, detail="Esta cita ya está confirmada.")
+    if appointment.estado != "RECHAZADA":
+        raise HTTPException(status_code=400, detail="Solo se pueden aprobar citas rechazadas.")
+
+    conflict_q = await db.execute(
+        select(models.Appointment).where(
+            and_(
+                models.Appointment.fecha_cita == appointment.fecha_cita,
+                models.Appointment.hora_cita == appointment.hora_cita,
+                models.Appointment.estado == "CONFIRMADA",
+                models.Appointment.id != appointment.id,
+            )
+        )
+    )
+    if conflict_q.scalars().first():
+        raise HTTPException(
+            status_code=409,
+            detail="Ese horario ya fue tomado por otra cita confirmada. Coordine una nueva fecha/hora con el paciente.",
+        )
+
+    appointment.estado = "CONFIRMADA"
+    appointment.revisado_manualmente_por = current_user.id
+    appointment.revisado_manualmente_at = datetime.now()
+    raw_str = f"CITA-{appointment.id}-{settings.SECRET_KEY}"
+    appointment.security_code = hashlib.sha256(raw_str.encode()).hexdigest()[:10].upper()
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Ese horario ya fue tomado, por favor elija otro.")
+
+    await db.refresh(appointment)
+    return appointment
+
+
+@router.post("/{appointment_id}/approve-social-case", response_model=schemas.AppointmentHistoryItem)
+async def approve_appointment_social_case(
+    appointment_id: int,
+    payload: schemas.SocialCaseApproval,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Confirma una cita sin exigir voucher de donación, para pacientes en
+    situación de vulnerabilidad ("Caso Social") detectada en evaluación
+    presencial o reportada por WhatsApp. Deja registro de quién autorizó
+    la exención.
+    """
+    appointment = await db.get(models.Appointment, appointment_id)
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Cita no encontrada.")
+    if appointment.estado == "CONFIRMADA":
+        raise HTTPException(status_code=400, detail="Esta cita ya está confirmada.")
+
+    conflict_q = await db.execute(
+        select(models.Appointment).where(
+            and_(
+                models.Appointment.fecha_cita == appointment.fecha_cita,
+                models.Appointment.hora_cita == appointment.hora_cita,
+                models.Appointment.estado == "CONFIRMADA",
+                models.Appointment.id != appointment.id,
+            )
+        )
+    )
+    if conflict_q.scalars().first():
+        raise HTTPException(
+            status_code=409,
+            detail="Ese horario ya fue tomado por otra cita confirmada. Coordine una nueva fecha/hora con el paciente.",
+        )
+
+    appointment.estado = "CONFIRMADA"
+    appointment.eximido_por = current_user.id
+    appointment.eximido_at = datetime.now()
+    appointment.motivo_exencion = (payload.motivo or "").strip() or "Caso Social"
+    raw_str = f"CITA-{appointment.id}-{settings.SECRET_KEY}"
+    appointment.security_code = hashlib.sha256(raw_str.encode()).hexdigest()[:10].upper()
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Ese horario ya fue tomado, por favor elija otro.")
+
+    await db.refresh(appointment)
+    return appointment
+
+
 @router.get("/blocked-days", response_model=List[schemas.BlockedDayResponse])
 async def list_blocked_days(
     db: AsyncSession = Depends(get_db),
@@ -400,7 +503,7 @@ async def delete_blocked_day(
 async def get_agenda(
     fecha: date = Query(...),
     db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(deps.get_current_super_user),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     result = await db.execute(
         select(models.Appointment)
@@ -420,7 +523,7 @@ async def update_clinical_note(
     appointment_id: int,
     payload: schemas.ClinicalNoteUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(deps.get_current_super_user),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     appointment = await db.get(models.Appointment, appointment_id)
     if not appointment or appointment.estado != "CONFIRMADA":
