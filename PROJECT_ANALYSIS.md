@@ -90,10 +90,12 @@ VIDAPLENA/
   - **Complicaciones Médicas** (Tipos administrables por el Super Admin).
 
 ### Módulo Especializado de la Directora (`/directora`)
-- Un sistema aislado y ágil para el registro rápido de entrega de insulinas, diseñado para la Directora de la fundación.
+- Un sistema aislado y ágil diseñado para la Directora de la fundación, operado de forma rápida y sin ataduras al padrón general de expedientes.
 - **Autenticación Silenciosa**: Utiliza un Keypad Numérico. El PIN de 4 dígitos actúa como contraseña de un usuario técnico (`directora@vidaplena.org`).
 - **Bloqueo Inteligente**: Se bloquea manualmente o por inactividad (3 minutos sin interacciones).
-- **Alerta de Duplicados**: Busca en tiempo real entregas de insulina previas a pacientes con el mismo nombre y apellido en los últimos 25 días.
+- **Pestañas de Atención Clínica (Sin Administración)**:
+  - **1. Entrega Rápida de Insulina**: Registro veloz en campo sobre la tabla independiente (`director_insulin_deliveries`) con alerta de duplicados en los últimos 25 días.
+  - **2. Agenda de Citas del Día**: Vista clínica especializada de solo atención que permite a la doctora consultar las citas confirmadas para el día de hoy, revisar los datos básicos del paciente (CI y fecha de nacimiento) y registrar la **Nota Clínica de Evolución / Consulta (`nota_consulta`)**. No incluye funciones de administración para mantener la simplicidad y rapidez.
 
 ### Módulo de Reserva de Cita Médica (SAPAM) (`/agendar-cita` y `/dashboard/agenda-medica`)
 - **Reserva Pública sin Sesión**: Cualquier paciente puede solicitar una cita de atención médica en los horarios disponibles indicando sus datos personales básicos (Nombres, Apellidos, CI y Fecha de Nacimiento).
@@ -104,13 +106,15 @@ VIDAPLENA/
 - **Emisión Automática de Ficha PDF**: Si la validación OCR es exitosa, la cita queda `CONFIRMADA`, se genera un código de seguridad único (`security_code`, ej. `CITA-...`) y se emite la **Ficha de Atención Médica en PDF** para el paciente.
 - **Mecanismo Administrativo de Solución a Rechazos OCR (Atención por WhatsApp)**:
   - Cuando el OCR rechaza el voucher (por imagen borrosa, iluminación, corte de texto o fallo técnico), la cita se guarda con estado `RECHAZADA` junto con el `motivo_rechazo` y se instruye al paciente a comunicarse al número oficial de **WhatsApp** de la fundación.
-  - **Dispensación manual de la ficha por el personal administrativo**:
+  - **Dispensación manual de la ficha por el personal administrativo (`SUPER_ADMIN`)**:
     1. El personal autorizado (`SUPER_ADMIN`) accede a la sección **Agenda Médica** (`/dashboard/agenda-medica`) y entra a la pestaña **"Historial por C.I."**.
     2. Busca por el carnet de identidad del paciente, listándose todas sus citas (incluyendo las rechazadas con su motivo).
     3. Al verificar por WhatsApp que el voucher enviado por el paciente es auténtico y correcto, el administrador presiona el botón **`Aprobar (verificado por WhatsApp)`**.
     4. El sistema ejecuta el endpoint `POST /api/v1/appointments/{id}/approve`, cambiando el estado a `CONFIRMADA`, registrando la auditoría del usuario que aprobó (`revisado_manualmente_por`, `revisado_manualmente_at`) y generando el `security_code`.
     5. Inmediatamente se habilita el botón **`Descargar ficha`** en la misma interfaz para que el administrador descargue el PDF y se lo envíe al paciente por WhatsApp (o para que el paciente lo descargue desde el portal).
-- **Gestión de Agenda y Notas Clínicas**: Permite a los profesionales médicos consultar la agenda del día, bloquear días no laborables o feriados (`doctor_blocked_days`) y agregar notas clínicas de evolución por cada cita atendida.
+- **Separación de Roles (Administración vs. Atención)**: 
+  - Todas las tareas administrativas (aprobación manual por WhatsApp, historial por C.I. y bloqueo/desbloqueo de fechas no laborables en `doctor_blocked_days`) están restringidas estrictamente al rol **`SUPER_ADMIN`** (`get_current_super_user`).
+  - La consulta de la agenda del día y el registro de notas clínicas de evolución (`nota_consulta`) están habilitadas tanto para `SUPER_ADMIN` como para el personal médico/directora (`REGISTRADOR`) mediante la dependencia `get_current_staff_user`.
 
 ### Reportes (`/reports`)
 - Generación de reportes gerenciales con métricas sobre pacientes, entregas, donaciones y tipos de complicaciones.
