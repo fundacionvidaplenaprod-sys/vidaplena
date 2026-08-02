@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { UserCog, Search, Save, X, Pencil, CheckCircle2 } from 'lucide-react';
+import { UserCog, Search, Save, X, Pencil, CheckCircle2, RotateCcw } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { searchBeneficiariesAdmin, updateBeneficiaryAdmin } from '../../api/patients';
+import { searchBeneficiariesAdmin, updateBeneficiaryAdmin, resetBeneficiaryRegistration } from '../../api/patients';
 
 const emptyForm = { nombres: '', ap_paterno: '', ap_materno: '', depto: '' };
 
@@ -58,6 +58,29 @@ export default function BeneficiaryNamesPage() {
   const cancelEdit = () => {
     setEditingId(null);
     setForm(emptyForm);
+  };
+
+  // Herramienta temporal (solo pruebas): borra el paciente/usuario de prueba
+  // que quedó vinculado a este beneficiario al autoregistrarse, y libera el
+  // padrón para que un beneficiario real pueda reclamarlo. No toca
+  // nombres/apellidos/depto del padrón.
+  const handleResetRegistration = async (item) => {
+    const confirmado = window.confirm(
+      `¿Borrar el paciente/usuario de prueba registrado como "${item.nombres} ${item.ap_paterno || ''}"? ` +
+        `Esto elimina permanentemente ese registro (datos médicos, documentos, etc.) y libera el padrón.`
+    );
+    if (!confirmado) return;
+    try {
+      setSaving(true);
+      const updated = await resetBeneficiaryRegistration(item.id);
+      setResults((prev) => prev.map((r) => (r.id === item.id ? updated : r)));
+      toast.success('Paciente de prueba eliminado. El padrón quedó libre.');
+      if (editingId === item.id) cancelEdit();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'No se pudo restablecer el registro.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSave = async (id) => {
@@ -167,13 +190,25 @@ export default function BeneficiaryNamesPage() {
                   </p>
                   <p className="text-xs text-gray-500">{item.depto || 'Sin departamento'}</p>
                 </div>
-                <button
-                  onClick={() => startEdit(item)}
-                  className="text-vida-main hover:text-vida-primary p-1 flex-shrink-0"
-                  title="Editar"
-                >
-                  <Pencil size={18} />
-                </button>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {item.already_registered && (
+                    <button
+                      onClick={() => handleResetRegistration(item)}
+                      disabled={saving}
+                      className="text-amber-600 hover:text-amber-700 p-1"
+                      title="Borrar paciente/usuario de prueba y liberar este beneficiario (herramienta temporal de pruebas)"
+                    >
+                      <RotateCcw size={18} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => startEdit(item)}
+                    className="text-vida-main hover:text-vida-primary p-1"
+                    title="Editar"
+                  >
+                    <Pencil size={18} />
+                  </button>
+                </div>
               </div>
             )}
           </div>

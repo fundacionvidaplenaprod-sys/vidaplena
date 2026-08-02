@@ -114,3 +114,8 @@ export const updateBeneficiaryAdmin = async (id, { nombres, ap_paterno, ap_mater
   });
   return response.data;
 };
+
+export const resetBeneficiaryRegistration = async (id) => {
+  const response = await client.post(`/patients/admin/beneficiaries/${id}/reset-registration`);
+  return response.data;
+};

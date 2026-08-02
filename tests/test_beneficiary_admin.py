@@ -1,6 +1,8 @@
 import uuid
+from datetime import date
 
 import pytest
+from sqlalchemy import select
 
 from app import models
 
@@ -13,6 +15,38 @@ async def _seed_beneficiary(db_session, nombres, ap_paterno, ap_materno=None, de
     await db_session.commit()
     await db_session.refresh(beneficiary)
     return beneficiary
+
+
+async def _seed_test_registration(db_session, nombres, ap_paterno, depto="La Paz"):
+    """Simula un beneficiario del padrón ya reclamado por un paciente de prueba."""
+    suffix = str(uuid.uuid4())[:8]
+    user = models.User(
+        email=f"paciente_{suffix}@test.com",
+        password_hash="fakehash",
+        role="PACIENTE",
+        estado="ACTIVO",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    patient = models.Patient(
+        user_id=user.id,
+        nombres=nombres,
+        ap_paterno=ap_paterno,
+        fecha_nac=date(1990, 1, 1),
+        estado="PENDIENTE_DOC",
+    )
+    db_session.add(patient)
+    await db_session.commit()
+    await db_session.refresh(patient)
+
+    beneficiary = await _seed_beneficiary(db_session, nombres, ap_paterno, depto=depto)
+    beneficiary.matched_patient_id = patient.id
+    await db_session.commit()
+    await db_session.refresh(beneficiary)
+
+    return beneficiary, patient, user
 
 
 @pytest.mark.asyncio
@@ -84,4 +118,52 @@ async def test_update_beneficiary_not_found(client, db_session, superuser_token)
         "/patients/admin/beneficiaries/999999999",
         json={"nombres": "NoExiste", "ap_paterno": "Prueba"},
     )
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_reset_registration_deletes_test_patient_and_user(client, db_session, superuser_token):
+    suffix = str(uuid.uuid4())[:8]
+    nombres = f"Reset{suffix}"
+    beneficiary, patient, user = await _seed_test_registration(db_session, nombres, "Prueba")
+    patient_id = patient.id
+    user_id = user.id
+
+    res = await client.post(f"/patients/admin/beneficiaries/{beneficiary.id}/reset-registration")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["already_registered"] is False
+    # El nombre/apellido/depto del padrón no debe tocarse.
+    assert body["nombres"] == nombres
+    assert body["ap_paterno"] == "Prueba"
+
+    patient_check = await db_session.execute(select(models.Patient).where(models.Patient.id == patient_id))
+    assert patient_check.scalar_one_or_none() is None
+
+    user_check = await db_session.execute(select(models.User).where(models.User.id == user_id))
+    assert user_check.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_reset_registration_noop_when_not_registered(client, db_session, superuser_token):
+    suffix = str(uuid.uuid4())[:8]
+    beneficiary = await _seed_beneficiary(db_session, f"Libre{suffix}", "Prueba")
+
+    res = await client.post(f"/patients/admin/beneficiaries/{beneficiary.id}/reset-registration")
+    assert res.status_code == 200, res.text
+    assert res.json()["already_registered"] is False
+
+
+@pytest.mark.asyncio
+async def test_reset_registration_requires_super_admin(client, db_session):
+    suffix = str(uuid.uuid4())[:8]
+    beneficiary = await _seed_beneficiary(db_session, f"SinAuthReset{suffix}", "Prueba")
+
+    res = await client.post(f"/patients/admin/beneficiaries/{beneficiary.id}/reset-registration")
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_reset_registration_not_found(client, db_session, superuser_token):
+    res = await client.post("/patients/admin/beneficiaries/999999999/reset-registration")
     assert res.status_code == 404

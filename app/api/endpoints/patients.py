@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy import or_, delete, func
+from sqlalchemy.exc import IntegrityError
 
 # ReportLab para PDFs
 from reportlab.pdfgen import canvas
@@ -345,6 +346,62 @@ async def update_beneficiary_admin(
     beneficiary.ap_materno = (payload.ap_materno or "").strip() or None
     beneficiary.depto = (payload.depto or "").strip() or None
 
+    await db.commit()
+    await db.refresh(beneficiary)
+
+    return {
+        "id": beneficiary.id,
+        "nombres": beneficiary.nombres,
+        "ap_paterno": beneficiary.ap_paterno,
+        "ap_materno": beneficiary.ap_materno,
+        "depto": beneficiary.depto,
+        "already_registered": beneficiary.matched_patient_id is not None,
+    }
+
+
+@router.post("/admin/beneficiaries/{beneficiary_id}/reset-registration", response_model=schemas.BeneficiaryAdminItem)
+async def reset_beneficiary_registration(
+    beneficiary_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Herramienta temporal (pruebas): si este beneficiario del padrón fue
+    reclamado por un paciente creado durante pruebas de autoregistro, borra
+    ese paciente de prueba (junto con su usuario y datos médicos/documentos
+    asociados) y libera el padrón para que un beneficiario real pueda
+    autoregistrarse. No modifica nombres/apellidos/depto del padrón.
+    """
+    result = await db.execute(
+        select(models.PreregisteredBeneficiary).where(models.PreregisteredBeneficiary.id == beneficiary_id)
+    )
+    beneficiary = result.scalar_one_or_none()
+    if not beneficiary:
+        raise HTTPException(status_code=404, detail="Beneficiario no encontrado en el padrón.")
+
+    if beneficiary.matched_patient_id:
+        patient_result = await db.execute(
+            select(models.Patient).where(models.Patient.id == beneficiary.matched_patient_id)
+        )
+        patient = patient_result.scalar_one_or_none()
+        if patient:
+            user_id = patient.user_id
+            try:
+                await db.delete(patient)
+                if user_id:
+                    user_result = await db.execute(select(models.User).where(models.User.id == user_id))
+                    user = user_result.scalar_one_or_none()
+                    if user:
+                        await db.delete(user)
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail="No se pudo borrar el paciente/usuario de prueba: tiene otros registros asociados.",
+                )
+
+    beneficiary.matched_patient_id = None
     await db.commit()
     await db.refresh(beneficiary)
 
