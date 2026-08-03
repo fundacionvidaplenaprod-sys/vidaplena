@@ -9,6 +9,7 @@ import {
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { getAvailability, bookAppointment, getFichaUrl } from '../../api/appointments';
+import { getSiteAssets } from '../../api/siteAssets';
 
 const WHATSAPP_CONTACT = '59172966106';
 const WHATSAPP_DISPLAY = '+591 72966106';
@@ -75,6 +76,15 @@ export default function AppointmentBookingPage() {
 
   // --- Paso 4: confirmación ---
   const [bookingResult, setBookingResult] = useState(null);
+
+  // --- QR de donación (configurable por SUPER_ADMIN) ---
+  const [qrConsultas, setQrConsultas] = useState(null);
+
+  useEffect(() => {
+    getSiteAssets()
+      .then((assets) => setQrConsultas(assets.find((a) => a.key === 'qr_consultas')?.url || null))
+      .catch(() => setQrConsultas(null));
+  }, []);
 
   useEffect(() => {
     if (step === 3) {
@@ -334,7 +344,13 @@ export default function AppointmentBookingPage() {
               Por favor realice su donación de <b>Bs. {DONATION_AMOUNT}</b> a través del QR en pantalla.
             </p>
             <div className="flex justify-center">
-              <img src="/qr-cita.png" alt="QR Donación Cita" className="w-48 h-48 border p-2 bg-white rounded-xl" />
+              {qrConsultas ? (
+                <img src={qrConsultas} alt="QR Donación Cita" className="w-48 h-48 border p-2 bg-white rounded-xl" />
+              ) : (
+                <div className="w-48 h-48 border p-2 bg-white rounded-xl flex items-center justify-center text-gray-300 text-sm text-center">
+                  QR no configurado
+                </div>
+              )}
             </div>
             <p className="text-sm text-gray-600">
               Realizada su donación, descargue su comprobante de depósito o realice una captura del mismo.

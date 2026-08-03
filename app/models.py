@@ -427,3 +427,40 @@ class GalleryPhoto(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     creator = relationship("User")
+
+
+class SiteAsset(Base):
+    """
+    Recursos únicos y reemplazables de la página pública, identificados por
+    una clave fija (p.ej. los QR de pago: donaciones, compromisos, consultas).
+    A diferencia de GalleryPhoto, aquí solo existe una fila activa por clave.
+    """
+    __tablename__ = "site_assets"
+
+    id = Column(BigInteger, primary_key=True)
+    key = Column(String(50), unique=True, nullable=False)
+    url = Column(String(500), nullable=False)
+    storage_path = Column(String(500), nullable=False)
+    updated_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    updater = relationship("User")
+
+
+class SiteContactInfo(Base):
+    """
+    Información de contacto de la página pública (sección Contacto).
+    Fila única (singleton), gestionada desde el panel de SUPER_ADMIN.
+    """
+    __tablename__ = "site_contact_info"
+
+    id = Column(BigInteger, primary_key=True)
+    phone = Column(String(40), nullable=True)
+    email = Column(String(160), nullable=True)
+    facebook_url = Column(String(300), nullable=True)
+    instagram_url = Column(String(300), nullable=True)
+    whatsapp_number = Column(String(40), nullable=True)
+    updated_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    updater = relationship("User")

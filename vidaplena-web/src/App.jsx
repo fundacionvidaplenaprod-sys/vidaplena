@@ -20,6 +20,8 @@ import AppointmentBookingPage from './pages/appointments/AppointmentBookingPage'
 import DoctorAgendaPage from './pages/admin/DoctorAgendaPage';
 import BeneficiaryNamesPage from './pages/admin/BeneficiaryNamesPage';
 import GalleryManagementPage from './pages/admin/GalleryManagementPage';
+import PaymentQrManagementPage from './pages/admin/PaymentQrManagementPage';
+import ContactInfoManagementPage from './pages/admin/ContactInfoManagementPage';
 
 function App() {
   return (
@@ -48,6 +50,8 @@ function App() {
           <Route path="agenda-medica" element={<DoctorAgendaPage />} />
           <Route path="corregir-beneficiarios" element={<BeneficiaryNamesPage />} />
           <Route path="galeria" element={<GalleryManagementPage />} />
+          <Route path="qr-pagos" element={<PaymentQrManagementPage />} />
+          <Route path="contacto" element={<ContactInfoManagementPage />} />
         </Route>
 
         {/* 3. ZONA PACIENTE (Totalmente separada) */}

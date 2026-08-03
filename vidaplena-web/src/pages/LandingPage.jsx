@@ -3,14 +3,24 @@ import { Link } from 'react-router-dom';
 import logoImg from '../assets/logo.png';
 import logoportadaImg from '../assets/logoportada.jpeg';
 import { getGalleryPhotos } from '../api/gallery';
+import { getSiteAssets } from '../api/siteAssets';
+import { getContactInfo } from '../api/siteSettings';
 
 export default function LandingPage() {
   const [galleryPhotos, setGalleryPhotos] = useState([]);
+  const [qrDonaciones, setQrDonaciones] = useState(null);
+  const [contactInfo, setContactInfo] = useState(null);
 
   useEffect(() => {
     getGalleryPhotos()
       .then(setGalleryPhotos)
       .catch(() => setGalleryPhotos([]));
+    getSiteAssets()
+      .then((assets) => setQrDonaciones(assets.find((a) => a.key === 'qr_donaciones')?.url || null))
+      .catch(() => setQrDonaciones(null));
+    getContactInfo()
+      .then(setContactInfo)
+      .catch(() => setContactInfo(null));
   }, []);
 
   return (
@@ -150,7 +160,13 @@ export default function LandingPage() {
           </p>
 
           <div className="flex justify-center mb-6">
-            <img src="/qr-donacion.png" alt="QR Donación" className="w-48 h-48 border p-2 bg-white" />
+            {qrDonaciones ? (
+              <img src={qrDonaciones} alt="QR Donación" className="w-48 h-48 border p-2 bg-white" />
+            ) : (
+              <div className="w-48 h-48 border p-2 bg-white flex items-center justify-center text-gray-300 text-sm text-center">
+                QR no configurado
+              </div>
+            )}
           </div>
 
           <p className="text-gray-600">
@@ -181,13 +197,32 @@ export default function LandingPage() {
 
             {/* Info */}
             <div>
-              <p className="mb-4"><i className="fas fa-phone mr-2"></i> +591 70000000</p>
-              <p className="mb-4"><i className="fas fa-envelope mr-2"></i> contacto@vidaplena.org</p>
+              <p className="mb-4"><i className="fas fa-phone mr-2"></i> {contactInfo?.phone || '+591 70000000'}</p>
+              <p className="mb-4"><i className="fas fa-envelope mr-2"></i> {contactInfo?.email || 'contacto@vidaplena.org'}</p>
 
               <div className="flex space-x-4 mt-4">
-                <i className="fab fa-facebook text-2xl text-green-900"></i>
-                <i className="fab fa-instagram text-2xl text-green-900"></i>
-                <i className="fab fa-whatsapp text-2xl text-green-900"></i>
+                {contactInfo?.facebook_url && (
+                  <a href={contactInfo.facebook_url} target="_blank" rel="noreferrer" aria-label="Facebook">
+                    <i className="fab fa-facebook text-2xl text-green-900 hover:text-green-700 transition-colors"></i>
+                  </a>
+                )}
+                {contactInfo?.instagram_url && (
+                  <a href={contactInfo.instagram_url} target="_blank" rel="noreferrer" aria-label="Instagram">
+                    <i className="fab fa-instagram text-2xl text-green-900 hover:text-green-700 transition-colors"></i>
+                  </a>
+                )}
+                {contactInfo?.whatsapp_number && (
+                  <a href={`https://wa.me/${contactInfo.whatsapp_number}`} target="_blank" rel="noreferrer" aria-label="WhatsApp">
+                    <i className="fab fa-whatsapp text-2xl text-green-900 hover:text-green-700 transition-colors"></i>
+                  </a>
+                )}
+                {!contactInfo?.facebook_url && !contactInfo?.instagram_url && !contactInfo?.whatsapp_number && (
+                  <>
+                    <i className="fab fa-facebook text-2xl text-gray-300"></i>
+                    <i className="fab fa-instagram text-2xl text-gray-300"></i>
+                    <i className="fab fa-whatsapp text-2xl text-gray-300"></i>
+                  </>
+                )}
               </div>
             </div>
 

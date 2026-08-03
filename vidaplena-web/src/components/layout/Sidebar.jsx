@@ -11,7 +11,9 @@ import {
   Wallet,
   CalendarClock,
   UserCog,
-  Images
+  Images,
+  QrCode,
+  Phone
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -78,6 +80,16 @@ export default function Sidebar({ isOpen, onClose }) {
       path: '/dashboard/galeria',
       label: 'Galería',
       icon: <Images size={20} />
+    });
+    menuItems.push({
+      path: '/dashboard/qr-pagos',
+      label: 'QR de Pagos',
+      icon: <QrCode size={20} />
+    });
+    menuItems.push({
+      path: '/dashboard/contacto',
+      label: 'Info. de Contacto',
+      icon: <Phone size={20} />
     });
   }
 

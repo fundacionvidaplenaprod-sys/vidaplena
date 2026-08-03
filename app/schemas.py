@@ -662,3 +662,39 @@ class GalleryPhotoResponse(BaseModel):
 class GalleryPhotoUpdate(BaseModel):
     caption: Optional[str] = Field(None, max_length=200)
     orden: Optional[int] = None
+
+
+# ==========================================
+#   12. SCHEMAS SITE ASSETS (QR DE PAGO)
+# ==========================================
+
+SiteAssetKey = Literal["qr_donaciones", "qr_compromisos", "qr_consultas"]
+
+class SiteAssetResponse(BaseModel):
+    key: str
+    url: str
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==========================================
+#   13. SCHEMAS CONTACTO (PÁGINA PÚBLICA)
+# ==========================================
+
+class SiteContactInfoResponse(BaseModel):
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    facebook_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SiteContactInfoUpdate(BaseModel):
+    phone: Optional[str] = Field(None, max_length=40)
+    email: Optional[str] = Field(None, max_length=160)
+    facebook_url: Optional[str] = Field(None, max_length=300)
+    instagram_url: Optional[str] = Field(None, max_length=300)
+    whatsapp_number: Optional[str] = Field(None, max_length=40)

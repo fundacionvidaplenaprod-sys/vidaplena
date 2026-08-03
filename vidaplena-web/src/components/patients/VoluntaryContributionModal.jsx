@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { ScanLine, UploadCloud, CheckCircle2 } from 'lucide-react';
+import { ScanLine, UploadCloud, CheckCircle2, QrCode } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { previewContributionOcr, createMyContribution } from '../../api/contributions';
+import { getSiteAssets } from '../../api/siteAssets';
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -29,6 +30,13 @@ export function VoluntaryContributionModal({
   const [periodo, setPeriodo] = useState(currentPeriod());
   const [fechaPago, setFechaPago] = useState(todayIso());
   const [submitting, setSubmitting] = useState(false);
+  const [qrCompromisos, setQrCompromisos] = useState(null);
+
+  useEffect(() => {
+    getSiteAssets()
+      .then((assets) => setQrCompromisos(assets.find((a) => a.key === 'qr_compromisos')?.url || null))
+      .catch(() => setQrCompromisos(null));
+  }, []);
 
   const isDuplicatePeriod = (contributions || []).some(
     (item) => item.periodo === periodo && item.estado === 'ACEPTADO'
@@ -120,6 +128,15 @@ export function VoluntaryContributionModal({
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Registrar Aporte Voluntario">
       <div className="space-y-4">
+        {qrCompromisos && (
+          <div className="flex flex-col items-center gap-2 bg-vida-bg/50 rounded-xl p-3">
+            <p className="text-xs text-gray-600 flex items-center gap-1">
+              <QrCode size={14} /> Escanea para realizar tu aporte
+            </p>
+            <img src={qrCompromisos} alt="QR Aporte Voluntario" className="w-32 h-32 border p-1 bg-white rounded-lg" />
+          </div>
+        )}
+
         <div>
           <label className="text-sm font-bold text-vida-primary ml-1 block mb-1">Comprobante</label>
           <label
