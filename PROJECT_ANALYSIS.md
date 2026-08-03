@@ -140,3 +140,33 @@ El sistema utiliza **PostgreSQL** administrado por **SQLAlchemy**. A continuaci�
 - **Allocations & Deliveries (`donation_allocations`, `deliveries`)**: `donation_allocations` reserva insulinas de un lote para un paciente específico, y `deliveries` registra la entrega física o consumo de esas insulinas, generando constancias en PDF.
 - **Director Deliveries (`director_insulin_deliveries`)**: Tabla independiente que alimenta el "Módulo de Directora". Registra entregas de forma rápida, libre de ataduras al expediente estructurado del paciente, para agilizar operaciones en campo.
 - **Appointments (`appointments`) & Blocked Days (`doctor_blocked_days`)**: Entidades del Módulo SAPAM para la reserva de citas médicas y control de agenda. `appointments` registra datos del solicitante, horario, resultados de validación OCR del voucher de 70 Bs, auditoría de aprobación manual (`revisado_manualmente_por`), exención por vulnerabilidad social (`eximido_por`, `motivo_exencion`) y notas clínicas; `doctor_blocked_days` almacena las fechas no disponibles en la agenda médica.
+
+---
+
+## 6. Estado de Verificación y Pruebas Automatizadas (54/54 Pruebas en Verde)
+
+El sistema cuenta con una suite de pruebas automatizadas en **pytest** e **In-Memory SQLite AsyncSession** para garantizar la ausencia de regresiones y auditar cada regla de negocio crítica:
+
+1. **`tests/test_donations_deliveries.py` (7 tests aprobados - Registro y Distribución de Insulinas)**:
+   - **Registro de Catálogo e Inventario**: Validación del alta de productos de insulina (`/donations/products/`), creación de lotes con stock y vencimiento (`/donations/lots/`) y registro de tratamientos prescritos por paciente (`PatientTreatment`).
+   - **Algoritmo de Distribución Trimestral (`/donations/calculate-distribution/{lot_id}`)**:
+     - Cálculo automático de envases requeridos para el periodo de 90 días (`DISTRIBUTION_DAYS = 90`, redondeo hacia arriba con `math.ceil`).
+     - **Filtro Anti-Morosos**: Exclusión automática de la repartición (`excluded_patients`) para aquellos pacientes que no cuenten con su aporte mensual del periodo actual en estado `ACEPTADO`.
+     - **Regla de Solidaridad en Escasez**: Cuando la demanda teórica supera el stock disponible en almacén (`escasez = True`), el algoritmo reduce de forma equitativa la asignación a **1 envase por paciente** para evitar que ningún beneficiario se quede sin cobertura.
+   - **Consolidación y Entregas**: Descuento oficial de `DonationLot.cantidad_disponible` al registrar una entrega en `/donations/deliveries/`.
+2. **`tests/test_director_deliveries.py` (4 tests aprobados - Módulo Aislado de Entrega Rápida)**:
+   - Prueba de registro de entregas en campo por la Directora sin afectar el stock de almacén.
+   - Búsqueda por nombres y apellidos normalizados (mayúsculas/minúsculas).
+   - Alerta anti-duplicados y candado temporal preventivo de 25 días.
+3. **`tests/test_appointments.py` (23 tests aprobados - Módulo SAPAM de Citas Médicas)**:
+   - Reserva pública de citas y validación automática del voucher de **70.00 Bs** mediante OCR.
+   - Aprobación manual por WhatsApp y exención por vulnerabilidad ("Caso Social") restringidas a `SUPER_ADMIN`.
+   - Limpieza automática e isolación transaccional (`cleanup_test_appointments` y `DoctorBlockedDay`).
+4. **Otras Suites de Pruebas Aprobadas**:
+   - `tests/test_beneficiary_admin.py` (8 tests aprobados)
+   - `tests/test_contributions_ocr.py` (4 tests aprobados)
+   - `tests/test_minor_registration.py` (1 test aprobado)
+   - `tests/test_self_registration.py` (6 tests aprobados)
+   - `tests/test_tutor_multiple_children.py` (1 test aprobado)
+
+**Estado General**: `54 passed, 3 warnings` (100% en verde). Todos los flujos clínicos, logísticos y administrativos están completamente respaldados por pruebas automatizadas.

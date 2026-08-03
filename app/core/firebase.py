@@ -44,5 +44,13 @@ def upload_file_to_firebase(file_content: bytes, filename: str, content_type: st
     # (Nota: Esto hace que cualquiera con el link pueda verlo, 
     # pero como usamos UUIDs en el nombre, es difícil de adivinar).
     blob.make_public()
-    
+
     return blob.public_url
+
+def delete_file_from_firebase(filename: str) -> None:
+    """
+    Borra un archivo de Firebase Storage.
+    """
+    bucket = storage.bucket()
+    blob = bucket.blob(filename)
+    blob.delete()

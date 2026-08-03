@@ -412,3 +412,18 @@ class Appointment(Base):
     nota_consulta_author = relationship("User", foreign_keys=[nota_consulta_by])
     revisado_por = relationship("User", foreign_keys=[revisado_manualmente_por])
     eximido_por_user = relationship("User", foreign_keys=[eximido_por])
+
+
+class GalleryPhoto(Base):
+    """Fotos de la sección Galería de la página pública."""
+    __tablename__ = "gallery_photos"
+
+    id = Column(BigInteger, primary_key=True)
+    url = Column(String(500), nullable=False)
+    storage_path = Column(String(500), nullable=False)
+    caption = Column(String(200), nullable=True)
+    orden = Column(Integer, nullable=False, default=0)
+    created_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    creator = relationship("User")

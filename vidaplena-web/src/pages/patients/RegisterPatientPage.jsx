@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { INSULIN_OPTIONS, normalizeInsulinName } from '../../constants/insulins';
 import {
   User, MapPin, Phone, Mail,
-  HeartPulse, Activity, AlertTriangle, Plus, Trash2, CheckCircle
+  HeartPulse, Activity, AlertTriangle, Plus, Trash2, CheckCircle, Lock, Unlock
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -43,6 +43,18 @@ export default function RegisterPatientPage() {
   const [serverError, setServerError] = useState(null);
   const [loadingData, setLoadingData] = useState(false); // Estado de carga para edición
   const [hasInitialCi, setHasInitialCi] = useState(false);
+  const [ciUnlocked, setCiUnlocked] = useState(false);
+
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
+
+  const handleUnlockCi = () => {
+    const confirmado = window.confirm(
+      'El C.I. es un dato de identidad único. ¿Confirmas que quieres desbloquearlo para corregirlo? ' +
+        'Verifica que el nuevo número sea correcto antes de guardar.'
+    );
+    if (confirmado) setCiUnlocked(true);
+  };
 
   const { register, control, handleSubmit, watch, trigger, reset, setValue, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
@@ -372,16 +384,31 @@ export default function RegisterPatientPage() {
                 <Input label="Ap. Materno" {...register('ap_materno')} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mt-4">
-                <Input
-                  label={isMinor
-                    ? <span className="flex items-center gap-1 font-semibold text-gray-700 text-sm">C.I. <span className="text-gray-400 font-normal text-xs">(opcional para menores)</span></span>
-                    : <LabelRequired text="C.I." />
-                  }
-                  {...register('ci', { required: isMinor ? false : "Requerido" })}
-                  error={errors.ci}
-                  disabled={isEditMode && hasInitialCi}
-                  className={(isEditMode && hasInitialCi) ? "bg-gray-100" : ""}
-                />
+                <div className="relative">
+                  <Input
+                    label={isMinor
+                      ? <span className="flex items-center gap-1 font-semibold text-gray-700 text-sm">C.I. <span className="text-gray-400 font-normal text-xs">(opcional para menores)</span></span>
+                      : <LabelRequired text="C.I." />
+                    }
+                    {...register('ci', { required: isMinor ? false : "Requerido" })}
+                    error={errors.ci}
+                    disabled={isEditMode && hasInitialCi && !ciUnlocked}
+                    className={(isEditMode && hasInitialCi && !ciUnlocked) ? "bg-gray-100 pr-9" : "pr-9"}
+                  />
+                  {isEditMode && hasInitialCi && isSuperAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleUnlockCi}
+                      disabled={ciUnlocked}
+                      title={ciUnlocked ? 'C.I. desbloqueado para edición' : 'Desbloquear C.I. (Solo Super Admin)'}
+                      className={`absolute right-2 top-[38px] p-1 rounded-full transition-colors ${
+                        ciUnlocked ? 'text-vida-main cursor-default' : 'text-gray-400 hover:text-vida-main hover:bg-vida-bg'
+                      }`}
+                    >
+                      {ciUnlocked ? <Unlock size={16} /> : <Lock size={16} />}
+                    </button>
+                  )}
+                </div>
                 <Input type="date" label={<LabelRequired text="Nacimiento" />} {...register('fecha_nac', { required: "Requerido" })} error={errors.fecha_nac} />
                 <div className="flex flex-col gap-1">
                   <label htmlFor="tipo_sangre" className="text-sm font-bold text-gray-700 ml-1">Tipo Sangre</label>

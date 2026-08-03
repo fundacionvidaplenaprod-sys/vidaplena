@@ -1,9 +1,18 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import logoImg from '../assets/logo.png';
 import logoportadaImg from '../assets/logoportada.jpeg';
+import { getGalleryPhotos } from '../api/gallery';
 
 export default function LandingPage() {
+  const [galleryPhotos, setGalleryPhotos] = useState([]);
+
+  useEffect(() => {
+    getGalleryPhotos()
+      .then(setGalleryPhotos)
+      .catch(() => setGalleryPhotos([]));
+  }, []);
+
   return (
     <>
       {/* NAVBAR */}
@@ -104,14 +113,28 @@ export default function LandingPage() {
 
           <h2 className="text-3xl font-bold text-green-900 mb-10">Galería</h2>
 
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="bg-gray-300 h-48 rounded-lg"></div>
-            <div className="bg-gray-300 h-48 rounded-lg"></div>
-            <div className="bg-gray-300 h-48 rounded-lg"></div>
-            <div className="bg-gray-300 h-48 rounded-lg"></div>
-            <div className="bg-gray-300 h-48 rounded-lg"></div>
-            <div className="bg-gray-300 h-48 rounded-lg"></div>
-          </div>
+          {galleryPhotos.length === 0 ? (
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="bg-gray-300 h-48 rounded-lg"></div>
+              <div className="bg-gray-300 h-48 rounded-lg"></div>
+              <div className="bg-gray-300 h-48 rounded-lg"></div>
+              <div className="bg-gray-300 h-48 rounded-lg"></div>
+              <div className="bg-gray-300 h-48 rounded-lg"></div>
+              <div className="bg-gray-300 h-48 rounded-lg"></div>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-3 gap-6">
+              {galleryPhotos.map((photo) => (
+                <img
+                  key={photo.id}
+                  src={photo.url}
+                  alt={photo.caption || 'Foto de la Fundación V.I.D.A. Plena'}
+                  className="h-48 w-full object-cover rounded-lg shadow"
+                  loading="lazy"
+                />
+              ))}
+            </div>
+          )}
 
         </div>
       </section>

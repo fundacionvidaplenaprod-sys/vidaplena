@@ -643,3 +643,22 @@ class AdminSocialCaseAppointmentCreate(BaseModel):
     fecha_cita: date
     hora_cita: str
     motivo: Optional[str] = Field(None, max_length=300)
+
+
+# ==========================================
+#   11. SCHEMAS GALERÍA (PÁGINA PÚBLICA)
+# ==========================================
+
+class GalleryPhotoResponse(BaseModel):
+    id: int
+    url: str
+    caption: Optional[str] = None
+    orden: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GalleryPhotoUpdate(BaseModel):
+    caption: Optional[str] = Field(None, max_length=200)
+    orden: Optional[int] = None

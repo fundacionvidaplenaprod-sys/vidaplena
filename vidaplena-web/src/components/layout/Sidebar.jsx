@@ -10,7 +10,8 @@ import {
   BarChart3,
   Wallet,
   CalendarClock,
-  UserCog
+  UserCog,
+  Images
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -72,6 +73,11 @@ export default function Sidebar({ isOpen, onClose }) {
       path: '/dashboard/corregir-beneficiarios',
       label: 'Corregir Nombres',
       icon: <UserCog size={20} />
+    });
+    menuItems.push({
+      path: '/dashboard/galeria',
+      label: 'Galería',
+      icon: <Images size={20} />
     });
   }
 

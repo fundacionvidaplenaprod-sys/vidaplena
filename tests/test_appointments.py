@@ -2,10 +2,20 @@ import io
 from datetime import date, datetime, time, timedelta
 
 import pytest
-from sqlalchemy import select
+import pytest_asyncio
+from sqlalchemy import delete, select
 
 from app import models
 from app.api.endpoints import appointments as appointments_module
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def cleanup_test_appointments(db_session):
+    await db_session.execute(delete(models.Appointment).where(models.Appointment.ci.like("CI-%")))
+    await db_session.commit()
+    yield
+    await db_session.execute(delete(models.Appointment).where(models.Appointment.ci.like("CI-%")))
+    await db_session.commit()
 
 
 def _next_valid_business_date(min_offset=1):
@@ -84,6 +94,9 @@ async def test_availability_rejects_sunday_and_out_of_window(client):
 @pytest.mark.asyncio
 async def test_availability_respects_blocked_day(client, db_session):
     fecha = _next_valid_business_date(min_offset=10)
+    await db_session.execute(delete(models.DoctorBlockedDay).where(models.DoctorBlockedDay.fecha == fecha))
+    await db_session.commit()
+
     db_session.add(models.DoctorBlockedDay(fecha=fecha, motivo="Prueba"))
     await db_session.commit()
 
@@ -91,6 +104,10 @@ async def test_availability_respects_blocked_day(client, db_session):
     data = res.json()
     assert data["disponible"] is False
     assert data["motivo"]
+
+    # Limpiar el día bloqueado para no interferir con las siguientes pruebas
+    await db_session.execute(delete(models.DoctorBlockedDay).where(models.DoctorBlockedDay.fecha == fecha))
+    await db_session.commit()
 
 
 @pytest.mark.asyncio

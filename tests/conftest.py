@@ -14,7 +14,9 @@ from app import models
 # pero idealmente se configuraría una separada en el .env de pruebas)
 TEST_DATABASE_URL = settings.DATABASE_URL
 
-engine = create_async_engine(TEST_DATABASE_URL, future=True)
+from sqlalchemy.pool import NullPool
+
+engine = create_async_engine(TEST_DATABASE_URL, future=True, poolclass=NullPool)
 TestingSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 @pytest.fixture(scope="session")
@@ -66,11 +68,13 @@ async def superuser_token(client, db_session):
         
     app.dependency_overrides[deps.get_current_super_user] = override_get_current_super_user
     app.dependency_overrides[deps.get_current_active_user] = override_get_current_super_user
+    app.dependency_overrides[deps.get_current_user] = override_get_current_super_user
     
     yield "fake-token"
     
     app.dependency_overrides.pop(deps.get_current_super_user, None)
     app.dependency_overrides.pop(deps.get_current_active_user, None)
+    app.dependency_overrides.pop(deps.get_current_user, None)
 
 @pytest_asyncio.fixture(scope="function")
 async def patient_token(client, db_session):
@@ -91,7 +95,9 @@ async def patient_token(client, db_session):
         return patient_user
 
     app.dependency_overrides[deps.get_current_active_user] = override_get_current_active_user
+    app.dependency_overrides[deps.get_current_user] = override_get_current_active_user
 
     yield patient_user
 
     app.dependency_overrides.pop(deps.get_current_active_user, None)
+    app.dependency_overrides.pop(deps.get_current_user, None)
