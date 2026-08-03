@@ -453,6 +453,87 @@ async def approve_appointment_social_case(
     return appointment
 
 
+@router.post(
+    "/admin-create-social-case",
+    response_model=schemas.AppointmentBookingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def admin_create_social_case_appointment(
+    payload: schemas.AdminSocialCaseAppointmentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Crea y confirma directamente una cita para un paciente en situación de
+    vulnerabilidad económica, sin pasar por el portal público ni por la
+    validación OCR del comprobante. Pensado para Trabajo Social: evita que
+    el paciente intente subir un comprobante que no tiene y agote cuota de
+    OCR innecesariamente.
+    """
+    motivo_fecha = await _validate_bookable_date(db, payload.fecha_cita)
+    if motivo_fecha:
+        raise HTTPException(status_code=400, detail=motivo_fecha)
+
+    try:
+        hora_obj = datetime.strptime(payload.hora_cita, "%H:%M").time()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de hora inválido.")
+
+    if hora_obj not in _slots_for_weekday(payload.fecha_cita.weekday()):
+        raise HTTPException(status_code=400, detail="Ese horario no es válido para el día seleccionado.")
+
+    existing_q = await db.execute(
+        select(models.Appointment).where(
+            and_(
+                models.Appointment.fecha_cita == payload.fecha_cita,
+                models.Appointment.hora_cita == hora_obj,
+                models.Appointment.estado == "CONFIRMADA",
+            )
+        )
+    )
+    if existing_q.scalars().first():
+        raise HTTPException(status_code=409, detail="Ese horario ya fue tomado, por favor elija otro.")
+
+    appointment = models.Appointment(
+        nombres=payload.nombres,
+        ap_paterno=payload.ap_paterno,
+        ap_materno=payload.ap_materno,
+        ci=payload.ci,
+        fecha_nac=payload.fecha_nac,
+        fecha_cita=payload.fecha_cita,
+        hora_cita=hora_obj,
+        estado="CONFIRMADA",
+        eximido_por=current_user.id,
+        eximido_at=datetime.now(),
+        motivo_exencion=(payload.motivo or "").strip() or "Evaluación Socioeconómica / Trabajo Social",
+    )
+    db.add(appointment)
+
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Ese horario ya fue tomado, por favor elija otro.")
+
+    raw_str = f"CITA-{appointment.id}-{settings.SECRET_KEY}"
+    appointment.security_code = hashlib.sha256(raw_str.encode()).hexdigest()[:10].upper()
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Ese horario ya fue tomado, por favor elija otro.")
+
+    full_name = f"{payload.nombres} {payload.ap_paterno} {payload.ap_materno or ''}".strip()
+    return {
+        "id": appointment.id,
+        "security_code": appointment.security_code,
+        "fecha_cita": payload.fecha_cita,
+        "hora_cita": hora_obj,
+        "nombre_completo": full_name,
+    }
+
+
 @router.get("/blocked-days", response_model=List[schemas.BlockedDayResponse])
 async def list_blocked_days(
     db: AsyncSession = Depends(get_db),

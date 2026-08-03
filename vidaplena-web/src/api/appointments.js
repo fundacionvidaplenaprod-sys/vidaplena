@@ -73,3 +73,16 @@ export const approveSocialCase = async (appointmentId, motivo) => {
   });
   return response.data;
 };
+
+export const createAdminSocialCaseAppointment = async (payload) => {
+  try {
+    const response = await client.post('/appointments/admin-create-social-case', payload);
+    return response.data;
+  } catch (error) {
+    console.error('Error al crear cita de caso social:', error);
+    throw {
+      status: error.response?.status,
+      message: error.response?.data?.detail || 'Error desconocido al crear la cita',
+    };
+  }
+};

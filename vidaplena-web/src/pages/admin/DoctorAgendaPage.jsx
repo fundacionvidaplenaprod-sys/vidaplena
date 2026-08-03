@@ -4,6 +4,7 @@ import { toast } from 'react-hot-toast';
 import { CalendarClock, Ban, Search, Save, Trash2, Plus, CheckCircle2, Download, HeartHandshake } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { SocialCaseAppointmentModal } from '../../components/appointments/SocialCaseAppointmentModal';
 import {
   getAgenda,
   getBlockedDays,
@@ -43,6 +44,9 @@ export default function DoctorAgendaPage() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [approvingId, setApprovingId] = useState(null);
   const [approvingSocialId, setApprovingSocialId] = useState(null);
+
+  // Nueva reserva de Trabajo Social
+  const [socialCaseModalOpen, setSocialCaseModalOpen] = useState(false);
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -180,16 +184,25 @@ export default function DoctorAgendaPage() {
 
   return (
     <div className="p-6 md:p-8 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold text-vida-primary mb-6 flex items-center gap-2">
-        <CalendarClock /> Agenda Médica
-      </h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+        <h1 className="text-2xl font-bold text-vida-primary flex items-center gap-2">
+          <CalendarClock /> Agenda Médica
+        </h1>
+        <Button
+          type="button"
+          onClick={() => setSocialCaseModalOpen(true)}
+          className="w-full sm:w-auto px-4 bg-purple-600 hover:bg-purple-700 text-white inline-flex items-center justify-center gap-2"
+        >
+          <HeartHandshake size={16} /> Nueva Reserva (Trabajo Social)
+        </Button>
+      </div>
 
-      <div className="flex gap-2 mb-6 border-b border-gray-200">
+      <div className="flex gap-2 mb-6 border-b border-gray-200 overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-bold border-b-2 transition-colors ${
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
               tab === t.key ? 'border-vida-main text-vida-main' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -347,6 +360,12 @@ export default function DoctorAgendaPage() {
           </div>
         </div>
       )}
+
+      <SocialCaseAppointmentModal
+        isOpen={socialCaseModalOpen}
+        onClose={() => setSocialCaseModalOpen(false)}
+        onSuccess={() => loadAgenda(fecha)}
+      />
     </div>
   );
 }

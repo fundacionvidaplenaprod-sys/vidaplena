@@ -426,3 +426,110 @@ async def test_approve_social_case_already_confirmed_rejected(client, monkeypatc
 
     res = await client.post(f"/appointments/{appointment_id}/approve-social-case", json={})
     assert res.status_code == 400
+
+
+def _admin_social_case_payload(fecha_cita, hora_cita, ci_suffix, motivo=None):
+    payload = {
+        "nombres": "Paciente",
+        "ap_paterno": "TrabajoSocial",
+        "ap_materno": "",
+        "ci": f"CI-{ci_suffix}",
+        "fecha_nac": "1990-01-01",
+        "fecha_cita": fecha_cita.isoformat(),
+        "hora_cita": hora_cita,
+    }
+    if motivo is not None:
+        payload["motivo"] = motivo
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_admin_create_social_case_creates_confirmed_appointment_and_issues_ficha(client, superuser_token):
+    fecha = _next_valid_business_date(min_offset=1)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+
+    res = await client.post(
+        "/appointments/admin-create-social-case",
+        json=_admin_social_case_payload(fecha, hora, "ADMSOC1", motivo="Sin recursos, evaluación presencial"),
+    )
+    assert res.status_code == 201, res.text
+    body = res.json()
+    assert body["security_code"]
+    assert body["fecha_cita"] == fecha.isoformat()
+    assert body["hora_cita"] == f"{hora}:00"
+    assert body["nombre_completo"] == "Paciente TrabajoSocial"
+
+    result = await client.get(
+        f"/appointments/{body['id']}/ficha.pdf", params={"code": body["security_code"]}
+    )
+    assert result.status_code == 200
+
+    hist = await client.get("/appointments/history", params={"ci": "CI-ADMSOC1"})
+    hist_body = hist.json()
+    assert hist_body[0]["estado"] == "CONFIRMADA"
+    assert hist_body[0]["motivo_exencion"] == "Sin recursos, evaluación presencial"
+    assert hist_body[0]["eximido_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_admin_create_social_case_defaults_motivo(client, superuser_token):
+    fecha = _next_valid_business_date(min_offset=2)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+
+    res = await client.post(
+        "/appointments/admin-create-social-case",
+        json=_admin_social_case_payload(fecha, hora, "ADMSOC2"),
+    )
+    assert res.status_code == 201, res.text
+
+    hist = await client.get("/appointments/history", params={"ci": "CI-ADMSOC2"})
+    assert hist.json()[0]["motivo_exencion"] == "Evaluación Socioeconómica / Trabajo Social"
+
+
+@pytest.mark.asyncio
+async def test_admin_create_social_case_requires_super_admin(client):
+    fecha = _next_valid_business_date(min_offset=3)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+
+    res = await client.post(
+        "/appointments/admin-create-social-case",
+        json=_admin_social_case_payload(fecha, hora, "ADMSOC3"),
+    )
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_create_social_case_rejects_invalid_date(client, superuser_token):
+    fecha_fuera_ventana = date.today() + timedelta(days=30)
+
+    res = await client.post(
+        "/appointments/admin-create-social-case",
+        json=_admin_social_case_payload(fecha_fuera_ventana, "09:00", "ADMSOC4"),
+    )
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_admin_create_social_case_rejects_taken_slot(client, monkeypatch, superuser_token):
+    monkeypatch.setattr(appointments_module, "upload_file_to_firebase", _fake_upload)
+    monkeypatch.setattr(appointments_module, "extract_receipt_data", _make_ocr_match())
+
+    fecha = _next_valid_business_date(min_offset=4)
+    hora = await _first_available_slot(client, fecha)
+    assert hora is not None
+
+    res_book = await client.post(
+        "/appointments/book",
+        data=_booking_form(fecha, hora, "ADMSOC5"),
+        files=_fake_file(),
+    )
+    assert res_book.status_code == 201, res_book.text
+
+    res = await client.post(
+        "/appointments/admin-create-social-case",
+        json=_admin_social_case_payload(fecha, hora, "ADMSOC6"),
+    )
+    assert res.status_code == 409

@@ -632,3 +632,14 @@ class AppointmentHistoryItem(BaseModel):
 
 class SocialCaseApproval(BaseModel):
     motivo: Optional[str] = Field(None, max_length=300)
+
+
+class AdminSocialCaseAppointmentCreate(BaseModel):
+    nombres: str = Field(..., min_length=1)
+    ap_paterno: str = Field(..., min_length=1)
+    ap_materno: Optional[str] = None
+    ci: str = Field(..., min_length=1)
+    fecha_nac: date
+    fecha_cita: date
+    hora_cita: str
+    motivo: Optional[str] = Field(None, max_length=300)
