@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import {
   MapPin, Clock, PhoneCall, ShieldCheck, User, Calendar, QrCode,
-  Upload, Download, CheckCircle, AlertTriangle, Loader2, Timer,
+  Upload, Download, CheckCircle, AlertTriangle, Loader2, Timer, Info,
 } from 'lucide-react';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -232,6 +232,19 @@ export default function AppointmentBookingPage() {
                 Acepto los términos y condiciones del servicio.
               </span>
             </label>
+
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex gap-3">
+              <Info className="text-blue-800 flex-shrink-0 mt-0.5" size={20} />
+              <div className="text-sm text-blue-800">
+                <p className="font-bold mb-1">Atención de Trabajo Social</p>
+                <p>
+                  Si por motivos de vulnerabilidad económica no le es posible realizar la donación
+                  institucional de Bs. 70 descrita en la cláusula tercera, por favor no marque la
+                  casilla de aceptación y comuníquese directamente a nuestro WhatsApp oficial para
+                  solicitar una Evaluación Socioeconómica.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
