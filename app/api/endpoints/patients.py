@@ -321,6 +321,44 @@ async def search_beneficiaries_admin(
     ]
 
 
+@router.post("/admin/beneficiaries", response_model=schemas.BeneficiaryAdminItem, status_code=status.HTTP_201_CREATED)
+async def create_beneficiary_admin(
+    payload: schemas.BeneficiaryUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Agrega un beneficiario nuevo al padrón precargado (SUPER_ADMIN), para
+    pacientes que no forman parte del padrón original (pacientes.csv) y por
+    tanto no pueden completar el autoregistro público sin esta entrada.
+    """
+    existing = await _find_beneficiary_match(db, payload.nombres, payload.ap_paterno, payload.ap_materno)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un beneficiario con ese nombre en el padrón. Corrígelo en vez de duplicarlo.",
+        )
+
+    beneficiary = models.PreregisteredBeneficiary(
+        nombres=payload.nombres.strip(),
+        ap_paterno=(payload.ap_paterno or "").strip() or None,
+        ap_materno=(payload.ap_materno or "").strip() or None,
+        depto=(payload.depto or "").strip() or None,
+    )
+    db.add(beneficiary)
+    await db.commit()
+    await db.refresh(beneficiary)
+
+    return {
+        "id": beneficiary.id,
+        "nombres": beneficiary.nombres,
+        "ap_paterno": beneficiary.ap_paterno,
+        "ap_materno": beneficiary.ap_materno,
+        "depto": beneficiary.depto,
+        "already_registered": False,
+    }
+
+
 @router.put("/admin/beneficiaries/{beneficiary_id}", response_model=schemas.BeneficiaryAdminItem)
 async def update_beneficiary_admin(
     beneficiary_id: int,
