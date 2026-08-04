@@ -376,7 +376,14 @@ export default function AppointmentBookingPage() {
                   type="file"
                   accept="image/*,application/pdf"
                   className="hidden"
-                  onChange={(e) => setComprobante(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    if (file && file.size > 3 * 1024 * 1024) {
+                      toast.error('⚠️ El comprobante supera el tamaño máximo permitido (3 MB). Por favor, sube una foto o PDF más ligero.');
+                      return;
+                    }
+                    setComprobante(file);
+                  }}
                 />
               </label>
             </div>

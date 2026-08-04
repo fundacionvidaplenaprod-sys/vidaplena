@@ -210,6 +210,10 @@ export default function MyDocumentsPage() {
 
     const handleUpload = async (id, file) => {
         if (isReadOnly) return;
+        if (file && file.size > 2 * 1024 * 1024) {
+            toast.error('⚠️ El archivo supera el tamaño máximo permitido (2 MB). Por favor, comprímelo o sube uno más ligero.');
+            return;
+        }
         try {
             const toastId = toast.loading('Subiendo archivo...');
             await uploadDocument(id, file);
@@ -221,7 +225,8 @@ export default function MyDocumentsPage() {
         } catch (error) {
             console.error(error);
             toast.dismiss();
-            toast.error('Error al subir.');
+            const errorMsg = error.response?.data?.detail || 'Error al subir archivo. Verifica que pese menos de 2 MB y sea PDF/JPG/PNG.';
+            toast.error(errorMsg);
         }
     };
 

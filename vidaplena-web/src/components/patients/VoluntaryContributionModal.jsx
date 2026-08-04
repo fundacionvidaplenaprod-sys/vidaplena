@@ -58,6 +58,10 @@ export function VoluntaryContributionModal({
   };
 
   const handleFileChange = (file) => {
+    if (file && file.size > 2 * 1024 * 1024) {
+      toast.error('⚠️ El comprobante supera los 2 MB. Por favor, sube una imagen o PDF más ligero.');
+      return;
+    }
     setComprobante(file);
     setOcrRead(false);
   };
