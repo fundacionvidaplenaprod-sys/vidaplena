@@ -321,6 +321,94 @@ async def search_beneficiaries_admin(
     ]
 
 
+@router.get("/admin/beneficiaries/paginated", response_model=schemas.PaginatedBeneficiaryResponse)
+async def list_beneficiaries_admin(
+    skip: int = 0,
+    limit: int = 20,
+    search: str = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Lista completa (paginada) del padrón precargado, con buscador opcional.
+    A diferencia de /admin/beneficiaries (que exige q de al menos 2
+    caracteres), este endpoint permite ver TODO el padrón para detectar y
+    limpiar duplicados o registros incompletos de forma visual.
+    """
+    base_query = select(models.PreregisteredBeneficiary)
+
+    if search:
+        search_term = f"%{search}%"
+        base_query = base_query.where(
+            or_(
+                models.PreregisteredBeneficiary.nombres.ilike(search_term),
+                models.PreregisteredBeneficiary.ap_paterno.ilike(search_term),
+                models.PreregisteredBeneficiary.ap_materno.ilike(search_term),
+                models.PreregisteredBeneficiary.depto.ilike(search_term),
+            )
+        )
+
+    count_query = select(func.count()).select_from(base_query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one()
+
+    items_query = (
+        base_query
+        .order_by(models.PreregisteredBeneficiary.nombres, models.PreregisteredBeneficiary.ap_paterno)
+        .offset(skip)
+        .limit(limit)
+    )
+    result = await db.execute(items_query)
+    candidates = result.scalars().all()
+
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": c.id,
+                "nombres": c.nombres,
+                "ap_paterno": c.ap_paterno,
+                "ap_materno": c.ap_materno,
+                "depto": c.depto,
+                "already_registered": c.matched_patient_id is not None,
+            }
+            for c in candidates
+        ],
+    }
+
+
+@router.delete("/admin/beneficiaries/{beneficiary_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_beneficiary_admin(
+    beneficiary_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Borra permanentemente una entrada del padrón precargado (SUPER_ADMIN).
+    Uso principal: eliminar duplicados (ej. "Fabiana" vs "Faviana") dejando
+    solo el registro correcto. Si el beneficiario ya se autoregistró
+    (matched_patient_id no nulo), se rechaza el borrado para no perder la
+    trazabilidad del vínculo con su ficha de paciente real; en ese caso se
+    debe corregir el registro en vez de borrarlo.
+    """
+    result = await db.execute(
+        select(models.PreregisteredBeneficiary).where(models.PreregisteredBeneficiary.id == beneficiary_id)
+    )
+    beneficiary = result.scalar_one_or_none()
+    if not beneficiary:
+        raise HTTPException(status_code=404, detail="Beneficiario no encontrado en el padrón.")
+
+    if beneficiary.matched_patient_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede borrar: este beneficiario ya está vinculado a un paciente registrado. Corrígelo en vez de borrarlo.",
+        )
+
+    await db.delete(beneficiary)
+    await db.commit()
+    return None
+
+
 @router.post("/admin/beneficiaries", response_model=schemas.BeneficiaryAdminItem, status_code=status.HTTP_201_CREATED)
 async def create_beneficiary_admin(
     payload: schemas.BeneficiaryUpdate,

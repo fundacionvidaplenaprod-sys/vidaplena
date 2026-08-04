@@ -346,6 +346,11 @@ class BeneficiaryUpdate(BaseModel):
     depto: Optional[str] = Field(None, max_length=80)
 
 
+class PaginatedBeneficiaryResponse(BaseModel):
+    total: int
+    items: List[BeneficiaryAdminItem]
+
+
 class PatientSelfRegisterCreate(PatientFullCreate):
     email: EmailStr
     password: str = Field(..., min_length=4, max_length=128)

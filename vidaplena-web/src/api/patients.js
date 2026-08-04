@@ -105,6 +105,17 @@ export const searchBeneficiariesAdmin = async (q) => {
   return response.data;
 };
 
+export const getPaginatedBeneficiariesAdmin = async ({ skip = 0, limit = 20, search = '' } = {}) => {
+  const response = await client.get('/patients/admin/beneficiaries/paginated', {
+    params: { skip, limit, search: search || undefined },
+  });
+  return response.data;
+};
+
+export const deleteBeneficiaryAdmin = async (id) => {
+  await client.delete(`/patients/admin/beneficiaries/${id}`);
+};
+
 export const createBeneficiaryAdmin = async ({ nombres, ap_paterno, ap_materno, depto }) => {
   const response = await client.post('/patients/admin/beneficiaries', {
     nombres,
