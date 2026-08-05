@@ -246,7 +246,7 @@ export default function AppointmentBookingPage() {
             <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex gap-3">
               <Info className="text-blue-800 flex-shrink-0 mt-0.5" size={20} />
               <div className="text-sm text-blue-800">
-                <p className="font-bold mb-1">Atención de Trabajo Social</p>
+                <p className="font-bold mb-1">Atención de Asistencia Social</p>
                 <p>
                   Si por motivos de vulnerabilidad económica no le es posible realizar la donación
                   institucional de Bs. 70 descrita en la cláusula tercera, por favor no marque la

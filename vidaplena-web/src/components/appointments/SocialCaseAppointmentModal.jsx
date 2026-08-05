@@ -132,7 +132,7 @@ export function SocialCaseAppointmentModal({ isOpen, onClose, onSuccess }) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Nueva Reserva (Trabajo Social)">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Nueva Reserva (Asistencia Social)">
       {result ? (
         <div className="space-y-4">
           <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 text-sm text-purple-800">

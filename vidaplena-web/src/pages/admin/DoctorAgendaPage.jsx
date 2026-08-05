@@ -193,7 +193,7 @@ export default function DoctorAgendaPage() {
           onClick={() => setSocialCaseModalOpen(true)}
           className="w-full sm:w-auto px-4 bg-purple-600 hover:bg-purple-700 text-white inline-flex items-center justify-center gap-2"
         >
-          <HeartHandshake size={16} /> Nueva Reserva (Trabajo Social)
+          <HeartHandshake size={16} /> Nueva Reserva (Asistencia Social)
         </Button>
       </div>
 
