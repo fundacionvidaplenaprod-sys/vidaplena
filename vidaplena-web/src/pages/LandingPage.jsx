@@ -169,8 +169,21 @@ export default function LandingPage() {
             )}
           </div>
 
-          <p className="text-gray-600">
-            Tu aporte contribuye directamente a salvar vidas mediante el acceso a insulina.
+          <p className="text-gray-600 max-w-2xl mx-auto text-left space-y-4">
+            <span className="block">
+              Para miles de personas convivir con la diabetes significa depender día a día de
+              insumos, medicación y atención médica constante. En nuestra Fundación, trabajamos
+              incansablemente para que nadie tenga que suspender su tratamiento por falta de
+              recursos.
+            </span>
+            <span className="block mt-4">
+              Tu donación no es solo un aporte económico: es insulina, tiras reactivas, consultas
+              médicas y, sobre todo, tranquilidad y esperanza para una familia.
+            </span>
+            <span className="block mt-4">
+              Súmate hoy. Con tu apoyo solidario, garantizas que más niños, jóvenes y adultos
+              reciban la atención y el tratamiento que necesitan para vivir plenamente.
+            </span>
           </p>
 
         </div>

@@ -255,6 +255,19 @@ export default function AppointmentBookingPage() {
                 </p>
               </div>
             </div>
+
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex gap-3">
+              <Info className="text-blue-800 flex-shrink-0 mt-0.5" size={20} />
+              <div className="text-sm text-blue-800">
+                <p className="font-bold mb-1">NOTA</p>
+                <p>
+                  Las donaciones y aportes nos permiten sostener nuestra labor social y llegar a
+                  quienes más lo necesitan. Por ello, realizamos una evaluación socioeconómica a
+                  cada usuario para determinar si le corresponde una exoneración total o un aporte
+                  solidario acorde a sus posibilidades.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
