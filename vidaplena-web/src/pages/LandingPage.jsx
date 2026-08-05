@@ -5,6 +5,7 @@ import logoportadaImg from '../assets/logoportada.jpeg';
 import { getGalleryPhotos } from '../api/gallery';
 import { getSiteAssets } from '../api/siteAssets';
 import { getContactInfo } from '../api/siteSettings';
+import DonationSection from '../components/landing/DonationSection';
 
 export default function LandingPage() {
   const [galleryPhotos, setGalleryPhotos] = useState([]);
@@ -150,44 +151,7 @@ export default function LandingPage() {
       </section>
 
       {/* DONACIONES */}
-      <section id="donar" className="py-16 bg-green-50">
-        <div className="container mx-auto px-6 text-center">
-
-          <h2 className="text-3xl font-bold text-green-900 mb-6">Apoya Nuestra Causa</h2>
-
-          <p className="mb-8">
-            Escanea el código QR para realizar tu donación de forma rápida y segura.
-          </p>
-
-          <div className="flex justify-center mb-6">
-            {qrDonaciones ? (
-              <img src={qrDonaciones} alt="QR Donación" className="w-48 h-48 border p-2 bg-white" />
-            ) : (
-              <div className="w-48 h-48 border p-2 bg-white flex items-center justify-center text-gray-300 text-sm text-center">
-                QR no configurado
-              </div>
-            )}
-          </div>
-
-          <p className="text-gray-600 max-w-2xl mx-auto text-left space-y-4">
-            <span className="block">
-              Para miles de personas convivir con la diabetes significa depender día a día de
-              insumos, medicación y atención médica constante. En nuestra Fundación, trabajamos
-              incansablemente para que nadie tenga que suspender su tratamiento por falta de
-              recursos.
-            </span>
-            <span className="block mt-4">
-              Tu donación no es solo un aporte económico: es insulina, tiras reactivas, consultas
-              médicas y, sobre todo, tranquilidad y esperanza para una familia.
-            </span>
-            <span className="block mt-4">
-              Súmate hoy. Con tu apoyo solidario, garantizas que más niños, jóvenes y adultos
-              reciban la atención y el tratamiento que necesitan para vivir plenamente.
-            </span>
-          </p>
-
-        </div>
-      </section>
+      <DonationSection qrDonaciones={qrDonaciones} />
 
       {/* CONTACTO */}
       <section id="contacto" className="py-16">
