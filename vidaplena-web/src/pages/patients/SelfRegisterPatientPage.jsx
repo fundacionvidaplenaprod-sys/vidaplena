@@ -43,7 +43,6 @@ export default function SelfRegisterPatientPage() {
   const [isMinor, setIsMinor] = useState(false);
   const [serverError, setServerError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [puedeCubrirAporte, setPuedeCubrirAporte] = useState(true);
 
   // --- ESTADO DEL PASO 0 (verificación de identidad) ---
   const [matchStatus, setMatchStatus] = useState('idle'); // idle | checking | match | no-match
@@ -244,16 +243,10 @@ export default function SelfRegisterPatientPage() {
       };
 
       await selfRegisterPatient(payload);
+      toast.success('¡Registro exitoso! Ahora carga tus documentos.');
 
       await login({ email: data.email, password });
-
-      if (puedeCubrirAporte) {
-        toast.success('¡Registro exitoso! Ahora carga tus documentos.');
-        navigate('/mi-portal', { replace: true });
-      } else {
-        toast.success('¡Registro exitoso! Completa tu evaluación socioeconómica a continuación.');
-        navigate('/mi-evaluacion-social', { replace: true });
-      }
+      navigate('/mi-portal', { replace: true });
 
     } catch (err) {
       if (typeof err === 'string') {
@@ -707,39 +700,6 @@ export default function SelfRegisterPatientPage() {
               </div>
 
               <h3 className="text-2xl font-bold text-gray-800">Confirma tus datos</h3>
-
-              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-left">
-                <p className="font-bold text-blue-900 mb-3">
-                  ¿Puedes cubrir el aporte solidario mensual de la Fundación (mínimo 100 Bs.)?
-                </p>
-                <div className="flex gap-4">
-                  {[
-                    { value: true, label: 'Sí, puedo cubrirlo' },
-                    { value: false, label: 'No, necesito una evaluación socioeconómica' },
-                  ].map(({ value, label }) => (
-                    <label
-                      key={String(value)}
-                      className={`flex-1 flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors text-sm font-semibold
-                        ${puedeCubrirAporte === value ? 'border-vida-main bg-white' : 'border-blue-100 bg-white/60 hover:border-blue-300'}`}
-                    >
-                      <input
-                        type="radio"
-                        checked={puedeCubrirAporte === value}
-                        onChange={() => setPuedeCubrirAporte(value)}
-                        className="accent-vida-main"
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                {!puedeCubrirAporte && (
-                  <p className="text-xs text-blue-700 mt-3">
-                    Al finalizar el registro te llevaremos directamente al formulario de
-                    evaluación socioeconómica para que un evaluador social pueda exonerarte
-                    del aporte.
-                  </p>
-                )}
-              </div>
 
               {serverError && (
                 <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-left text-sm font-medium">

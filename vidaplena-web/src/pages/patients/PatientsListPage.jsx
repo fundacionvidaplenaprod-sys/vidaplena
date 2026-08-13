@@ -20,6 +20,7 @@ export default function PatientsListPage() {
     const [patients, setPatients] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [estadoFilter, setEstadoFilter] = useState('');
     const [patientToDelete, setPatientToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
     
@@ -35,10 +36,10 @@ export default function PatientsListPage() {
     const [isValidating, setIsValidating] = useState(false);
 
 
-    const loadPatients = useCallback(async (currentPage, search) => {
+    const loadPatients = useCallback(async (currentPage, search, estado) => {
         try {
             setLoading(true);
-            const data = await getPaginatedPatients((currentPage - 1) * limit, limit, search);
+            const data = await getPaginatedPatients((currentPage - 1) * limit, limit, search, estado);
             setPatients(data.items);
             setTotalPages(Math.ceil(data.total / limit) || 1);
         } catch (error) {
@@ -51,15 +52,15 @@ export default function PatientsListPage() {
     useEffect(() => {
         const timer = setTimeout(() => {
             setPage(1);
-            loadPatients(1, searchTerm);
+            loadPatients(1, searchTerm, estadoFilter);
         }, 500);
         return () => clearTimeout(timer);
-    }, [searchTerm, loadPatients]);
+    }, [searchTerm, estadoFilter, loadPatients]);
 
     const handlePageChange = (newPage) => {
         if (newPage >= 1 && newPage <= totalPages) {
             setPage(newPage);
-            loadPatients(newPage, searchTerm);
+            loadPatients(newPage, searchTerm, estadoFilter);
         }
     };
 
@@ -149,7 +150,7 @@ export default function PatientsListPage() {
             </div>
 
             {/* BARRA DE BÚSQUEDA */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6 flex items-center gap-4">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
                 <div className="relative flex-1 max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                     <input
@@ -160,6 +161,18 @@ export default function PatientsListPage() {
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
+                <select
+                    value={estadoFilter}
+                    onChange={(e) => setEstadoFilter(e.target.value)}
+                    className="w-full sm:w-56 px-4 py-2 rounded-lg bg-gray-50 border border-gray-200 text-sm focus:bg-white focus:ring-2 focus:ring-vida-light/30 outline-none transition-all"
+                >
+                    <option value="">Todos los estados</option>
+                    <option value="PENDIENTE_DOC">Pendiente Documentos</option>
+                    <option value="HABILITADO">Habilitado</option>
+                    <option value="ACTIVO">Activo</option>
+                    <option value="PENDIENTE_APORTE">Pendiente Aporte</option>
+                    <option value="INACTIVO">Inactivo</option>
+                </select>
             </div>
 
             {/* TABLA */}

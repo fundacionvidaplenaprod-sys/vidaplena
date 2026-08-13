@@ -23,9 +23,11 @@ export const getPatients = async (skip = 0, limit = 10000, search = '') => {
     }
 };
 
-export const getPaginatedPatients = async (skip = 0, limit = 20, search = '') => {
+export const getPaginatedPatients = async (skip = 0, limit = 20, search = '', estado = '') => {
     try {
-      const response = await client.get('/patients/paginated', { params: { skip, limit, search } });
+      const params = { skip, limit, search };
+      if (estado) params.estado = estado;
+      const response = await client.get('/patients/paginated', { params });
       return response.data;
     } catch (error) {
       console.error("Error al obtener pacientes paginados:", error);

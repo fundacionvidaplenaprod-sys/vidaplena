@@ -615,6 +615,19 @@ export default function MyDocumentsPage() {
                                         <Download size={18} className="mr-2" /> Descargar Formulario
                                     </Button>
                                 </div>
+
+                                <div className="mt-4 pt-4 border-t border-white/20">
+                                    <p className="text-sm text-white/80">
+                                        ¿No puedes cubrir el aporte solidario mensual?{' '}
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/mi-evaluacion-social')}
+                                            className="font-bold underline hover:text-white"
+                                        >
+                                            Solicita una evaluación socioeconómica
+                                        </button>
+                                    </p>
+                                </div>
                             </div>
                         )}
                         {socialEvaluation && (

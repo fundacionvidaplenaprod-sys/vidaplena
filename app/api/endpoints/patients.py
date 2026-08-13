@@ -206,7 +206,8 @@ def numero_a_letras(monto: float) -> str:
 @router.post("/", response_model=schemas.PatientResponse, status_code=status.HTTP_201_CREATED)
 async def create_patient(
     patient_in: schemas.PatientFullCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     print(f"📦 DEBUG CREATE: Recibido payload para {patient_in.nombres}")
     print(f"📦 DEBUG CREATE: Datos del tutor recibidos: {patient_in.tutor}")
@@ -916,6 +917,7 @@ async def read_patients(
     search: str = None,
     estado: str = None,
     db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     query = (
         select(models.Patient)
@@ -953,7 +955,9 @@ async def read_paginated_patients(
     skip: int = 0,
     limit: int = 20,
     search: str = None,
+    estado: str = None,
     db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     base_query = select(models.Patient)
 
@@ -967,6 +971,9 @@ async def read_paginated_patients(
                 models.Patient.ci.ilike(search_term)
             )
         )
+
+    if estado:
+        base_query = base_query.where(models.Patient.estado == estado)
 
     # Count total
     count_query = select(func.count()).select_from(base_query.subquery())
@@ -1084,7 +1091,11 @@ async def activate_patient_user(
         raise HTTPException(status_code=500, detail=f"Error al generar credenciales: {e}")
 
 @router.get("/{patient_id}", response_model=schemas.PatientDetailResponse)
-async def get_patient(patient_id: int, db: AsyncSession = Depends(get_db)):
+async def get_patient(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
+):
     query = (
         select(models.Patient)
         .where(models.Patient.id == patient_id)
@@ -1233,7 +1244,10 @@ async def update_patient(
 
 @router.post("/{patient_id}/tutor", response_model=schemas.TutorResponse, status_code=status.HTTP_201_CREATED)
 async def create_tutor(
-    patient_id: int, tutor: schemas.TutorCreate, db: AsyncSession = Depends(get_db)
+    patient_id: int,
+    tutor: schemas.TutorCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     result = await db.execute(select(models.Patient).where(models.Patient.id == patient_id))
     db_patient = result.scalars().first()
@@ -1250,7 +1264,10 @@ async def create_tutor(
 
 @router.put("/{patient_id}/tutor", response_model=schemas.TutorResponse)
 async def update_tutor(
-    patient_id: int, tutor: schemas.TutorUpdate, db: AsyncSession = Depends(get_db)
+    patient_id: int,
+    tutor: schemas.TutorUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     result = await db.execute(select(models.Tutor).where(models.Tutor.patient_id == patient_id))
     db_tutor = result.scalars().first()
@@ -1267,7 +1284,11 @@ async def update_tutor(
     return db_tutor
 
 @router.get("/{patient_id}/tutor", response_model=schemas.TutorResponse)
-async def get_tutor_by_patient_id(patient_id: int, db: AsyncSession = Depends(get_db)):
+async def get_tutor_by_patient_id(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
+):
     result = await db.execute(select(models.Tutor).where(models.Tutor.patient_id == patient_id))
     db_tutor = result.scalars().first()
     
@@ -1277,7 +1298,10 @@ async def get_tutor_by_patient_id(patient_id: int, db: AsyncSession = Depends(ge
 
 @router.post("/{patient_id}/medical", response_model=schemas.PatientMedicalResponse, status_code=status.HTTP_201_CREATED)
 async def create_patient_medical(
-    patient_id: int, medical: schemas.PatientMedicalCreate, db: AsyncSession = Depends(get_db)
+    patient_id: int,
+    medical: schemas.PatientMedicalCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     result = await db.execute(select(models.Patient).where(models.Patient.id == patient_id))
     db_patient = result.scalars().first()
@@ -1294,7 +1318,10 @@ async def create_patient_medical(
 
 @router.put("/{patient_id}/medical", response_model=schemas.PatientMedicalResponse)
 async def update_patient_medical(
-    patient_id: int, medical: schemas.PatientMedicalUpdate, db: AsyncSession = Depends(get_db)
+    patient_id: int,
+    medical: schemas.PatientMedicalUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     result = await db.execute(select(models.PatientMedical).where(models.PatientMedical.patient_id == patient_id))
     db_medical = result.scalars().first()
@@ -1312,7 +1339,10 @@ async def update_patient_medical(
 
 @router.post("/{patient_id}/complications", response_model=schemas.PatientComplicationResponse, status_code=status.HTTP_201_CREATED)
 async def add_patient_complication(
-    patient_id: int, complication: schemas.PatientComplicationCreate, db: AsyncSession = Depends(get_db)
+    patient_id: int,
+    complication: schemas.PatientComplicationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     result = await db.execute(select(models.Patient).where(models.Patient.id == patient_id))
     db_patient = result.scalars().first()
@@ -1339,7 +1369,10 @@ async def add_patient_complication(
 
 @router.post("/{patient_id}/treatments", response_model=schemas.PatientTreatmentResponse, status_code=status.HTTP_201_CREATED)
 async def add_patient_treatment(
-    patient_id: int, treatment: schemas.PatientTreatmentCreate, db: AsyncSession = Depends(get_db)
+    patient_id: int,
+    treatment: schemas.PatientTreatmentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     result = await db.execute(select(models.Patient).where(models.Patient.id == patient_id))
     db_patient = result.scalars().first()
@@ -1391,7 +1424,11 @@ async def delete_patient(
 # --- ENDPOINTS DE BORRADO ESPECÍFICO (HIJOS) ---
 
 @router.delete("/{patient_id}/medical", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_patient_medical(patient_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_patient_medical(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
+):
     query = select(models.PatientMedical).where(models.PatientMedical.patient_id == patient_id)
     result = await db.execute(query)
     medical = result.scalars().first()
@@ -1404,7 +1441,12 @@ async def delete_patient_medical(patient_id: int, db: AsyncSession = Depends(get
     return None
 
 @router.delete("/{patient_id}/treatments/{treatment_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_patient_treatment(patient_id: int, treatment_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_patient_treatment(
+    patient_id: int,
+    treatment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
+):
     query = select(models.PatientTreatment).where(
         models.PatientTreatment.id == treatment_id,
         models.PatientTreatment.patient_id == patient_id
@@ -1420,7 +1462,12 @@ async def delete_patient_treatment(patient_id: int, treatment_id: int, db: Async
     return None
 
 @router.delete("/{patient_id}/complications/{complication_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_patient_complication(patient_id: int, complication_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_patient_complication(
+    patient_id: int,
+    complication_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
+):
     query = select(models.PatientComplication).where(
         models.PatientComplication.id == complication_id,
         models.PatientComplication.patient_id == patient_id
@@ -1436,7 +1483,11 @@ async def delete_patient_complication(patient_id: int, complication_id: int, db:
     return None
 
 @router.delete("/{patient_id}/tutor", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_patient_tutor(patient_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_patient_tutor(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
+):
     query = select(models.Tutor).where(models.Tutor.patient_id == patient_id)
     result = await db.execute(query)
     tutor = result.scalars().first()
@@ -1455,7 +1506,8 @@ async def update_patient_treatment(
     patient_id: int,
     treatment_id: int,
     treatment: schemas.PatientTreatmentCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     query = select(models.PatientTreatment).where(
         models.PatientTreatment.id == treatment_id,
@@ -1486,7 +1538,8 @@ async def update_patient_complication(
     patient_id: int,
     complication_id: int,
     complication: schemas.PatientComplicationCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     query = select(models.PatientComplication).where(
         models.PatientComplication.id == complication_id,
