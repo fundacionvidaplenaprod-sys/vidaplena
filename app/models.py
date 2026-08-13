@@ -112,9 +112,13 @@ class Patient(Base):
     # documents = relationship("PatientDocument", back_populates="patient", cascade="all, delete-orphan")
     # pledges = relationship("VoluntaryPledge", back_populates="patient", cascade="all, delete-orphan")
     
-    allocations = relationship("DonationAllocation", back_populates="patient")
-    deliveries = relationship("Delivery", back_populates="patient")
-    social_evaluation = relationship("SocialEvaluation", back_populates="patient", uselist=False)
+    # passive_deletes=True: estas FK ya tienen ON DELETE CASCADE en la BD
+    # (nullable=False del lado hijo), así que el ORM no debe intentar
+    # desasociarlas poniendo su patient_id en NULL al borrar el paciente
+    # (eso violaría la restricción NOT NULL) — se deja que la BD cascadee.
+    allocations = relationship("DonationAllocation", back_populates="patient", passive_deletes=True)
+    deliveries = relationship("Delivery", back_populates="patient", passive_deletes=True)
+    social_evaluation = relationship("SocialEvaluation", back_populates="patient", uselist=False, passive_deletes=True)
 
 
 class PatientStatusEvent(Base):

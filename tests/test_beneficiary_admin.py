@@ -145,6 +145,95 @@ async def test_reset_registration_deletes_test_patient_and_user(client, db_sessi
 
 
 @pytest.mark.asyncio
+async def test_reset_registration_deletes_storage_documents(client, db_session, superuser_token, monkeypatch):
+    """
+    El reset borra en Firebase Storage los documentos del paciente de prueba
+    y las evidencias de su evaluación socioeconómica (si tenía alguna), no
+    solo las filas en BD.
+    """
+    from app.api.endpoints import patients as patients_module
+
+    deleted_urls = []
+    monkeypatch.setattr(patients_module, "delete_file_from_firebase_by_url", deleted_urls.append)
+
+    suffix = str(uuid.uuid4())[:8]
+    nombres = f"ResetStorage{suffix}"
+    beneficiary, patient, user = await _seed_test_registration(db_session, nombres, "Prueba")
+
+    ci_url = f"https://storage.googleapis.com/vidaplenastorage.firebasestorage.app/pacientes/{patient.id}/legal/identidad/ci_paciente.pdf"
+    medico_url = f"https://storage.googleapis.com/vidaplenastorage.firebasestorage.app/pacientes/{patient.id}/legal/medico/cert_medico.pdf"
+    patient.url_ci_paciente = ci_url
+    patient.url_certificado_medico = medico_url
+    db_session.add(patient)
+    await db_session.commit()
+
+    foto_ci_evaluacion_url = f"https://storage.googleapis.com/vidaplenastorage.firebasestorage.app/pacientes/{patient.id}/evaluaciones/legal/ci.jpg"
+    firma_url = f"https://storage.googleapis.com/vidaplenastorage.firebasestorage.app/pacientes/{patient.id}/evaluaciones/firma/firma.png"
+    evaluation = models.SocialEvaluation(
+        patient_id=patient.id,
+        departamento="La Paz",
+        integrantes_hogar=3,
+        dependientes=1,
+        tipo_vivienda="Alquilada",
+        monto_alquiler=500.0,
+        tiene_seguro=False,
+        ingreso_titular=1000.0,
+        ingreso_conyuge=0.0,
+        ingreso_per_capita=333.33,
+        categoria_asignada="A",
+        estado_alerta="NORMAL",
+        habeas_data_accepted=True,
+        imagen_consent_accepted=True,
+        foto_ci_url=foto_ci_evaluacion_url,
+        firma_digital_url=firma_url,
+    )
+    db_session.add(evaluation)
+    await db_session.commit()
+
+    res = await client.post(f"/patients/admin/beneficiaries/{beneficiary.id}/reset-registration")
+    assert res.status_code == 200, res.text
+
+    assert set(deleted_urls) == {ci_url, medico_url, foto_ci_evaluacion_url, firma_url}
+
+
+@pytest.mark.asyncio
+async def test_delete_patient_deletes_storage_documents(client, db_session, superuser_token, monkeypatch):
+    """DELETE /patients/{id} también borra los documentos del paciente en Firebase Storage."""
+    from app.api.endpoints import patients as patients_module
+
+    deleted_urls = []
+    monkeypatch.setattr(patients_module, "delete_file_from_firebase_by_url", deleted_urls.append)
+
+    suffix = str(uuid.uuid4())[:8]
+    _, patient, _ = await _seed_test_registration(db_session, f"Delete{suffix}", "Prueba")
+
+    foto_url = f"https://storage.googleapis.com/vidaplenastorage.firebasestorage.app/pacientes/{patient.id}/legal/fotos/foto_paciente.jpg"
+    patient.url_foto_paciente = foto_url
+    db_session.add(patient)
+    await db_session.commit()
+
+    res = await client.delete(f"/patients/{patient.id}")
+    assert res.status_code == 204, res.text
+    assert deleted_urls == [foto_url]
+
+    patient_check = await db_session.execute(select(models.Patient).where(models.Patient.id == patient.id))
+    assert patient_check.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_patient_requires_super_admin(client, db_session):
+    """DELETE /patients/{id} sin autenticación debe rechazarse (antes no exigía ningún rol)."""
+    suffix = str(uuid.uuid4())[:8]
+    _, patient, _ = await _seed_test_registration(db_session, f"NoAuthDelete{suffix}", "Prueba")
+
+    res = await client.delete(f"/patients/{patient.id}")
+    assert res.status_code == 401
+
+    patient_check = await db_session.execute(select(models.Patient).where(models.Patient.id == patient.id))
+    assert patient_check.scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
 async def test_reset_registration_noop_when_not_registered(client, db_session, superuser_token):
     suffix = str(uuid.uuid4())[:8]
     beneficiary = await _seed_beneficiary(db_session, f"Libre{suffix}", "Prueba")

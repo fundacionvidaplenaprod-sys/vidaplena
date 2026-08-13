@@ -1,6 +1,8 @@
 import firebase_admin
 from firebase_admin import credentials, storage
 import os
+from typing import Optional
+from urllib.parse import unquote, urlparse
 from app.core.config import settings
 
 # Nombre de tu archivo de credenciales (el que descargaste)
@@ -54,3 +56,35 @@ def delete_file_from_firebase(filename: str) -> None:
     bucket = storage.bucket()
     blob = bucket.blob(filename)
     blob.delete()
+
+
+def storage_path_from_public_url(public_url: str) -> Optional[str]:
+    """
+    Recupera el path interno del bucket (el mismo que se le pasó a
+    upload_file_to_firebase) a partir de la public_url que devuelve. Los
+    documentos de pacientes/evaluaciones solo guardan esta URL pública, no
+    un storage_path aparte (a diferencia de GalleryPhoto/SiteAsset).
+    Retorna None si la URL no corresponde a nuestro bucket.
+    """
+    if not public_url:
+        return None
+    try:
+        parsed = urlparse(public_url)
+    except ValueError:
+        return None
+    prefix = f"/{BUCKET_NAME}/"
+    if not parsed.path.startswith(prefix):
+        return None
+    return unquote(parsed.path[len(prefix):])
+
+
+def delete_file_from_firebase_by_url(public_url: str) -> None:
+    """
+    Borra de Storage el archivo correspondiente a una public_url generada
+    por upload_file_to_firebase. Lanza ValueError si la URL no se puede
+    mapear a un path del bucket — el llamador decide si ignorar ese caso.
+    """
+    path = storage_path_from_public_url(public_url)
+    if not path:
+        raise ValueError(f"No se pudo determinar el path de Storage para la URL: {public_url}")
+    delete_file_from_firebase(path)

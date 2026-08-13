@@ -29,7 +29,7 @@ from app import models, schemas
 from app.api import deps
 from app.db import get_db
 from app.core.security import hash_password, create_access_token
-from app.core.firebase import upload_file_to_firebase
+from app.core.firebase import upload_file_to_firebase, delete_file_from_firebase_by_url
 from app.core.text_normalize import normalize_name
 
 router = APIRouter()
@@ -45,6 +45,61 @@ WHATSAPP_CONTACTO = "+59172966106"
 def calculate_age(born: date):
     today = date.today()
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+async def _collect_patient_document_urls(db: AsyncSession, patient: models.Patient) -> List[str]:
+    """
+    Junta todas las URLs de documentos de un paciente (propios y los de su
+    evaluación socioeconómica, si tiene) para poder borrarlos de Firebase
+    Storage antes de eliminar al paciente.
+
+    IMPORTANTE: la evaluación se consulta aparte (no vía `patient.social_evaluation`)
+    a propósito. Si esa relación queda cargada en el objeto `patient` antes de
+    `db.delete(patient)`, SQLAlchemy intenta desasociarla poniendo su
+    `patient_id` en NULL como parte del cascade de guardado por defecto —y
+    falla, porque esa columna es NOT NULL. Al consultarla por separado sin
+    tocar el atributo de relación, el `ON DELETE CASCADE` de la base de
+    datos se encarga solo, sin que el ORM interfiera.
+    """
+    urls = [
+        patient.url_ci_paciente,
+        patient.url_certificado_medico,
+        patient.url_foto_paciente,
+        patient.url_declaracion_aporte,
+        patient.url_ci_tutor,
+        patient.url_foto_tutor,
+    ]
+
+    eval_result = await db.execute(
+        select(models.SocialEvaluation).where(models.SocialEvaluation.patient_id == patient.id)
+    )
+    evaluation = eval_result.scalar_one_or_none()
+    if evaluation is not None:
+        urls.extend([
+            evaluation.foto_ci_url,
+            evaluation.foto_fachada_url,
+            evaluation.foto_sala_url,
+            evaluation.foto_dormitorio_url,
+            evaluation.firma_digital_url,
+        ])
+
+    return [u for u in urls if u]
+
+
+def _delete_storage_urls(urls: List[str]) -> None:
+    """
+    Borra de Firebase Storage cada URL dada. Es un "mejor esfuerzo": si una
+    URL no se puede mapear a un archivo, o el archivo ya no existe, se
+    ignora esa URL puntual y se continúa con las demás. Debe llamarse
+    después de que el borrado del registro en BD ya haya sido confirmado
+    (commit), nunca antes — si la transacción de BD fallara, no queremos
+    haber borrado ya los archivos.
+    """
+    for url in urls:
+        try:
+            delete_file_from_firebase_by_url(url)
+        except Exception as e:
+            print(f"Error al borrar documento de Firebase ({url}): {e}")
+
 
 def _validate_insulin_treatment_payload(treatments: List[schemas.PatientTreatmentCreate]) -> None:
     """
@@ -512,6 +567,7 @@ async def reset_beneficiary_registration(
         patient = patient_result.scalar_one_or_none()
         if patient:
             user_id = patient.user_id
+            document_urls = await _collect_patient_document_urls(db, patient)
             try:
                 await db.delete(patient)
                 if user_id:
@@ -526,6 +582,11 @@ async def reset_beneficiary_registration(
                     status_code=409,
                     detail="No se pudo borrar el paciente/usuario de prueba: tiene otros registros asociados.",
                 )
+
+            # Solo se borran los archivos de Storage una vez que el paciente
+            # ya fue eliminado exitosamente en BD (evita dejar el registro
+            # con enlaces rotos si la transacción de arriba hubiera fallado).
+            _delete_storage_urls(document_urls)
 
     beneficiary.matched_patient_id = None
     await db.commit()
@@ -1296,9 +1357,14 @@ async def add_patient_treatment(
 
 
 @router.delete("/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_patient(patient_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_patient(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
     """
-    Elimina un paciente y toda su información asociada (Cascade).
+    Elimina un paciente y toda su información asociada (Cascade), incluyendo
+    sus documentos y evidencias en Firebase Storage. Solo SUPER_ADMIN.
     """
     query = select(models.Patient).where(models.Patient.id == patient_id)
     result = await db.execute(query)
@@ -1307,13 +1373,19 @@ async def delete_patient(patient_id: int, db: AsyncSession = Depends(get_db)):
     if not patient:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
+    document_urls = await _collect_patient_document_urls(db, patient)
+
     try:
         await db.delete(patient)
         await db.commit()
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al eliminar el paciente: {str(e)}")
-    
+
+    # Solo se borran los archivos de Storage una vez que el paciente ya fue
+    # eliminado exitosamente en BD.
+    _delete_storage_urls(document_urls)
+
     return None
 
 # --- ENDPOINTS DE BORRADO ESPECÍFICO (HIJOS) ---
