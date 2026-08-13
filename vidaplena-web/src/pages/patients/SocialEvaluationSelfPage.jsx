@@ -41,25 +41,16 @@ const CONDICION_LABORAL = [
 ];
 
 const PASOS = [
-  { numero: 1, titulo: 'Declaración Jurada' },
+  { numero: 1, titulo: 'Declaración de Veracidad' },
   { numero: 2, titulo: 'Datos del Hogar' },
   { numero: 3, titulo: 'Salud y Seguro' },
   { numero: 4, titulo: 'Ingresos' },
   { numero: 5, titulo: 'Vivienda y Evidencias' },
-  { numero: 6, titulo: 'Firma y Envío' },
+  { numero: 6, titulo: 'Confirmación y Envío' },
 ];
 
 const MAX_FILE_SIZE_MB = 5;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
-function dataURLtoBlob(dataUrl) {
-  const [header, base64] = dataUrl.split(',');
-  const mime = header.match(/:(.*?);/)[1];
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  COMPONENTES AUXILIARES
@@ -154,104 +145,6 @@ function FileInput({ label, accept, onUpload }) {
   );
 }
 
-/** Componente de canvas para firma digital */
-function SignatureCanvas({ onSave, onClear, saving }) {
-  const canvasRef = useRef(null);
-  const isDrawing = useRef(false);
-  const [hasSigned, setHasSigned] = useState(false);
-
-  const getPos = (e, canvas) => {
-    const rect = canvas.getBoundingClientRect();
-    const src = e.touches ? e.touches[0] : e;
-    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
-  };
-
-  const startDraw = (e) => {
-    e.preventDefault();
-    isDrawing.current = true;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const pos = getPos(e, canvas);
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-  };
-
-  const draw = (e) => {
-    e.preventDefault();
-    if (!isDrawing.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const pos = getPos(e, canvas);
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = '#1d3b6e';
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
-    setHasSigned(true);
-  };
-
-  const stopDraw = (e) => {
-    e.preventDefault();
-    if (!isDrawing.current) return;
-    isDrawing.current = false;
-    onSave(canvasRef.current.toDataURL('image/png'));
-  };
-
-  const handleClear = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setHasSigned(false);
-    onClear();
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="relative border-2 border-gray-300 rounded-xl overflow-hidden bg-white shadow-inner">
-        <div className="absolute bottom-10 left-6 right-6 border-b-2 border-dashed border-gray-300 pointer-events-none" />
-        <canvas
-          ref={canvasRef}
-          width={580}
-          height={200}
-          className="w-full touch-none cursor-crosshair"
-          onMouseDown={startDraw}
-          onMouseMove={draw}
-          onMouseUp={stopDraw}
-          onMouseLeave={stopDraw}
-          onTouchStart={startDraw}
-          onTouchMove={draw}
-          onTouchEnd={stopDraw}
-        />
-      </div>
-      <div className="flex items-center gap-4">
-        <button
-          type="button"
-          onClick={handleClear}
-          className="text-sm text-red-600 hover:text-red-800 font-semibold flex items-center gap-1"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-          Limpiar firma
-        </button>
-        {saving && <span className="text-sm text-blue-600 font-medium">Guardando firma...</span>}
-        {!saving && hasSigned && (
-          <span className="text-sm text-green-600 font-medium flex items-center gap-1">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            Firma capturada
-          </span>
-        )}
-      </div>
-      <p className="text-xs text-gray-400">
-        Firme dentro del recuadro usando el mouse o su dedo en pantallas táctiles.
-      </p>
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 //  COMPONENTE PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,7 +154,6 @@ export default function SocialEvaluationSelfPage() {
 
   const [pasoActual, setPasoActual] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [savingFirma, setSavingFirma] = useState(false);
 
   // URLs de Firebase ya subidas, según van avanzando los pasos.
   const [urls, setUrls] = useState({
@@ -269,7 +161,6 @@ export default function SocialEvaluationSelfPage() {
     foto_fachada_url: null,
     foto_sala_url: null,
     foto_dormitorio_url: null,
-    firma_digital_url: null,
   });
 
   const {
@@ -288,8 +179,11 @@ export default function SocialEvaluationSelfPage() {
       tiene_seguro: 'no',
       tipo_seguro: '',
       condicion_laboral: '',
+      recibe_ayuda_otra_institucion: 'no',
+      nombre_institucion_ayuda: '',
       ingreso_titular: 0,
       ingreso_conyuge: 0,
+      tiene_deudas_comprometen_ingresos: 'no',
       tipo_vivienda: '',
       monto_alquiler: 0,
     },
@@ -307,9 +201,11 @@ export default function SocialEvaluationSelfPage() {
   const integrantes_hogar = Math.max(1, parseInt(watch('integrantes_hogar') || 1, 10));
   const tiene_seguro = watch('tiene_seguro') === 'si';
   const tipo_vivienda = watch('tipo_vivienda');
+  const tiene_deudas = watch('tiene_deudas_comprometen_ingresos') === 'si';
 
   const ingreso_total = ingreso_titular + ingreso_conyuge;
-  const ingreso_per_capita = ingreso_total / integrantes_hogar;
+  const ingreso_para_categoria = tiene_deudas ? ingreso_total * 0.8 : ingreso_total;
+  const ingreso_per_capita = ingreso_para_categoria / integrantes_hogar;
 
   const categoriaEstimada = (() => {
     if (ingreso_per_capita < 500 && !tiene_seguro) return { label: 'A – Extrema Vulnerabilidad', color: 'text-red-600 bg-red-50' };
@@ -322,8 +218,8 @@ export default function SocialEvaluationSelfPage() {
   const camposValidadosPorPaso = {
     1: ['declaracion_jurada', 'habeas_data_accepted'],
     2: ['departamento', 'integrantes_hogar', 'dependientes'],
-    3: ['tiene_seguro'],
-    4: ['ingreso_titular', 'ingreso_conyuge'],
+    3: ['tiene_seguro', 'recibe_ayuda_otra_institucion', 'nombre_institucion_ayuda'],
+    4: ['ingreso_titular', 'ingreso_conyuge', 'tiene_deudas_comprometen_ingresos'],
     5: ['tipo_vivienda', 'imagen_consent_accepted'],
     6: [],
   };
@@ -347,36 +243,14 @@ export default function SocialEvaluationSelfPage() {
       toast.error('Suba las 3 fotos de evidencia del domicilio antes de continuar.');
       return;
     }
-    if (pasoActual === 6 && !urls.firma_digital_url) {
-      toast.error('Por favor, proporcione su firma digital antes de enviar.');
-      return;
-    }
 
     setPasoActual((prev) => Math.min(prev + 1, PASOS.length));
   };
 
   const irAlAnterior = () => setPasoActual((prev) => Math.max(prev - 1, 1));
 
-  const handleGuardarFirma = async (dataUrl) => {
-    setSavingFirma(true);
-    try {
-      const blob = dataURLtoBlob(dataUrl);
-      const { url } = await uploadMyEvaluationDocument('firma', blob);
-      setUrls((prev) => ({ ...prev, firma_digital_url: url }));
-    } catch (error) {
-      toast.error('No se pudo guardar la firma. Intente nuevamente.');
-    } finally {
-      setSavingFirma(false);
-    }
-  };
-
   // ── Envío del formulario ─────────────────────────────────────────────────
   const onSubmit = async (formData) => {
-    if (!urls.firma_digital_url) {
-      toast.error('La firma digital es obligatoria.');
-      return;
-    }
-
     setSubmitting(true);
     const loadingToast = toast.loading('Enviando evaluación...');
 
@@ -390,15 +264,18 @@ export default function SocialEvaluationSelfPage() {
         tiene_seguro: formData.tiene_seguro === 'si',
         tipo_seguro: formData.tiene_seguro === 'si' ? formData.tipo_seguro : null,
         condicion_laboral: formData.condicion_laboral || null,
+        recibe_ayuda_otra_institucion: formData.recibe_ayuda_otra_institucion === 'si',
+        nombre_institucion_ayuda:
+          formData.recibe_ayuda_otra_institucion === 'si' ? formData.nombre_institucion_ayuda : null,
         ingreso_titular: parseFloat(formData.ingreso_titular || 0),
         ingreso_conyuge: parseFloat(formData.ingreso_conyuge || 0),
+        tiene_deudas_comprometen_ingresos: formData.tiene_deudas_comprometen_ingresos === 'si',
         habeas_data_accepted: formData.habeas_data_accepted === true,
         imagen_consent_accepted: formData.imagen_consent_accepted === true,
         foto_ci_url: urls.foto_ci_url,
         foto_fachada_url: urls.foto_fachada_url,
         foto_sala_url: urls.foto_sala_url,
         foto_dormitorio_url: urls.foto_dormitorio_url,
-        firma_digital_url: urls.firma_digital_url,
       };
 
       await submitMySocialEvaluation(payload);
@@ -429,22 +306,22 @@ export default function SocialEvaluationSelfPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Declaración Jurada de Veracidad
+                Declaración de Veracidad de la Información
               </h3>
               <div className="text-sm text-blue-800 space-y-2 leading-relaxed">
                 <p>
-                  Declaro bajo juramento que toda la información proporcionada en este
-                  formulario de evaluación socioeconómica es <strong>verídica, completa y exacta</strong>.
+                  Declaro conscientemente que la información proporcionada en este formulario
+                  es <strong>correcta, completa y verdadera</strong>.
                 </p>
                 <p>
-                  Entiendo que la falsificación de datos constituye un delito tipificado
-                  en el <strong>Art. 169 del Código Penal del Estado Plurinacional de Bolivia</strong>,
-                  y que la Fundación V.I.D.A. Plena podrá verificar la información declarada.
+                  Entiendo que la Fundación V.I.D.A. Plena podrá validar los datos presentados
+                  y que la falsificación de información es una falta regulada por el{' '}
+                  <strong>Art. 169 del Código Penal del Estado Plurinacional de Bolivia</strong>.
                 </p>
                 <p>
-                  En caso de detectarse información falsa o incompleta, autorizo la
-                  suspensión inmediata de cualquier beneficio otorgado y acepto las
-                  consecuencias legales correspondientes.
+                  Acepto que cualquier omisión o dato no verídico podrá ser motivo para la
+                  suspensión de los beneficios recibidos y la aplicación de las acciones que
+                  determina el Estado Plurinacional de Bolivia.
                 </p>
               </div>
             </div>
@@ -463,8 +340,8 @@ export default function SocialEvaluationSelfPage() {
                     className="mt-0.5 w-5 h-5 rounded accent-blue-600 flex-shrink-0"
                   />
                   <span className="text-sm font-semibold text-gray-700">
-                    Acepto la declaración jurada anterior y confirmo que toda la información
-                    que proporcionaré es verídica. Art. 169 C.P. Bolivia.
+                    Acepto la declaración de veracidad anterior y confirmo que toda la información
+                    que proporcionaré es correcta, completa y verdadera. Art. 169 C.P. Bolivia.
                   </span>
                 </label>
               )}
@@ -500,12 +377,12 @@ export default function SocialEvaluationSelfPage() {
 
             <div className="mt-4">
               <FileInput
-                label="📎 Fotografía / Escaneo de su Carnet de Identidad (C.I.)"
+                label="📎 Fotografía / Escaneo de su Carnet de Identidad (C.I.) — anverso y reverso en un solo documento"
                 accept="image/*,application/pdf"
                 onUpload={(file) => uploadDoc('ci', file)}
               />
               <p className="mt-1 text-xs text-gray-400">
-                Ambos lados del CI. Máximo 5 MB. JPG, PNG o PDF.
+                Ambos lados del CI en una sola imagen o PDF. Máximo 5 MB. JPG, PNG o PDF.
               </p>
             </div>
           </div>
@@ -639,6 +516,55 @@ export default function SocialEvaluationSelfPage() {
                 ))}
               </select>
             </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                ¿Usted recibe ayuda para su diabetes de otra institución (Fundación, ONG, Asociación, etc.)? *
+              </label>
+              <div className="flex gap-4">
+                {[
+                  { value: 'si', label: '✅ Sí' },
+                  { value: 'no', label: '❌ No' },
+                ].map(({ value, label }) => (
+                  <label
+                    key={value}
+                    className={`flex-1 flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors
+                      ${watch('recibe_ayuda_otra_institucion') === value
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300'}`}
+                  >
+                    <input
+                      type="radio"
+                      value={value}
+                      {...register('recibe_ayuda_otra_institucion', { required: true })}
+                      className="accent-blue-600"
+                    />
+                    <span className="text-sm font-semibold text-gray-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              {watch('recibe_ayuda_otra_institucion') === 'si' && (
+                <div className="animate-fade-in mt-3">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    ¿Cuál institución? *
+                  </label>
+                  <input
+                    type="text"
+                    {...register('nombre_institucion_ayuda', {
+                      validate: (v) =>
+                        watch('recibe_ayuda_otra_institucion') !== 'si' || !!(v || '').trim() ||
+                        'Indique el nombre de la institución.',
+                    })}
+                    className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500"
+                    placeholder="Ej: Fundación XYZ"
+                  />
+                  {errors.nombre_institucion_ayuda && (
+                    <p className="mt-1 text-xs text-red-600">{errors.nombre_institucion_ayuda.message}</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         );
 
@@ -693,6 +619,39 @@ export default function SocialEvaluationSelfPage() {
               </div>
             </div>
 
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                ¿Usted tiene deudas que comprometan sus ingresos mensuales en un 20% o más? *
+              </label>
+              <div className="flex gap-4">
+                {[
+                  { value: 'si', label: '✅ Sí' },
+                  { value: 'no', label: '❌ No' },
+                ].map(({ value, label }) => (
+                  <label
+                    key={value}
+                    className={`flex-1 flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors
+                      ${watch('tiene_deudas_comprometen_ingresos') === value
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300'}`}
+                  >
+                    <input
+                      type="radio"
+                      value={value}
+                      {...register('tiene_deudas_comprometen_ingresos', { required: true })}
+                      className="accent-blue-600"
+                    />
+                    <span className="text-sm font-semibold text-gray-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+              {tiene_deudas && (
+                <p className="mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-2">
+                  Se descontará un 20% de sus ingresos para el cálculo de su categoría.
+                </p>
+              )}
+            </div>
+
             <div className="bg-gradient-to-br from-blue-700 to-indigo-800 rounded-2xl p-6 text-white shadow-lg">
               <h4 className="font-bold text-lg mb-4 flex items-center gap-2">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -720,6 +679,7 @@ export default function SocialEvaluationSelfPage() {
               </div>
               <p className="text-xs text-white/50 mt-2 text-center">
                 * La categoría final es calculada y asignada por el sistema.
+                {tiene_deudas && ' Incluye el descuento del 20% por deudas declaradas.'}
               </p>
             </div>
           </div>
@@ -835,21 +795,15 @@ export default function SocialEvaluationSelfPage() {
               <h4 className="font-bold text-amber-800 flex items-center gap-2 mb-2">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                Mi Firma Digital
+                Próximo paso: entrevista virtual
               </h4>
               <p className="text-sm text-amber-700">
-                Al firmar, confirmo que la información proporcionada es veraz y acepto los
-                términos de la declaración jurada del Art. 169 C.P. Bolivia.
+                Al enviar su declaración jurada acepta que realizará una programación de una
+                entrevista virtual con el profesional del área para culminar su evaluación.
               </p>
             </div>
-
-            <SignatureCanvas
-              onSave={handleGuardarFirma}
-              onClear={() => setUrls((prev) => ({ ...prev, firma_digital_url: null }))}
-              saving={savingFirma}
-            />
 
             <div className="bg-gray-50 rounded-2xl p-5 border border-gray-200">
               <h4 className="font-bold text-gray-700 mb-3">Resumen de mi evaluación</h4>
@@ -872,6 +826,16 @@ export default function SocialEvaluationSelfPage() {
                 </div>
                 <div>
                   <span className="font-semibold">Tipo vivienda:</span> {watch('tipo_vivienda') || '—'}
+                </div>
+                <div>
+                  <span className="font-semibold">Ayuda de otra institución:</span>{' '}
+                  {watch('recibe_ayuda_otra_institucion') === 'si'
+                    ? watch('nombre_institucion_ayuda') || 'Sí'
+                    : 'No'}
+                </div>
+                <div>
+                  <span className="font-semibold">Deudas que comprometen ingresos:</span>{' '}
+                  {tiene_deudas ? 'Sí' : 'No'}
                 </div>
               </div>
               <div className={`mt-3 rounded-xl px-4 py-2 font-bold text-sm text-center ${categoriaEstimada.color}`}>
@@ -934,9 +898,9 @@ export default function SocialEvaluationSelfPage() {
               ) : (
                 <button
                   type="submit"
-                  disabled={submitting || !urls.firma_digital_url}
+                  disabled={submitting}
                   className={`px-8 py-3 rounded-xl font-bold text-white transition-all shadow-md
-                    ${submitting || !urls.firma_digital_url
+                    ${submitting
                       ? 'bg-gray-300 cursor-not-allowed shadow-none'
                       : 'bg-green-600 hover:bg-green-700 active:scale-95 shadow-green-200'}`}
                 >

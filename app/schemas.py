@@ -735,6 +735,11 @@ class SocialEvaluationCreate(BaseModel):
     ingreso_titular: float = Field(0.0, ge=0.0)
     ingreso_conyuge: float = Field(0.0, ge=0.0)
 
+    # Ayuda externa y endeudamiento
+    recibe_ayuda_otra_institucion: bool = False
+    nombre_institucion_ayuda: Optional[str] = Field(None, max_length=160)
+    tiene_deudas_comprometen_ingresos: bool = False
+
     # Evidencias (URLs de Firebase Storage, opcionales al momento de crear)
     foto_ci_url: Optional[str] = Field(None, max_length=500)
     foto_fachada_url: Optional[str] = Field(None, max_length=500)
@@ -779,6 +784,11 @@ class SocialEvaluationSelfCreate(BaseModel):
     condicion_laboral: Optional[str] = Field(None, max_length=80)
     ingreso_titular: float = Field(0.0, ge=0.0)
     ingreso_conyuge: float = Field(0.0, ge=0.0)
+
+    # Ayuda externa y endeudamiento
+    recibe_ayuda_otra_institucion: bool = False
+    nombre_institucion_ayuda: Optional[str] = Field(None, max_length=160)
+    tiene_deudas_comprometen_ingresos: bool = False
 
     # Evidencias (URLs de Firebase Storage, ya subidas vía /me/upload-document)
     foto_ci_url: Optional[str] = Field(None, max_length=500)
@@ -835,6 +845,11 @@ class SocialEvaluationResponse(BaseModel):
     condicion_laboral: Optional[str] = None
     ingreso_titular: float
     ingreso_conyuge: float
+
+    # Ayuda externa y endeudamiento
+    recibe_ayuda_otra_institucion: bool = False
+    nombre_institucion_ayuda: Optional[str] = None
+    tiene_deudas_comprometen_ingresos: bool = False
 
     # Resultados calculados
     ingreso_per_capita: float

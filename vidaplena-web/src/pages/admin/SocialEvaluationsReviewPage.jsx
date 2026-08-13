@@ -274,7 +274,17 @@ export default function SocialEvaluationsReviewPage() {
                     <p><span className="font-semibold">Condición laboral:</span> {item.condicion_laboral || 'No especificada'}</p>
                     <p><span className="font-semibold">Ingreso titular:</span> Bs. {item.ingreso_titular.toFixed(2)}</p>
                     <p><span className="font-semibold">Ingreso cónyuge:</span> Bs. {item.ingreso_conyuge.toFixed(2)}</p>
+                    <p>
+                      <span className="font-semibold">Deudas que comprometen ingresos (≥20%):</span>{' '}
+                      {item.tiene_deudas_comprometen_ingresos ? 'Sí (se descontó 20% para la categoría)' : 'No'}
+                    </p>
                     <p><span className="font-semibold">Ingreso per cápita:</span> Bs. {item.ingreso_per_capita.toFixed(2)}</p>
+                    <p>
+                      <span className="font-semibold">Ayuda de otra institución:</span>{' '}
+                      {item.recibe_ayuda_otra_institucion
+                        ? `Sí (${item.nombre_institucion_ayuda || 'no especificada'})`
+                        : 'No'}
+                    </p>
                   </div>
                   <div>
                     <p className="font-semibold text-gray-700 mb-2">Evidencias</p>

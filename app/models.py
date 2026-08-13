@@ -508,6 +508,12 @@ class SocialEvaluation(Base):
     ingreso_titular = Column(Float, nullable=False, default=0.0)
     ingreso_conyuge = Column(Float, nullable=False, default=0.0)
 
+    # --- Ayuda externa y endeudamiento ---
+    recibe_ayuda_otra_institucion = Column(Boolean, nullable=False, default=False)
+    nombre_institucion_ayuda = Column(String(160), nullable=True)
+    # Si es True, se descuenta un 20% de los ingresos al calcular la categoría.
+    tiene_deudas_comprometen_ingresos = Column(Boolean, nullable=False, default=False)
+
     # --- Resultados del Motor de Categorización ---
     ingreso_per_capita = Column(Float, nullable=False, default=0.0)
     categoria_asignada = Column(String(10), nullable=False)  # A, B, C, N

@@ -101,11 +101,22 @@ async def get_evaluator_or_admin(
 # LÓGICA COMPARTIDA DE UPSERT (usada por el endpoint staff y el de autoservicio)
 # ==============================================================================
 
+DEUDAS_DESCUENTO_FACTOR = 0.8  # -20% de los ingresos si comprometen 20% o más de sus ingresos.
+
+
 def _build_categorization(data: dict) -> dict:
     """A partir de los campos crudos, calcula ingreso_per_capita, categoria_asignada y estado_alerta."""
     ingreso_total = data["ingreso_titular"] + data["ingreso_conyuge"]
+
+    # Si el beneficiario tiene deudas que comprometen el 20% o más de sus
+    # ingresos, se descuenta ese 20% únicamente para el cálculo de la
+    # categoría (el módulo anti-fraude sigue usando el ingreso declarado real).
+    ingreso_para_categoria = ingreso_total
+    if data.get("tiene_deudas_comprometen_ingresos"):
+        ingreso_para_categoria = ingreso_total * DEUDAS_DESCUENTO_FACTOR
+
     integrantes = max(data["integrantes_hogar"], 1)
-    ingreso_per_capita = round(ingreso_total / integrantes, 2)
+    ingreso_per_capita = round(ingreso_para_categoria / integrantes, 2)
     categoria = _calcular_categoria(ingreso_per_capita, data["tiene_seguro"])
     estado_alerta = _evaluar_fraude(
         ingreso_total=ingreso_total,

@@ -907,3 +907,120 @@ async def test_paciente_no_puede_registrar_entrevista(client, patient_token, db_
         json={"notas": "N/A"},
     )
     assert resp.status_code == 403
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SECCIÓN 8: AYUDA DE OTRA INSTITUCIÓN Y DESCUENTO POR DEUDAS (20%)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_deudas_descuentan_20_por_ciento_para_la_categoria(client, superuser_token, db_session):
+    """
+    Ingreso = 2000, integrantes = 4 → sin deudas, per cápita = 500 (Categoría B).
+    Con deudas que comprometen ingresos, se descuenta 20%: 2000*0.8 = 1600 / 4 = 400 → Categoría A.
+    """
+    patient = await _crear_patient(db_session)
+    payload = _payload_base(
+        patient.id,
+        ingreso_titular=2000.0,
+        ingreso_conyuge=0.0,
+        integrantes_hogar=4,
+        tiene_seguro=False,
+        tiene_deudas_comprometen_ingresos=True,
+    )
+    resp = await client.post("/social-evaluations/", json=payload)
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["ingreso_per_capita"] == 400.0
+    assert data["categoria_asignada"] == "A"
+    assert data["tiene_deudas_comprometen_ingresos"] is True
+
+
+@pytest.mark.asyncio
+async def test_sin_deudas_no_aplica_descuento(client, superuser_token, db_session):
+    """Sin deudas declaradas, el per cápita usa el ingreso íntegro (sin descuento)."""
+    patient = await _crear_patient(db_session)
+    payload = _payload_base(
+        patient.id,
+        ingreso_titular=2000.0,
+        ingreso_conyuge=0.0,
+        integrantes_hogar=4,
+        tiene_seguro=False,
+        tiene_deudas_comprometen_ingresos=False,
+    )
+    resp = await client.post("/social-evaluations/", json=payload)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["ingreso_per_capita"] == 500.0
+    assert data["categoria_asignada"] == "B"
+
+
+@pytest.mark.asyncio
+async def test_deudas_no_afecta_deteccion_de_fraude(client, superuser_token, db_session):
+    """
+    El módulo anti-fraude debe seguir usando el ingreso real declarado (no el
+    descontado por deudas) para detectar inconsistencias.
+    Ingreso = 0, tiene seguro, con deudas → sigue siendo REVISIÓN MANUAL URGENTE
+    (0 * 0.8 sigue siendo 0, pero el chequeo usa el ingreso bruto de todas formas).
+    """
+    patient = await _crear_patient(db_session)
+    payload = _payload_base(
+        patient.id,
+        ingreso_titular=0.0,
+        ingreso_conyuge=0.0,
+        integrantes_hogar=3,
+        tiene_seguro=True,
+        tipo_seguro="SUS",
+        tiene_deudas_comprometen_ingresos=True,
+    )
+    resp = await client.post("/social-evaluations/", json=payload)
+    assert resp.status_code == 201
+    assert resp.json()["estado_alerta"] == "REVISIÓN MANUAL URGENTE"
+
+
+@pytest.mark.asyncio
+async def test_ayuda_de_otra_institucion_se_guarda(client, superuser_token, db_session):
+    """recibe_ayuda_otra_institucion y nombre_institucion_ayuda se guardan y devuelven."""
+    patient = await _crear_patient(db_session)
+    payload = _payload_base(
+        patient.id,
+        recibe_ayuda_otra_institucion=True,
+        nombre_institucion_ayuda="Fundación Solidaria XYZ",
+    )
+    resp = await client.post("/social-evaluations/", json=payload)
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["recibe_ayuda_otra_institucion"] is True
+    assert data["nombre_institucion_ayuda"] == "Fundación Solidaria XYZ"
+
+
+@pytest.mark.asyncio
+async def test_ayuda_de_otra_institucion_default_false(client, superuser_token, db_session):
+    """Sin especificar el campo, por defecto no recibe ayuda de otra institución."""
+    patient = await _crear_patient(db_session)
+    resp = await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["recibe_ayuda_otra_institucion"] is False
+    assert data["nombre_institucion_ayuda"] is None
+
+
+@pytest.mark.asyncio
+async def test_paciente_self_service_deudas_y_ayuda_institucion(client, patient_token, own_patient):
+    """El beneficiario también puede declarar deudas y ayuda de otra institución vía /me."""
+    resp = await client.post(
+        "/social-evaluations/me",
+        json=_self_payload_base(
+            ingreso_titular=2000.0,
+            integrantes_hogar=4,
+            tiene_deudas_comprometen_ingresos=True,
+            recibe_ayuda_otra_institucion=True,
+            nombre_institucion_ayuda="ONG Diabetes Bolivia",
+        ),
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["ingreso_per_capita"] == 400.0  # 2000*0.8/4
+    assert data["categoria_asignada"] == "A"
+    assert data["recibe_ayuda_otra_institucion"] is True
+    assert data["nombre_institucion_ayuda"] == "ONG Diabetes Bolivia"

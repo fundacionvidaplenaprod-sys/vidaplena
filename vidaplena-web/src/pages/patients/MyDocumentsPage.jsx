@@ -583,7 +583,7 @@ export default function MyDocumentsPage() {
                                     <FileText /> Paso 1: Generar Compromiso de Aporte Voluntario
                                 </h3>
                                 <p className="text-sm text-white/80 mb-4">
-                                    Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su declaración jurada.
+                                    Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su compromiso.
                                 </p>
 
                                 <div className="flex flex-col sm:flex-row items-end gap-4">
@@ -616,17 +616,22 @@ export default function MyDocumentsPage() {
                                     </Button>
                                 </div>
 
-                                <div className="mt-4 pt-4 border-t border-white/20">
-                                    <p className="text-sm text-white/80">
-                                        ¿No puedes cubrir el aporte solidario mensual?{' '}
-                                        <button
-                                            type="button"
-                                            onClick={() => navigate('/mi-evaluacion-social')}
-                                            className="font-bold underline hover:text-white"
-                                        >
-                                            Solicita una evaluación socioeconómica
-                                        </button>
-                                    </p>
+                                <div className="mt-4">
+                                    <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r shadow-sm">
+                                        <div className="flex items-start">
+                                            <AlertTriangle className="text-yellow-600 mr-3 mt-0.5 flex-shrink-0" size={22} />
+                                            <p className="text-sm text-yellow-800">
+                                                ¿No puedes cubrir el aporte solidario mensual?{' '}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigate('/mi-evaluacion-social')}
+                                                    className="font-bold underline hover:text-yellow-900"
+                                                >
+                                                    Solicita una evaluación socioeconómica
+                                                </button>
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -795,7 +800,7 @@ export default function MyDocumentsPage() {
                             </div>
                             <h3 className="text-xl font-bold text-gray-800">Confirmar Aporte Mensual</h3>
                             <p className="text-gray-500 mt-2">
-                                Se generará su declaración jurada con el siguiente monto. <br />
+                                Se generará su compromiso con el siguiente monto. <br />
                                 <span className="text-xs text-red-500">Verifique bien, este documento es legal.</span>
                             </p>
                             <div className="mt-4 text-3xl font-bold text-vida-primary">
