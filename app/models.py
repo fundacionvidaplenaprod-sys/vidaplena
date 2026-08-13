@@ -40,7 +40,7 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        CheckConstraint("role IN ('SUPER_ADMIN','REGISTRADOR','PACIENTE')", name="ck_users_role"),
+        CheckConstraint("role IN ('SUPER_ADMIN','REGISTRADOR','PACIENTE','EVALUADOR_SOCIAL')", name="ck_users_role"),
     )
 
     patient = relationship("Patient", back_populates="user", uselist=False)
@@ -88,6 +88,9 @@ class Patient(Base):
     url_ci_tutor = Column(String(500), nullable=True)           # Punto 5.2
     url_foto_tutor = Column(String(500), nullable=True)         # Punto 5.2
 
+    # Evaluación Socioeconómica
+    exonerado_aporte = Column(Boolean, nullable=False, default=False)
+
     # Auditoría
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -111,6 +114,7 @@ class Patient(Base):
     
     allocations = relationship("DonationAllocation", back_populates="patient")
     deliveries = relationship("Delivery", back_populates="patient")
+    social_evaluation = relationship("SocialEvaluation", back_populates="patient", uselist=False)
 
 
 class PatientStatusEvent(Base):
@@ -464,3 +468,82 @@ class SiteContactInfo(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     updater = relationship("User")
+
+
+class SocialEvaluation(Base):
+    """
+    Evaluación Socioeconómica y Categorización de Beneficiarios.
+    Registrada por un EVALUADOR_SOCIAL o SUPER_ADMIN.
+    Relación 1:1 con Patient.
+    """
+    __tablename__ = "social_evaluations"
+
+    id = Column(BigInteger, primary_key=True)
+    patient_id = Column(
+        BigInteger, ForeignKey("patients.id", ondelete="CASCADE"),
+        unique=True, nullable=False
+    )
+    evaluator_id = Column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    # --- Datos Demográficos ---
+    departamento = Column(String(80), nullable=False)
+    integrantes_hogar = Column(Integer, nullable=False)
+    dependientes = Column(Integer, nullable=False, default=0)
+
+    # --- Vivienda ---
+    tipo_vivienda = Column(String(60), nullable=False)  # Propia, Alquilada, Familiar, etc.
+    monto_alquiler = Column(Float, nullable=False, default=0.0)
+
+    # --- Salud e Ingresos ---
+    tiene_seguro = Column(Boolean, nullable=False, default=False)
+    tipo_seguro = Column(String(80), nullable=True)
+    condicion_laboral = Column(String(80), nullable=True)
+    ingreso_titular = Column(Float, nullable=False, default=0.0)
+    ingreso_conyuge = Column(Float, nullable=False, default=0.0)
+
+    # --- Resultados del Motor de Categorización ---
+    ingreso_per_capita = Column(Float, nullable=False, default=0.0)
+    categoria_asignada = Column(String(10), nullable=False)  # A, B, C, N
+    estado_alerta = Column(String(50), nullable=False, default="NORMAL")  # NORMAL | REVISIÓN MANUAL URGENTE
+
+    # --- Evidencias (URLs de Firebase Storage) ---
+    foto_ci_url = Column(String(500), nullable=True)
+    foto_fachada_url = Column(String(500), nullable=True)
+    foto_sala_url = Column(String(500), nullable=True)
+    foto_dormitorio_url = Column(String(500), nullable=True)
+    firma_digital_url = Column(String(500), nullable=True)
+
+    # --- Auditoría y Cumplimiento Legal ---
+    # Art. 130 CPE + Ley 164: Consentimiento Habeas Data
+    habeas_data_accepted = Column(Boolean, nullable=False, default=False)
+    # Consentimiento de uso de imágenes para auditoría interna
+    imagen_consent_accepted = Column(Boolean, nullable=False, default=False)
+    # Trazabilidad técnica: IP del evaluador y dispositivo al momento del envío
+    ip_address = Column(String(45), nullable=True)   # IPv4 o IPv6
+    user_agent = Column(String(300), nullable=True)
+
+    # --- Revisión / Aval del Staff ---
+    # PENDIENTE | APROBADO | RECHAZADO. Aprobar exonera al paciente del aporte.
+    estado_revision = Column(String(20), nullable=False, default="PENDIENTE")
+    reviewer_id = Column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    revisado_at = Column(DateTime(timezone=True), nullable=True)
+    motivo_rechazo = Column(Text, nullable=True)
+
+    # --- Entrevista virtual (por medios externos al sistema) ---
+    # Requisito previo obligatorio para poder avalar o rechazar (ver review_social_evaluation).
+    entrevista_realizada = Column(Boolean, nullable=False, default=False)
+    entrevista_fecha = Column(DateTime(timezone=True), nullable=True)
+    entrevista_notas = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # --- Relaciones ---
+    patient = relationship("Patient", back_populates="social_evaluation")
+    evaluator = relationship("User", foreign_keys=[evaluator_id])
+    reviewer = relationship("User", foreign_keys=[reviewer_id])

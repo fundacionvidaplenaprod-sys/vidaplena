@@ -22,6 +22,8 @@ import BeneficiaryNamesPage from './pages/admin/BeneficiaryNamesPage';
 import GalleryManagementPage from './pages/admin/GalleryManagementPage';
 import PaymentQrManagementPage from './pages/admin/PaymentQrManagementPage';
 import ContactInfoManagementPage from './pages/admin/ContactInfoManagementPage';
+import SocialEvaluationsReviewPage from './pages/admin/SocialEvaluationsReviewPage';
+import SocialEvaluationSelfPage from './pages/patients/SocialEvaluationSelfPage';
 
 function App() {
   return (
@@ -52,11 +54,13 @@ function App() {
           <Route path="galeria" element={<GalleryManagementPage />} />
           <Route path="qr-pagos" element={<PaymentQrManagementPage />} />
           <Route path="contacto" element={<ContactInfoManagementPage />} />
+          <Route path="evaluacion-social" element={<SocialEvaluationsReviewPage />} />
         </Route>
 
         {/* 3. ZONA PACIENTE (Totalmente separada) */}
         {/* IMPORTANTE: Esta ruta NO está dentro de dashboard */}
         <Route path="/mi-portal" element={<MyDocumentsPage />} />
+        <Route path="/mi-evaluacion-social" element={<SocialEvaluationSelfPage />} />
         <Route path="/registro-beneficiario" element={<SelfRegisterPatientPage />} />
         <Route path="/agendar-cita" element={<AppointmentBookingPage />} />
 

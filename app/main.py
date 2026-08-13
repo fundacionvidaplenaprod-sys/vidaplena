@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.core.config import settings
 # Importamos todos los endpoints, INCLUYENDO auth
-from app.api.endpoints import patients, admin_complications, users, auth, donations,contributions, reports, director_deliveries, appointments, gallery, site_assets, site_settings
+from app.api.endpoints import patients, admin_complications, users, auth, donations, contributions, reports, director_deliveries, appointments, gallery, site_assets, site_settings, evaluations
 from app.core.firebase import init_firebase
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(gallery.router, prefix="/gallery", tags=["Galería"])
     app.include_router(site_assets.router, prefix="/site-assets", tags=["Site Assets (QR de Pago)"])
     app.include_router(site_settings.router, prefix="/site-settings", tags=["Configuración - Contacto"])
+    app.include_router(evaluations.router, prefix="/social-evaluations", tags=["Evaluación Socioeconómica"])
 
     @app.get("/health", tags=["health"])
     def health():

@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/ui/Button';
 import { toast } from 'react-hot-toast';
 import { uploadDocument } from '../../api/patients';
+import { getMySocialEvaluation } from '../../api/evaluations';
 import { getMyDeliveryReceipt, listMyInsulinDeliveries } from '../../api/donations';
 import { VoluntaryContributionModal } from '../../components/patients/VoluntaryContributionModal';
 import client from '../../api/axios';
@@ -24,6 +25,7 @@ export default function MyDocumentsPage() {
     const [downloading, setDownloading] = useState(false);
     const [insulinDeliveries, setInsulinDeliveries] = useState([]);
     const [downloadingDeliveryId, setDownloadingDeliveryId] = useState(null);
+    const [socialEvaluation, setSocialEvaluation] = useState(null);
 
     const normalizeObservations = (items) => {
         if (!Array.isArray(items)) return [];
@@ -104,6 +106,9 @@ export default function MyDocumentsPage() {
                     setMontoAporte(resolvedCommittedAmount);
                 }
 
+                const evaluation = await getMySocialEvaluation();
+                setSocialEvaluation(evaluation);
+
                 const getDocUrl = (shortKey, urlKey) => {
                     const urlValue = data?.[urlKey];
                     if (urlValue) return urlValue;
@@ -115,11 +120,16 @@ export default function MyDocumentsPage() {
                 };
 
                 // --- CONFIGURACIÓN DE DOCUMENTOS BASE ---
+                // El "Compromiso Firmado" se omite si el paciente ya tiene una
+                // Evaluación Socioeconómica en curso: la revisión de esa
+                // evaluación (avalar/rechazar) reemplaza a ese documento.
                 const baseDocs = [
                     { id: 'ci', label: 'Cédula de Identidad (Paciente)', url: getDocUrl('ci', 'url_ci_paciente'), icon: 'file' },
                     { id: 'medico', label: 'Certificado Médico', url: getDocUrl('medico', 'url_certificado_medico'), icon: 'file' },
                     { id: 'foto', label: 'Foto Actual (Paciente)', url: getDocUrl('foto', 'url_foto_paciente'), icon: 'camera' },
-                    { id: 'compromiso', label: 'Compromiso Firmado', url: getDocUrl('compromiso', 'url_declaracion_aporte'), icon: 'file' },
+                    ...(evaluation ? [] : [
+                        { id: 'compromiso', label: 'Compromiso Firmado', url: getDocUrl('compromiso', 'url_declaracion_aporte'), icon: 'file' },
+                    ]),
                 ];
 
                 // --- SI TIENE TUTOR, AGREGAMOS LOS EXTRAS ---
@@ -567,7 +577,7 @@ export default function MyDocumentsPage() {
                     <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
                         <h2 className="text-2xl font-bold text-gray-800 mb-2">Expediente Digital</h2>
 
-                        {!isReadOnly && (
+                        {!isReadOnly && !socialEvaluation && (
                             <div className="bg-gradient-to-r from-vida-main to-vida-primary rounded-2xl shadow-lg p-6 mb-8 text-white">
                                 <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
                                     <FileText /> Paso 1: Generar Compromiso de Aporte Voluntario
@@ -607,6 +617,58 @@ export default function MyDocumentsPage() {
                                 </div>
                             </div>
                         )}
+                        {socialEvaluation && (
+                            <div className={`border-l-4 rounded-r-xl p-4 mb-6 shadow-sm ${
+                                socialEvaluation.estado_revision === 'APROBADO'
+                                    ? 'bg-green-50 border-green-500'
+                                    : socialEvaluation.estado_revision === 'RECHAZADO'
+                                        ? 'bg-red-50 border-red-500'
+                                        : 'bg-blue-50 border-blue-500'
+                            }`}>
+                                {socialEvaluation.estado_revision === 'APROBADO' && (
+                                    <>
+                                        <h3 className="font-bold text-green-800 flex items-center gap-2">
+                                            <CheckCircle size={20} /> Exonerado del aporte solidario
+                                        </h3>
+                                        <p className="text-sm text-green-700 mt-1">
+                                            Su evaluación socioeconómica fue avalada. No necesita subir el
+                                            compromiso de aporte firmado.
+                                        </p>
+                                    </>
+                                )}
+                                {socialEvaluation.estado_revision === 'PENDIENTE' && (
+                                    <>
+                                        <h3 className="font-bold text-blue-800 flex items-center gap-2">
+                                            <Clock size={20} /> Evaluación socioeconómica en revisión
+                                        </h3>
+                                        <p className="text-sm text-blue-700 mt-1">
+                                            Su solicitud de exoneración del aporte fue enviada y está pendiente
+                                            de revisión por un evaluador social.
+                                        </p>
+                                    </>
+                                )}
+                                {socialEvaluation.estado_revision === 'RECHAZADO' && (
+                                    <>
+                                        <h3 className="font-bold text-red-800 flex items-center gap-2">
+                                            <AlertTriangle size={20} /> Evaluación socioeconómica rechazada
+                                        </h3>
+                                        <p className="text-sm text-red-700 mt-1">
+                                            {socialEvaluation.motivo_rechazo || 'Corrija su información y vuelva a enviarla.'}
+                                        </p>
+                                        {!isReadOnly && (
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate('/mi-evaluacion-social')}
+                                                className="mt-2 text-sm font-bold text-red-700 underline"
+                                            >
+                                                Corregir y reenviar evaluación
+                                            </button>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
+
                         <p className="text-gray-500 mb-8">
                             {isReadOnly
                                 ? "Documentación resguardada."

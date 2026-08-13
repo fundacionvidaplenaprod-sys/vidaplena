@@ -13,7 +13,8 @@ import {
   UserCog,
   Images,
   QrCode,
-  Phone
+  Phone,
+  ClipboardCheck
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -24,6 +25,7 @@ export default function Sidebar({ isOpen, onClose }) {
   // 1. OBTENER ROL
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const isEvaluador = user.role === 'EVALUADOR_SOCIAL';
 
   const { logout } = useAuth();
  
@@ -36,25 +38,37 @@ export default function Sidebar({ isOpen, onClose }) {
 
   // 2. CONSTRUIR MENÚ DINÁMICO
   const menuItems = [
-    // Opción común para todos (Registrador y Admin)
+    // Acceso a beneficiarios para todo el personal del sistema
     { 
-      path: '/dashboard/lista-pacientes', // Apuntamos directo a la lista
+      path: '/dashboard/lista-pacientes',
       label: 'Beneficiarios', 
       icon: <Users size={20} /> 
     },
-    {
+  ];
+
+  // Solo Admin y Registrador ven Reportes y Revisión de Aportes
+  if (isSuperAdmin || user.role === 'REGISTRADOR') {
+    menuItems.push({
       path: '/dashboard/reportes',
       label: 'Reportes',
       icon: <BarChart3 size={20} />
-    },
-    {
+    });
+    menuItems.push({
       path: '/dashboard/revision-aportes',
       label: 'Revisión Aportes',
       icon: <Wallet size={20} />
-    },
-  ];
+    });
+  }
 
-  // 👇 AQUÍ ESTÁ EL FILTRO DE SEGURIDAD VISUAL
+  // Evaluación Social disponible para SUPER_ADMIN y EVALUADOR_SOCIAL
+  if (isSuperAdmin || isEvaluador) {
+    menuItems.push({
+      path: '/dashboard/evaluacion-social',
+      label: 'Revisión Eval. Social',
+      icon: <ClipboardCheck size={20} />
+    });
+  }
+
   if (isSuperAdmin) {
     menuItems.push({
       path: '/dashboard/almacen-donaciones',

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, mod
 
 class UserBase(BaseModel):
     email: EmailStr
-    role: Literal["SUPER_ADMIN", "REGISTRADOR", "PACIENTE"]
+    role: Literal["SUPER_ADMIN", "REGISTRADOR", "PACIENTE", "EVALUADOR_SOCIAL"]
 
 class UserCreate(UserBase):
     password: str
@@ -17,7 +17,7 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = Field(None)
     password: Optional[str] = Field(None)
-    role: Optional[Literal["SUPER_ADMIN", "REGISTRADOR", "PACIENTE"]] = Field(None)
+    role: Optional[Literal["SUPER_ADMIN", "REGISTRADOR", "PACIENTE", "EVALUADOR_SOCIAL"]] = Field(None)
     estado: Optional[str] = Field(None)
 
 class UserResponse(UserBase):
@@ -703,3 +703,168 @@ class SiteContactInfoUpdate(BaseModel):
     facebook_url: Optional[str] = Field(None, max_length=300)
     instagram_url: Optional[str] = Field(None, max_length=300)
     whatsapp_number: Optional[str] = Field(None, max_length=40)
+
+
+# ==========================================
+#   14. SCHEMAS EVALUACIÓN SOCIOECONÓMICA
+# ==========================================
+
+class SocialEvaluationCreate(BaseModel):
+    """
+    Payload enviado por el evaluador social para registrar/actualizar
+    la evaluación socioeconómica de un beneficiario.
+    Las URLs de evidencias se generan en el frontend tras subir a Firebase.
+    """
+    patient_id: int = Field(..., gt=0)
+
+    # Demográficos
+    departamento: str = Field(..., max_length=80)
+    integrantes_hogar: int = Field(..., ge=1, description="Mínimo 1 integrante en el hogar")
+    dependientes: int = Field(0, ge=0)
+
+    # Vivienda
+    tipo_vivienda: str = Field(..., max_length=60)
+    monto_alquiler: float = Field(0.0, ge=0.0)
+
+    # Salud
+    tiene_seguro: bool = False
+    tipo_seguro: Optional[str] = Field(None, max_length=80)
+
+    # Ingresos
+    condicion_laboral: Optional[str] = Field(None, max_length=80)
+    ingreso_titular: float = Field(0.0, ge=0.0)
+    ingreso_conyuge: float = Field(0.0, ge=0.0)
+
+    # Evidencias (URLs de Firebase Storage, opcionales al momento de crear)
+    foto_ci_url: Optional[str] = Field(None, max_length=500)
+    foto_fachada_url: Optional[str] = Field(None, max_length=500)
+    foto_sala_url: Optional[str] = Field(None, max_length=500)
+    foto_dormitorio_url: Optional[str] = Field(None, max_length=500)
+    firma_digital_url: Optional[str] = Field(None, max_length=500)
+
+    # --- Cumplimiento Legal Boliviano ---
+    # Art. 130 CPE + Ley 164 de Telecomunicaciones: Consentimiento Habeas Data
+    habeas_data_accepted: bool = Field(
+        ...,
+        description="El beneficiario debe autorizar explícitamente el tratamiento de sus datos personales."
+    )
+    # Consentimiento para el uso de imágenes únicamente en auditoría interna
+    imagen_consent_accepted: bool = Field(
+        ...,
+        description="El beneficiario autoriza el uso de las fotografías exclusivamente para auditoría socioeconómica."
+    )
+
+
+class SocialEvaluationSelfCreate(BaseModel):
+    """
+    Payload enviado por el propio beneficiario (autoservicio) para registrar
+    o actualizar su evaluación socioeconómica. Idéntico a
+    `SocialEvaluationCreate` pero sin `patient_id`, que se resuelve del
+    usuario autenticado.
+    """
+    # Demográficos
+    departamento: str = Field(..., max_length=80)
+    integrantes_hogar: int = Field(..., ge=1, description="Mínimo 1 integrante en el hogar")
+    dependientes: int = Field(0, ge=0)
+
+    # Vivienda
+    tipo_vivienda: str = Field(..., max_length=60)
+    monto_alquiler: float = Field(0.0, ge=0.0)
+
+    # Salud
+    tiene_seguro: bool = False
+    tipo_seguro: Optional[str] = Field(None, max_length=80)
+
+    # Ingresos
+    condicion_laboral: Optional[str] = Field(None, max_length=80)
+    ingreso_titular: float = Field(0.0, ge=0.0)
+    ingreso_conyuge: float = Field(0.0, ge=0.0)
+
+    # Evidencias (URLs de Firebase Storage, ya subidas vía /me/upload-document)
+    foto_ci_url: Optional[str] = Field(None, max_length=500)
+    foto_fachada_url: Optional[str] = Field(None, max_length=500)
+    foto_sala_url: Optional[str] = Field(None, max_length=500)
+    foto_dormitorio_url: Optional[str] = Field(None, max_length=500)
+    firma_digital_url: Optional[str] = Field(None, max_length=500)
+
+    # --- Cumplimiento Legal Boliviano ---
+    habeas_data_accepted: bool = Field(
+        ...,
+        description="El beneficiario debe autorizar explícitamente el tratamiento de sus datos personales."
+    )
+    imagen_consent_accepted: bool = Field(
+        ...,
+        description="El beneficiario autoriza el uso de las fotografías exclusivamente para auditoría socioeconómica."
+    )
+
+
+class SocialEvaluationReviewUpdate(BaseModel):
+    """Payload enviado por el staff (SUPER_ADMIN / EVALUADOR_SOCIAL) para avalar o rechazar una evaluación."""
+    decision: Literal["APROBADO", "RECHAZADO"]
+    motivo: Optional[str] = Field(None, max_length=1000)
+
+
+class SocialEvaluationInterviewUpdate(BaseModel):
+    """
+    Payload enviado por el staff para registrar que se realizó la entrevista
+    virtual (por medios externos al sistema) con el beneficiario. Requisito
+    obligatorio antes de poder avalar o rechazar la evaluación.
+    """
+    notas: Optional[str] = Field(None, max_length=2000)
+
+
+class SocialEvaluationResponse(BaseModel):
+    id: int
+    patient_id: int
+    patient_nombre: Optional[str] = None
+    patient_ci: Optional[str] = None
+    evaluator_id: Optional[int] = None
+
+    # Demográficos
+    departamento: str
+    integrantes_hogar: int
+    dependientes: int
+
+    # Vivienda
+    tipo_vivienda: str
+    monto_alquiler: float
+
+    # Salud e Ingresos
+    tiene_seguro: bool
+    tipo_seguro: Optional[str] = None
+    condicion_laboral: Optional[str] = None
+    ingreso_titular: float
+    ingreso_conyuge: float
+
+    # Resultados calculados
+    ingreso_per_capita: float
+    categoria_asignada: str
+    estado_alerta: str
+
+    # Evidencias
+    foto_ci_url: Optional[str] = None
+    foto_fachada_url: Optional[str] = None
+    foto_sala_url: Optional[str] = None
+    foto_dormitorio_url: Optional[str] = None
+    firma_digital_url: Optional[str] = None
+
+    # Cumplimiento legal
+    habeas_data_accepted: bool = False
+    imagen_consent_accepted: bool = False
+    ip_address: Optional[str] = None
+
+    # Revisión / Aval del staff
+    estado_revision: str = "PENDIENTE"
+    reviewer_id: Optional[int] = None
+    revisado_at: Optional[datetime] = None
+    motivo_rechazo: Optional[str] = None
+
+    # Entrevista virtual previa al veredicto
+    entrevista_realizada: bool = False
+    entrevista_fecha: Optional[datetime] = None
+    entrevista_notas: Optional[str] = None
+
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

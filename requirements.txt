@@ -41,7 +41,6 @@ msgpack==1.1.2
 pillow==12.1.0
 proto-plus==1.27.0
 protobuf==6.33.4
-psycopg2-binary==2.9.9
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pycparser==2.23
