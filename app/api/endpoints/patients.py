@@ -79,7 +79,6 @@ async def _collect_patient_document_urls(db: AsyncSession, patient: models.Patie
             evaluation.foto_fachada_url,
             evaluation.foto_sala_url,
             evaluation.foto_dormitorio_url,
-            evaluation.firma_digital_url,
         ])
 
     return [u for u in urls if u]

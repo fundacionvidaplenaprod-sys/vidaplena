@@ -16,7 +16,6 @@ const EVIDENCIAS = [
   { key: 'foto_fachada_url', label: 'Fachada del domicilio' },
   { key: 'foto_sala_url', label: 'Sala / living' },
   { key: 'foto_dormitorio_url', label: 'Dormitorio' },
-  { key: 'firma_digital_url', label: 'Firma digital' },
 ];
 
 export default function SocialEvaluationsReviewPage() {

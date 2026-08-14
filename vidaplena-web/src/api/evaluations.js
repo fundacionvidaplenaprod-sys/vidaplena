@@ -27,8 +27,8 @@ export const submitMySocialEvaluation = (payload) =>
   client.post('/social-evaluations/me', payload).then((r) => r.data);
 
 /**
- * Sube una evidencia individual (foto o firma) de la evaluación propia.
- * @param {string} docType - 'ci' | 'fachada' | 'sala' | 'dormitorio' | 'firma'
+ * Sube una evidencia individual (foto) de la evaluación propia.
+ * @param {string} docType - 'ci' | 'fachada' | 'sala' | 'dormitorio'
  * @param {File|Blob} file
  * @returns {Promise<{msg: string, url: string, type: string}>}
  */

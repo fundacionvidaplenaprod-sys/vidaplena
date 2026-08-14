@@ -383,7 +383,7 @@ async def get_my_social_evaluation(
 
 @router.post(
     "/me/upload-document",
-    summary="Sube una evidencia (foto/firma) para la evaluación socioeconómica propia",
+    summary="Sube una evidencia (foto) para la evaluación socioeconómica propia",
 )
 async def upload_my_evaluation_document(
     doc_type: str = Form(...),
@@ -403,7 +403,6 @@ async def upload_my_evaluation_document(
         "fachada": ("evaluaciones/vivienda", "fachada"),
         "sala": ("evaluaciones/vivienda", "sala"),
         "dormitorio": ("evaluaciones/vivienda", "dormitorio"),
-        "firma": ("evaluaciones/firma", "firma"),
     }
     if doc_type not in structure_map:
         raise HTTPException(status_code=400, detail="Tipo de documento inválido.")

@@ -750,7 +750,6 @@ class SocialEvaluationCreate(BaseModel):
     foto_fachada_url: Optional[str] = Field(None, max_length=500)
     foto_sala_url: Optional[str] = Field(None, max_length=500)
     foto_dormitorio_url: Optional[str] = Field(None, max_length=500)
-    firma_digital_url: Optional[str] = Field(None, max_length=500)
 
     # --- Cumplimiento Legal Boliviano ---
     # Art. 130 CPE + Ley 164 de Telecomunicaciones: Consentimiento Habeas Data
@@ -805,7 +804,6 @@ class SocialEvaluationSelfCreate(BaseModel):
     foto_fachada_url: Optional[str] = Field(None, max_length=500)
     foto_sala_url: Optional[str] = Field(None, max_length=500)
     foto_dormitorio_url: Optional[str] = Field(None, max_length=500)
-    firma_digital_url: Optional[str] = Field(None, max_length=500)
 
     # --- Cumplimiento Legal Boliviano ---
     habeas_data_accepted: bool = Field(
@@ -878,7 +876,6 @@ class SocialEvaluationResponse(BaseModel):
     foto_fachada_url: Optional[str] = None
     foto_sala_url: Optional[str] = None
     foto_dormitorio_url: Optional[str] = None
-    firma_digital_url: Optional[str] = None
 
     # Cumplimiento legal
     habeas_data_accepted: bool = False

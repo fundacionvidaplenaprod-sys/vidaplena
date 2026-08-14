@@ -532,7 +532,6 @@ class SocialEvaluation(Base):
     foto_fachada_url = Column(String(500), nullable=True)
     foto_sala_url = Column(String(500), nullable=True)
     foto_dormitorio_url = Column(String(500), nullable=True)
-    firma_digital_url = Column(String(500), nullable=True)
 
     # --- Auditoría y Cumplimiento Legal ---
     # Art. 130 CPE + Ley 164: Consentimiento Habeas Data
