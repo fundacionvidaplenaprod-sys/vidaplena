@@ -4,8 +4,13 @@ tests/test_social_evaluation.py
 Suite de pruebas para el módulo de Evaluación Socioeconómica y Categorización
 de Beneficiarios de la Fundación V.I.D.A. Plena.
 
+Motor de categorización: Capacidad Financiera Neta Residual (CFNR) =
+Ingresos Totales - (Canasta Básica Familiar + Vivienda/Servicios/Salud +
+Transporte + Deudas). Ver `_build_categorization` en
+app/api/endpoints/evaluations.py.
+
 Cubre:
-  1. Motor de Categorización puro (unitario, sin DB)
+  1. Motor de Categorización CFNR puro (unitario, sin DB)
   2. Motor Anti-Fraude puro (unitario, sin DB)
   3. Endpoint POST /social-evaluations/ (integración)
   4. Endpoint GET /social-evaluations/{patient_id} (integración)
@@ -24,7 +29,12 @@ from sqlalchemy import select
 
 from app import models
 from app.api.endpoints import evaluations as evaluations_module
-from app.api.endpoints.evaluations import _calcular_categoria, _evaluar_fraude
+from app.api.endpoints.evaluations import (
+    _calcular_categoria_cfnr,
+    _canasta_familiar,
+    _costo_vivienda,
+    _evaluar_fraude,
+)
 
 
 def _fake_upload(file_content, path, content_type):
@@ -66,7 +76,12 @@ async def _crear_patient(db_session) -> models.Patient:
 
 
 def _payload_base(patient_id: int, **overrides) -> dict:
-    """Payload válido base para el endpoint de evaluación."""
+    """
+    Payload válido base para el endpoint de evaluación.
+    Con estos valores por defecto: canasta(4)=3200, vivienda=600,
+    salud/educación=2*275=550 → costo_vida=4350; ingreso_total=1800 →
+    CFNR=-2550 (ALTA).
+    """
     data = {
         "patient_id": patient_id,
         "departamento": "La Paz",
@@ -79,6 +94,10 @@ def _payload_base(patient_id: int, **overrides) -> dict:
         "condicion_laboral": "Independiente / Cuenta propia",
         "ingreso_titular": 1800.0,
         "ingreso_conyuge": 0.0,
+        "monto_servicios_basicos": 0.0,
+        "monto_transporte": 0.0,
+        "tiene_deudas_comprometen_ingresos": False,
+        "monto_deuda_mensual": 0.0,
         "habeas_data_accepted": True,
         "imagen_consent_accepted": True,
     }
@@ -90,59 +109,72 @@ def _payload_base(patient_id: int, **overrides) -> dict:
 #  SECCIÓN 1: PRUEBAS UNITARIAS DEL MOTOR DE CATEGORIZACIÓN (sin DB, sin HTTP)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestMotorCategorizacion:
-    """Pruebas puras de la función _calcular_categoria."""
+class TestCanastaFamiliar:
+    """Pruebas puras de la escala de la canasta básica familiar por tamaño de hogar."""
 
-    def test_categoria_A_sin_seguro_bajo_umbral(self):
-        """Per cápita < 500 Bs. y SIN seguro → Categoría A."""
-        assert _calcular_categoria(400.0, tiene_seguro=False) == "A"
+    def test_una_persona(self):
+        assert _canasta_familiar(1) == 1000.0
 
-    def test_categoria_A_limite_inferior(self):
-        """Per cápita = 1 Bs. y SIN seguro → Categoría A."""
-        assert _calcular_categoria(1.0, tiene_seguro=False) == "A"
+    def test_dos_personas(self):
+        assert _canasta_familiar(2) == 1800.0
 
-    def test_categoria_A_con_seguro_se_eleva_a_B(self):
-        """
-        Per cápita < 500 Bs. PERO tiene seguro → No aplica para A.
-        El motor debe devolverla como B (está en rango <= 1200).
-        """
-        assert _calcular_categoria(300.0, tiene_seguro=True) == "B"
+    def test_cuatro_personas(self):
+        assert _canasta_familiar(4) == 3200.0
 
-    def test_categoria_B_limite_inferior(self):
-        """Per cápita exactamente 500 Bs. → Categoría B."""
-        assert _calcular_categoria(500.0, tiene_seguro=False) == "B"
+    def test_tres_personas_interpolado(self):
+        """Entre 2 y 4 personas, +700 Bs por persona adicional."""
+        assert _canasta_familiar(3) == 2500.0
 
-    def test_categoria_B_rango_medio(self):
-        """Per cápita = 850 Bs. → Categoría B."""
-        assert _calcular_categoria(850.0, tiene_seguro=False) == "B"
+    def test_integrantes_cero_se_trata_como_uno(self):
+        assert _canasta_familiar(0) == _canasta_familiar(1)
 
-    def test_categoria_B_limite_superior(self):
-        """Per cápita exactamente 1200 Bs. → Categoría B."""
-        assert _calcular_categoria(1200.0, tiene_seguro=False) == "B"
 
-    def test_categoria_C_limite_inferior(self):
-        """Per cápita = 1201 Bs. → Categoría C."""
-        assert _calcular_categoria(1201.0, tiene_seguro=False) == "C"
+class TestCostoVivienda:
+    """Pruebas puras del costo de vivienda (alquiler declarado o mantenimiento estimado)."""
 
-    def test_categoria_C_rango_medio(self):
-        """Per cápita = 1800 Bs. → Categoría C."""
-        assert _calcular_categoria(1800.0, tiene_seguro=False) == "C"
+    def test_vivienda_alquilada_usa_monto_declarado(self):
+        assert _costo_vivienda("Alquilada", 600.0) == 600.0
 
-    def test_categoria_C_limite_superior(self):
-        """Per cápita exactamente 2250 Bs. → Categoría C."""
-        assert _calcular_categoria(2250.0, tiene_seguro=False) == "C"
+    def test_vivienda_propia_usa_mantenimiento_estimado(self):
+        assert _costo_vivienda("Propia", 0.0) == 225.0
 
-    def test_categoria_N_sobre_limite(self):
-        """Per cápita = 2251 Bs. → Categoría N (no elegible)."""
-        assert _calcular_categoria(2251.0, tiene_seguro=False) == "N"
+    def test_vivienda_propia_case_insensitive(self):
+        assert _costo_vivienda("  PROPIA  ", 0.0) == 225.0
 
-    def test_categoria_N_alto_ingreso(self):
-        """Per cápita = 10000 Bs. → Categoría N."""
-        assert _calcular_categoria(10_000.0, tiene_seguro=False) == "N"
+    def test_vivienda_familiar_usa_monto_declarado(self):
+        assert _costo_vivienda("Familiar / Prestada", 0.0) == 0.0
 
-    def test_per_capita_cero_sin_seguro(self):
-        """Per cápita = 0 Bs. sin seguro → Categoría A (caso extremo de pobreza declarada)."""
-        assert _calcular_categoria(0.0, tiene_seguro=False) == "A"
+
+class TestMotorCategorizacionCFNR:
+    """Pruebas puras de la función _calcular_categoria_cfnr (Capacidad Financiera Neta Residual)."""
+
+    def test_cfnr_negativo_es_alta(self):
+        """CFNR negativo (déficit) → Vulnerabilidad ALTA."""
+        assert _calcular_categoria_cfnr(-1300.0) == "ALTA"
+
+    def test_cfnr_cero_es_alta(self):
+        """CFNR exactamente 0 → ALTA (saldo cero, sin margen)."""
+        assert _calcular_categoria_cfnr(0.0) == "ALTA"
+
+    def test_cfnr_apenas_positivo_es_media(self):
+        """CFNR = 1 Bs. → MEDIA."""
+        assert _calcular_categoria_cfnr(1.0) == "MEDIA"
+
+    def test_cfnr_rango_medio(self):
+        """CFNR = 950 Bs. (ejemplo B del criterio) → MEDIA."""
+        assert _calcular_categoria_cfnr(950.0) == "MEDIA"
+
+    def test_cfnr_limite_superior_media(self):
+        """CFNR exactamente 1500 Bs. → MEDIA (límite inclusivo)."""
+        assert _calcular_categoria_cfnr(1500.0) == "MEDIA"
+
+    def test_cfnr_sobre_limite_es_baja(self):
+        """CFNR = 1501 Bs. → BAJA."""
+        assert _calcular_categoria_cfnr(1501.0) == "BAJA"
+
+    def test_cfnr_alto_es_baja(self):
+        """CFNR muy alto → BAJA/Nula (situación acomodada)."""
+        assert _calcular_categoria_cfnr(10_000.0) == "BAJA"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -157,7 +189,7 @@ class TestMotorAntiFraude:
         resultado = _evaluar_fraude(
             ingreso_total=1800.0,
             tiene_seguro=False,
-            categoria="B",
+            categoria="MEDIA",
             tipo_vivienda="Alquilada",
             monto_alquiler=600.0,
         )
@@ -171,43 +203,43 @@ class TestMotorAntiFraude:
         resultado = _evaluar_fraude(
             ingreso_total=0.0,
             tiene_seguro=True,
-            categoria="A",
+            categoria="ALTA",
             tipo_vivienda="Alquilada",
             monto_alquiler=500.0,
         )
         assert resultado == "REVISIÓN MANUAL URGENTE"
 
-    def test_alerta_categoria_A_vivienda_propia_sin_alquiler(self):
+    def test_alerta_categoria_alta_vivienda_propia_sin_alquiler(self):
         """
-        FRAUDE CASO 2: Categoría A (extrema pobreza) PERO vivienda es propia y alquiler = 0.
-        Inconsistencia: si es tan pobre, ¿cómo tiene vivienda propia?
+        FRAUDE CASO 2: Vulnerabilidad ALTA (déficit) PERO vivienda es propia y alquiler = 0.
+        Inconsistencia: si el déficit es tan alto, ¿cómo tiene vivienda propia?
         """
         resultado = _evaluar_fraude(
             ingreso_total=1200.0,
             tiene_seguro=False,
-            categoria="A",
+            categoria="ALTA",
             tipo_vivienda="Propia",
             monto_alquiler=0.0,
         )
         assert resultado == "REVISIÓN MANUAL URGENTE"
 
-    def test_no_alerta_categoria_A_vivienda_alquilada(self):
-        """Categoría A con vivienda alquilada → consistente, sin alerta."""
+    def test_no_alerta_categoria_alta_vivienda_alquilada(self):
+        """Vulnerabilidad ALTA con vivienda alquilada → consistente, sin alerta."""
         resultado = _evaluar_fraude(
             ingreso_total=1200.0,
             tiene_seguro=False,
-            categoria="A",
+            categoria="ALTA",
             tipo_vivienda="Alquilada",
             monto_alquiler=400.0,
         )
         assert resultado == "NORMAL"
 
-    def test_no_alerta_categoria_B_vivienda_propia(self):
-        """Categoría B con vivienda propia → coherente, sin alerta."""
+    def test_no_alerta_categoria_media_vivienda_propia(self):
+        """Vulnerabilidad MEDIA con vivienda propia → coherente, sin alerta."""
         resultado = _evaluar_fraude(
             ingreso_total=3000.0,
             tiene_seguro=False,
-            categoria="B",
+            categoria="MEDIA",
             tipo_vivienda="Propia",
             monto_alquiler=0.0,
         )
@@ -218,7 +250,7 @@ class TestMotorAntiFraude:
         resultado = _evaluar_fraude(
             ingreso_total=0.0,
             tiene_seguro=False,
-            categoria="A",
+            categoria="ALTA",
             tipo_vivienda="Familiar / Prestada",
             monto_alquiler=0.0,
         )
@@ -229,7 +261,7 @@ class TestMotorAntiFraude:
         resultado = _evaluar_fraude(
             ingreso_total=500.0,
             tiene_seguro=False,
-            categoria="A",
+            categoria="ALTA",
             tipo_vivienda="  PROPIA  ",
             monto_alquiler=0.0,
         )
@@ -258,11 +290,14 @@ async def test_crear_evaluacion_super_admin(client, superuser_token, db_session)
 @pytest.mark.asyncio
 async def test_motor_categorizacion_en_endpoint(client, superuser_token, db_session):
     """
-    El motor de categorización calcula correctamente el per cápita
-    y asigna la categoría al guardar en la DB.
+    El motor de categorización calcula la CFNR y asigna la categoría al
+    guardar en la DB.
 
-    Ingreso titular = 1800, cónyuge = 0, integrantes = 4
-    Per cápita = 1800 / 4 = 450 → Categoría A (sin seguro).
+    Con los valores base (integrantes=4, dependientes=2, vivienda alquilada
+    600, sin servicios/transporte/deuda declarados): costo_vida = canasta(4)
+    3200 + vivienda 600 + salud/educación 550 = 4350.
+    Ingreso titular = 1800 → CFNR = 1800 - 4350 = -2550 → ALTA.
+    Ingreso per cápita (dato de referencia) = 1800 / 4 = 450.
     """
     patient = await _crear_patient(db_session)
     payload = _payload_base(
@@ -276,16 +311,21 @@ async def test_motor_categorizacion_en_endpoint(client, superuser_token, db_sess
     assert resp.status_code == 201
     data = resp.json()
     assert data["ingreso_per_capita"] == 450.0
-    assert data["categoria_asignada"] == "A"
+    assert data["costo_vida_estimado"] == 4350.0
+    assert data["cfnr"] == -2550.0
+    assert data["categoria_asignada"] == "ALTA"
 
 
 @pytest.mark.asyncio
-async def test_motor_categoriza_B(client, superuser_token, db_session):
-    """Per cápita = 2000 / 4 = 500 → Categoría B."""
+async def test_motor_categoriza_media(client, superuser_token, db_session):
+    """
+    Mismos costos base (4350), ingreso titular = 5000 →
+    CFNR = 5000 - 4350 = 650 → MEDIA.
+    """
     patient = await _crear_patient(db_session)
     payload = _payload_base(
         patient.id,
-        ingreso_titular=2000.0,
+        ingreso_titular=5000.0,
         ingreso_conyuge=0.0,
         integrantes_hogar=4,
         tiene_seguro=False,
@@ -293,17 +333,20 @@ async def test_motor_categoriza_B(client, superuser_token, db_session):
     resp = await client.post("/social-evaluations/", json=payload)
     assert resp.status_code == 201
     data = resp.json()
-    assert data["ingreso_per_capita"] == 500.0
-    assert data["categoria_asignada"] == "B"
+    assert data["cfnr"] == 650.0
+    assert data["categoria_asignada"] == "MEDIA"
 
 
 @pytest.mark.asyncio
-async def test_motor_categoriza_C(client, superuser_token, db_session):
-    """Per cápita = 6000 / 4 = 1500 → Categoría C."""
+async def test_motor_categoriza_baja(client, superuser_token, db_session):
+    """
+    Mismos costos base (4350), ingreso titular = 7000 →
+    CFNR = 7000 - 4350 = 2650 → BAJA (> 1500).
+    """
     patient = await _crear_patient(db_session)
     payload = _payload_base(
         patient.id,
-        ingreso_titular=6000.0,
+        ingreso_titular=7000.0,
         ingreso_conyuge=0.0,
         integrantes_hogar=4,
         tiene_seguro=False,
@@ -311,13 +354,13 @@ async def test_motor_categoriza_C(client, superuser_token, db_session):
     resp = await client.post("/social-evaluations/", json=payload)
     assert resp.status_code == 201
     data = resp.json()
-    assert data["ingreso_per_capita"] == 1500.0
-    assert data["categoria_asignada"] == "C"
+    assert data["cfnr"] == 2650.0
+    assert data["categoria_asignada"] == "BAJA"
 
 
 @pytest.mark.asyncio
-async def test_motor_categoriza_N(client, superuser_token, db_session):
-    """Per cápita = 10000 / 2 = 5000 → Categoría N."""
+async def test_motor_categoriza_baja_ingreso_muy_alto(client, superuser_token, db_session):
+    """Un ingreso muy alto también cae en BAJA (no existe una cuarta categoría)."""
     patient = await _crear_patient(db_session)
     payload = _payload_base(
         patient.id,
@@ -330,7 +373,7 @@ async def test_motor_categoriza_N(client, superuser_token, db_session):
     assert resp.status_code == 201
     data = resp.json()
     assert data["ingreso_per_capita"] == 5000.0
-    assert data["categoria_asignada"] == "N"
+    assert data["categoria_asignada"] == "BAJA"
 
 
 @pytest.mark.asyncio
@@ -352,14 +395,14 @@ async def test_anti_fraude_ingreso_cero_con_seguro(client, superuser_token, db_s
 
 
 @pytest.mark.asyncio
-async def test_anti_fraude_categoria_A_vivienda_propia(client, superuser_token, db_session):
-    """Categoría A con vivienda Propia y alquiler 0 → REVISIÓN MANUAL URGENTE."""
+async def test_anti_fraude_categoria_alta_vivienda_propia(client, superuser_token, db_session):
+    """Vulnerabilidad ALTA (déficit) con vivienda Propia y alquiler 0 → REVISIÓN MANUAL URGENTE."""
     patient = await _crear_patient(db_session)
     payload = _payload_base(
         patient.id,
         ingreso_titular=1200.0,
         ingreso_conyuge=0.0,
-        integrantes_hogar=4,   # per cápita = 300 → A
+        integrantes_hogar=4,   # costo_vida=3975 (canasta 3200+vivienda 225+salud/educ 550) → CFNR=-2775 → ALTA
         tiene_seguro=False,
         tipo_vivienda="Propia",
         monto_alquiler=0.0,
@@ -367,7 +410,7 @@ async def test_anti_fraude_categoria_A_vivienda_propia(client, superuser_token, 
     resp = await client.post("/social-evaluations/", json=payload)
     assert resp.status_code == 201
     data = resp.json()
-    assert data["categoria_asignada"] == "A"
+    assert data["categoria_asignada"] == "ALTA"
     assert data["estado_alerta"] == "REVISIÓN MANUAL URGENTE"
 
 
@@ -379,7 +422,7 @@ async def test_evaluacion_estado_alerta_normal(client, superuser_token, db_sessi
         patient.id,
         ingreso_titular=3000.0,
         ingreso_conyuge=1000.0,
-        integrantes_hogar=4,   # per cápita = 1000 → B
+        integrantes_hogar=4,   # vivienda alquilada → el chequeo #2 (vivienda propia) no aplica
         tiene_seguro=False,
         tipo_vivienda="Alquilada",
         monto_alquiler=800.0,
@@ -574,7 +617,10 @@ async def test_paciente_no_puede_acceder_al_modulo(client, patient_token, db_ses
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _self_payload_base(**overrides) -> dict:
-    """Payload válido base para los endpoints de autoservicio (sin patient_id)."""
+    """
+    Payload válido base para los endpoints de autoservicio (sin patient_id).
+    Mismos valores/CFNR que `_payload_base` (costo_vida=4350, CFNR=-2550, ALTA).
+    """
     data = {
         "departamento": "La Paz",
         "integrantes_hogar": 4,
@@ -586,6 +632,10 @@ def _self_payload_base(**overrides) -> dict:
         "condicion_laboral": "Independiente / Cuenta propia",
         "ingreso_titular": 1800.0,
         "ingreso_conyuge": 0.0,
+        "monto_servicios_basicos": 0.0,
+        "monto_transporte": 0.0,
+        "tiene_deudas_comprometen_ingresos": False,
+        "monto_deuda_mensual": 0.0,
         "habeas_data_accepted": True,
         "imagen_consent_accepted": True,
     }
@@ -619,7 +669,7 @@ async def test_paciente_crea_su_propia_evaluacion(client, patient_token, own_pat
     assert data["patient_id"] == own_patient.id
     assert data["estado_revision"] == "PENDIENTE"
     assert data["evaluator_id"] is None
-    assert data["categoria_asignada"] == "A"  # 1800/4 = 450, sin seguro
+    assert data["categoria_asignada"] == "ALTA"  # CFNR = 1800 - 4350 = -2550
 
 
 @pytest.mark.asyncio
@@ -910,58 +960,67 @@ async def test_paciente_no_puede_registrar_entrevista(client, patient_token, db_
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  SECCIÓN 8: AYUDA DE OTRA INSTITUCIÓN Y DESCUENTO POR DEUDAS (20%)
+#  SECCIÓN 8: AYUDA DE OTRA INSTITUCIÓN Y DEUDAS EN EL CFNR
 # ─────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_deudas_descuentan_20_por_ciento_para_la_categoria(client, superuser_token, db_session):
+async def test_monto_deuda_mensual_se_resta_del_cfnr(client, superuser_token, db_session):
     """
-    Ingreso = 2000, integrantes = 4 → sin deudas, per cápita = 500 (Categoría B).
-    Con deudas que comprometen ingresos, se descuenta 20%: 2000*0.8 = 1600 / 4 = 400 → Categoría A.
+    1 integrante, sin dependientes, vivienda propia (canasta 1000 + mantenimiento 225 = 1225).
+    Ingreso = 1300 → sin deudas: CFNR = 1300 - 1225 = 75 → MEDIA.
+    Declarando una cuota de deuda de Bs. 500/mes: CFNR = 1300 - 1725 = -425 → ALTA.
+    """
+    patient = await _crear_patient(db_session)
+    base_kwargs = dict(
+        ingreso_titular=1300.0, ingreso_conyuge=0.0, integrantes_hogar=1, dependientes=0,
+        tipo_vivienda="Propia", monto_alquiler=0.0, tiene_seguro=False,
+    )
+
+    payload_sin_deuda = _payload_base(patient.id, **base_kwargs, tiene_deudas_comprometen_ingresos=False)
+    resp1 = await client.post("/social-evaluations/", json=payload_sin_deuda)
+    assert resp1.status_code == 201, resp1.text
+    data1 = resp1.json()
+    assert data1["cfnr"] == 75.0
+    assert data1["categoria_asignada"] == "MEDIA"
+
+    payload_con_deuda = _payload_base(
+        patient.id, **base_kwargs,
+        tiene_deudas_comprometen_ingresos=True, monto_deuda_mensual=500.0,
+    )
+    resp2 = await client.post("/social-evaluations/", json=payload_con_deuda)
+    assert resp2.status_code == 201, resp2.text
+    data2 = resp2.json()
+    assert data2["cfnr"] == -425.0
+    assert data2["categoria_asignada"] == "ALTA"
+    assert data2["tiene_deudas_comprometen_ingresos"] is True
+
+
+@pytest.mark.asyncio
+async def test_monto_deuda_ignorado_si_no_declara_deudas(client, superuser_token, db_session):
+    """
+    Si tiene_deudas_comprometen_ingresos es False, el backend ignora cualquier
+    monto_deuda_mensual recibido (evita que un monto quede "colgado" en la BD).
     """
     patient = await _crear_patient(db_session)
     payload = _payload_base(
         patient.id,
-        ingreso_titular=2000.0,
-        ingreso_conyuge=0.0,
-        integrantes_hogar=4,
-        tiene_seguro=False,
-        tiene_deudas_comprometen_ingresos=True,
+        ingreso_titular=1300.0, ingreso_conyuge=0.0, integrantes_hogar=1, dependientes=0,
+        tipo_vivienda="Propia", monto_alquiler=0.0, tiene_seguro=False,
+        tiene_deudas_comprometen_ingresos=False, monto_deuda_mensual=999.0,
     )
     resp = await client.post("/social-evaluations/", json=payload)
     assert resp.status_code == 201, resp.text
     data = resp.json()
-    assert data["ingreso_per_capita"] == 400.0
-    assert data["categoria_asignada"] == "A"
-    assert data["tiene_deudas_comprometen_ingresos"] is True
-
-
-@pytest.mark.asyncio
-async def test_sin_deudas_no_aplica_descuento(client, superuser_token, db_session):
-    """Sin deudas declaradas, el per cápita usa el ingreso íntegro (sin descuento)."""
-    patient = await _crear_patient(db_session)
-    payload = _payload_base(
-        patient.id,
-        ingreso_titular=2000.0,
-        ingreso_conyuge=0.0,
-        integrantes_hogar=4,
-        tiene_seguro=False,
-        tiene_deudas_comprometen_ingresos=False,
-    )
-    resp = await client.post("/social-evaluations/", json=payload)
-    assert resp.status_code == 201
-    data = resp.json()
-    assert data["ingreso_per_capita"] == 500.0
-    assert data["categoria_asignada"] == "B"
+    assert data["cfnr"] == 75.0
+    assert data["categoria_asignada"] == "MEDIA"
 
 
 @pytest.mark.asyncio
 async def test_deudas_no_afecta_deteccion_de_fraude(client, superuser_token, db_session):
     """
-    El módulo anti-fraude debe seguir usando el ingreso real declarado (no el
-    descontado por deudas) para detectar inconsistencias.
-    Ingreso = 0, tiene seguro, con deudas → sigue siendo REVISIÓN MANUAL URGENTE
-    (0 * 0.8 sigue siendo 0, pero el chequeo usa el ingreso bruto de todas formas).
+    El módulo anti-fraude sigue usando el ingreso real declarado (no el CFNR)
+    para detectar inconsistencias. Ingreso = 0, tiene seguro, con deudas →
+    sigue siendo REVISIÓN MANUAL URGENTE.
     """
     patient = await _crear_patient(db_session)
     payload = _payload_base(
@@ -972,6 +1031,7 @@ async def test_deudas_no_afecta_deteccion_de_fraude(client, superuser_token, db_
         tiene_seguro=True,
         tipo_seguro="SUS",
         tiene_deudas_comprometen_ingresos=True,
+        monto_deuda_mensual=200.0,
     )
     resp = await client.post("/social-evaluations/", json=payload)
     assert resp.status_code == 201
@@ -1007,20 +1067,26 @@ async def test_ayuda_de_otra_institucion_default_false(client, superuser_token, 
 
 @pytest.mark.asyncio
 async def test_paciente_self_service_deudas_y_ayuda_institucion(client, patient_token, own_patient):
-    """El beneficiario también puede declarar deudas y ayuda de otra institución vía /me."""
+    """
+    El beneficiario también puede declarar deudas y ayuda de otra institución vía /me.
+    costo_vida = canasta(4) 3200 + vivienda 600 + salud/educ 550 + deuda 300 = 4650.
+    CFNR = 2000 - 4650 = -2650 → ALTA.
+    """
     resp = await client.post(
         "/social-evaluations/me",
         json=_self_payload_base(
             ingreso_titular=2000.0,
             integrantes_hogar=4,
             tiene_deudas_comprometen_ingresos=True,
+            monto_deuda_mensual=300.0,
             recibe_ayuda_otra_institucion=True,
             nombre_institucion_ayuda="ONG Diabetes Bolivia",
         ),
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()
-    assert data["ingreso_per_capita"] == 400.0  # 2000*0.8/4
-    assert data["categoria_asignada"] == "A"
+    assert data["ingreso_per_capita"] == 500.0  # 2000/4, dato de referencia
+    assert data["cfnr"] == -2650.0
+    assert data["categoria_asignada"] == "ALTA"
     assert data["recibe_ayuda_otra_institucion"] is True
     assert data["nombre_institucion_ayuda"] == "ONG Diabetes Bolivia"

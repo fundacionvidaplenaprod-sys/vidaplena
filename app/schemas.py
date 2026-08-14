@@ -739,6 +739,11 @@ class SocialEvaluationCreate(BaseModel):
     recibe_ayuda_otra_institucion: bool = False
     nombre_institucion_ayuda: Optional[str] = Field(None, max_length=160)
     tiene_deudas_comprometen_ingresos: bool = False
+    monto_deuda_mensual: float = Field(0.0, ge=0.0)
+
+    # Costos de vida declarados (para el cálculo de CFNR)
+    monto_servicios_basicos: float = Field(0.0, ge=0.0, description="Agua, luz, gas (Bs/mes)")
+    monto_transporte: float = Field(0.0, ge=0.0, description="Transporte y conectividad (Bs/mes)")
 
     # Evidencias (URLs de Firebase Storage, opcionales al momento de crear)
     foto_ci_url: Optional[str] = Field(None, max_length=500)
@@ -789,6 +794,11 @@ class SocialEvaluationSelfCreate(BaseModel):
     recibe_ayuda_otra_institucion: bool = False
     nombre_institucion_ayuda: Optional[str] = Field(None, max_length=160)
     tiene_deudas_comprometen_ingresos: bool = False
+    monto_deuda_mensual: float = Field(0.0, ge=0.0)
+
+    # Costos de vida declarados (para el cálculo de CFNR)
+    monto_servicios_basicos: float = Field(0.0, ge=0.0, description="Agua, luz, gas (Bs/mes)")
+    monto_transporte: float = Field(0.0, ge=0.0, description="Transporte y conectividad (Bs/mes)")
 
     # Evidencias (URLs de Firebase Storage, ya subidas vía /me/upload-document)
     foto_ci_url: Optional[str] = Field(None, max_length=500)
@@ -850,9 +860,16 @@ class SocialEvaluationResponse(BaseModel):
     recibe_ayuda_otra_institucion: bool = False
     nombre_institucion_ayuda: Optional[str] = None
     tiene_deudas_comprometen_ingresos: bool = False
+    monto_deuda_mensual: float = 0.0
 
-    # Resultados calculados
+    # Costos de vida declarados
+    monto_servicios_basicos: float = 0.0
+    monto_transporte: float = 0.0
+
+    # Resultados calculados (CFNR)
     ingreso_per_capita: float
+    costo_vida_estimado: float = 0.0
+    cfnr: float = 0.0
     categoria_asignada: str
     estado_alerta: str
 

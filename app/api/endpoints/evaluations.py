@@ -26,30 +26,61 @@ MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/jpg"]
 
 # ==============================================================================
-# MOTOR DE CATEGORIZACIÓN
+# MOTOR DE CATEGORIZACIÓN — Capacidad Financiera Neta Residual (CFNR)
+#
+# CFNR = Ingresos Totales del Hogar
+#        - (Canasta Básica Familiar + Vivienda y Servicios + Transporte y Deudas)
+#
+# Fuente: criterio proporcionado por la Fundación (Base Bolivia 2026). Los
+# montos de servicios básicos, transporte/conectividad y cuota de deuda se
+# declaran en el formulario; el resto de los rubros (canasta básica escalada
+# por tamaño de hogar, mantenimiento de vivienda propia, salud/educación por
+# dependiente) son estimaciones fijas dentro de los rangos de referencia
+# dados, ya que no se piden como preguntas individuales.
 # ==============================================================================
 
-CATEGORIA_A_MAX_PER_CAPITA = 500.0
-CATEGORIA_B_MAX_PER_CAPITA = 1200.0
-CATEGORIA_C_MAX_PER_CAPITA = 2250.0
+CANASTA_BASE_1_PERSONA = 1000.0
+CANASTA_INCREMENTO_2DA_PERSONA = 800.0  # 1 persona=1000, 2 personas=1800
+CANASTA_INCREMENTO_PERSONA_ADICIONAL = 700.0  # desde la 3ra persona en adelante (4 personas=3200)
+
+MANTENIMIENTO_VIVIENDA_PROPIA = 225.0  # estimado, rango 150-300 Bs
+COSTO_SALUD_EDUCACION_POR_DEPENDIENTE = 275.0  # estimado, rango 150-400 Bs
+
+CFNR_UMBRAL_ALTA = 0.0  # CFNR <= 0 → Vulnerabilidad Alta (déficit)
+CFNR_UMBRAL_BAJA = 1500.0  # CFNR > 1500 → Vulnerabilidad Baja/Nula
 
 
-def _calcular_categoria(ingreso_per_capita: float, tiene_seguro: bool) -> str:
+def _canasta_familiar(integrantes_hogar: int) -> float:
+    """Costo de la canasta básica familiar, escalado por economía de escala."""
+    n = max(integrantes_hogar, 1)
+    if n == 1:
+        return CANASTA_BASE_1_PERSONA
+    return (
+        CANASTA_BASE_1_PERSONA
+        + CANASTA_INCREMENTO_2DA_PERSONA
+        + CANASTA_INCREMENTO_PERSONA_ADICIONAL * (n - 2)
+    )
+
+
+def _costo_vivienda(tipo_vivienda: str, monto_alquiler: float) -> float:
+    """Alquiler/anticrético declarado, o mantenimiento estimado si la vivienda es propia."""
+    if (tipo_vivienda or "").strip().lower() == "propia":
+        return MANTENIMIENTO_VIVIENDA_PROPIA
+    return monto_alquiler or 0.0
+
+
+def _calcular_categoria_cfnr(cfnr: float) -> str:
     """
-    Aplica las reglas de negocio para asignar la categoría:
-      - Categoría A: Per cápita < 500 Bs. y SIN seguro médico.
-      - Categoría B: Per cápita entre 500 Bs. y 1200 Bs.
-      - Categoría C: Per cápita entre 1201 Bs. y 2250 Bs.
-      - Categoría N: Per cápita > 2250 Bs. (No elegible para beneficios prioritarios).
+    Clasifica según la Capacidad Financiera Neta Residual (CFNR):
+      - ALTA:  CFNR <= 0 Bs. (déficit o saldo cero; no cubre canasta ni servicios).
+      - MEDIA: 0 < CFNR <= 1500 Bs. (cubre necesidades básicas, con margen acotado).
+      - BAJA:  CFNR > 1500 Bs. (situación acomodada, sin necesidad de apoyo).
     """
-    if ingreso_per_capita < CATEGORIA_A_MAX_PER_CAPITA and not tiene_seguro:
-        return "A"
-    elif ingreso_per_capita <= CATEGORIA_B_MAX_PER_CAPITA:
-        return "B"
-    elif ingreso_per_capita <= CATEGORIA_C_MAX_PER_CAPITA:
-        return "C"
-    else:
-        return "N"
+    if cfnr <= CFNR_UMBRAL_ALTA:
+        return "ALTA"
+    if cfnr <= CFNR_UMBRAL_BAJA:
+        return "MEDIA"
+    return "BAJA"
 
 
 def _evaluar_fraude(
@@ -65,14 +96,14 @@ def _evaluar_fraude(
     Casos de alerta:
       1. Ingresos declarados = 0 Bs, PERO tiene seguro médico activo.
          (Si no tiene ingresos, ¿cómo paga el seguro?)
-      2. Categoría A (extrema pobreza), PERO la vivienda es propia y sin alquiler.
-         (Inconsistencia: ser propietario de vivienda no corresponde con la pobreza extrema).
+      2. Vulnerabilidad Alta (déficit), PERO la vivienda es propia y sin alquiler.
+         (Inconsistencia: ser propietario de vivienda no corresponde con el déficit declarado).
     """
     if ingreso_total == 0.0 and tiene_seguro:
         return "REVISIÓN MANUAL URGENTE"
 
     if (
-        categoria == "A"
+        categoria == "ALTA"
         and tipo_vivienda.strip().lower() == "propia"
         and monto_alquiler == 0.0
     ):
@@ -101,23 +132,28 @@ async def get_evaluator_or_admin(
 # LÓGICA COMPARTIDA DE UPSERT (usada por el endpoint staff y el de autoservicio)
 # ==============================================================================
 
-DEUDAS_DESCUENTO_FACTOR = 0.8  # -20% de los ingresos si comprometen 20% o más de sus ingresos.
-
-
 def _build_categorization(data: dict) -> dict:
-    """A partir de los campos crudos, calcula ingreso_per_capita, categoria_asignada y estado_alerta."""
+    """
+    A partir de los campos crudos, calcula la Capacidad Financiera Neta
+    Residual (CFNR) y clasifica el hogar en ALTA/MEDIA/BAJA vulnerabilidad.
+    """
     ingreso_total = data["ingreso_titular"] + data["ingreso_conyuge"]
-
-    # Si el beneficiario tiene deudas que comprometen el 20% o más de sus
-    # ingresos, se descuenta ese 20% únicamente para el cálculo de la
-    # categoría (el módulo anti-fraude sigue usando el ingreso declarado real).
-    ingreso_para_categoria = ingreso_total
-    if data.get("tiene_deudas_comprometen_ingresos"):
-        ingreso_para_categoria = ingreso_total * DEUDAS_DESCUENTO_FACTOR
-
     integrantes = max(data["integrantes_hogar"], 1)
-    ingreso_per_capita = round(ingreso_para_categoria / integrantes, 2)
-    categoria = _calcular_categoria(ingreso_per_capita, data["tiene_seguro"])
+
+    canasta = _canasta_familiar(integrantes)
+    vivienda = _costo_vivienda(data["tipo_vivienda"], data["monto_alquiler"])
+    servicios = data.get("monto_servicios_basicos") or 0.0
+    salud_educacion = data.get("dependientes", 0) * COSTO_SALUD_EDUCACION_POR_DEPENDIENTE
+    transporte = data.get("monto_transporte") or 0.0
+    # El monto de deuda solo se descuenta si se declaró explícitamente que las
+    # deudas comprometen sus ingresos (evita que un monto quede "colgado" si
+    # el beneficiario luego marca 'No').
+    deuda = (data.get("monto_deuda_mensual") or 0.0) if data.get("tiene_deudas_comprometen_ingresos") else 0.0
+
+    costo_vida_estimado = round(canasta + vivienda + servicios + salud_educacion + transporte + deuda, 2)
+    cfnr = round(ingreso_total - costo_vida_estimado, 2)
+
+    categoria = _calcular_categoria_cfnr(cfnr)
     estado_alerta = _evaluar_fraude(
         ingreso_total=ingreso_total,
         tiene_seguro=data["tiene_seguro"],
@@ -126,7 +162,10 @@ def _build_categorization(data: dict) -> dict:
         monto_alquiler=data["monto_alquiler"],
     )
     return {
-        "ingreso_per_capita": ingreso_per_capita,
+        # Dato de referencia; ya no determina la categoría por sí solo.
+        "ingreso_per_capita": round(ingreso_total / integrantes, 2),
+        "costo_vida_estimado": costo_vida_estimado,
+        "cfnr": cfnr,
         "categoria_asignada": categoria,
         "estado_alerta": estado_alerta,
     }

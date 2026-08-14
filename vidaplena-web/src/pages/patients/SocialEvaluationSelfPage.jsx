@@ -183,7 +183,10 @@ export default function SocialEvaluationSelfPage() {
       nombre_institucion_ayuda: '',
       ingreso_titular: 0,
       ingreso_conyuge: 0,
+      monto_servicios_basicos: 0,
+      monto_transporte: 0,
       tiene_deudas_comprometen_ingresos: 'no',
+      monto_deuda_mensual: 0,
       tipo_vivienda: '',
       monto_alquiler: 0,
     },
@@ -195,23 +198,39 @@ export default function SocialEvaluationSelfPage() {
     return url;
   };
 
-  // ── Cálculos en tiempo real para el Paso 4 ──────────────────────────────
+  // ── Cálculo en tiempo real de la Capacidad Financiera Neta Residual (CFNR) ──
+  // Mismo modelo que el backend (_build_categorization en evaluations.py):
+  // CFNR = Ingresos Totales - (Canasta Básica + Vivienda/Servicios/Salud + Transporte + Deudas)
   const ingreso_titular = parseFloat(watch('ingreso_titular') || 0);
   const ingreso_conyuge = parseFloat(watch('ingreso_conyuge') || 0);
   const integrantes_hogar = Math.max(1, parseInt(watch('integrantes_hogar') || 1, 10));
+  const dependientes_watch = Math.max(0, parseInt(watch('dependientes') || 0, 10));
   const tiene_seguro = watch('tiene_seguro') === 'si';
   const tipo_vivienda = watch('tipo_vivienda');
+  const monto_alquiler_watch = parseFloat(watch('monto_alquiler') || 0);
+  const monto_servicios_watch = parseFloat(watch('monto_servicios_basicos') || 0);
+  const monto_transporte_watch = parseFloat(watch('monto_transporte') || 0);
   const tiene_deudas = watch('tiene_deudas_comprometen_ingresos') === 'si';
+  const monto_deuda_watch = tiene_deudas ? parseFloat(watch('monto_deuda_mensual') || 0) : 0;
 
   const ingreso_total = ingreso_titular + ingreso_conyuge;
-  const ingreso_para_categoria = tiene_deudas ? ingreso_total * 0.8 : ingreso_total;
-  const ingreso_per_capita = ingreso_para_categoria / integrantes_hogar;
+  const ingreso_per_capita = ingreso_total / integrantes_hogar;
+
+  const canasta_familiar = integrantes_hogar === 1
+    ? 1000
+    : 1000 + 800 + 700 * (integrantes_hogar - 2);
+  const costo_vivienda = (tipo_vivienda || '').trim().toLowerCase() === 'propia'
+    ? 225
+    : monto_alquiler_watch;
+  const costo_salud_educacion = dependientes_watch * 275;
+  const costo_vida_estimado =
+    canasta_familiar + costo_vivienda + monto_servicios_watch + costo_salud_educacion + monto_transporte_watch + monto_deuda_watch;
+  const cfnr = ingreso_total - costo_vida_estimado;
 
   const categoriaEstimada = (() => {
-    if (ingreso_per_capita < 500 && !tiene_seguro) return { label: 'A – Extrema Vulnerabilidad', color: 'text-red-600 bg-red-50' };
-    if (ingreso_per_capita <= 1200) return { label: 'B – Vulnerabilidad Media', color: 'text-orange-600 bg-orange-50' };
-    if (ingreso_per_capita <= 2250) return { label: 'C – Vulnerabilidad Baja', color: 'text-yellow-600 bg-yellow-50' };
-    return { label: 'N – No Elegible para Prioridad', color: 'text-gray-600 bg-gray-100' };
+    if (cfnr <= 0) return { label: 'Vulnerabilidad Económica Alta', color: 'text-red-600 bg-red-50' };
+    if (cfnr <= 1500) return { label: 'Vulnerabilidad Económica Media', color: 'text-orange-600 bg-orange-50' };
+    return { label: 'Vulnerabilidad Económica Baja / Nula', color: 'text-gray-600 bg-gray-100' };
   })();
 
   // ── Navegación entre pasos ───────────────────────────────────────────────
@@ -219,7 +238,10 @@ export default function SocialEvaluationSelfPage() {
     1: ['declaracion_jurada', 'habeas_data_accepted'],
     2: ['departamento', 'integrantes_hogar', 'dependientes'],
     3: ['tiene_seguro', 'recibe_ayuda_otra_institucion', 'nombre_institucion_ayuda'],
-    4: ['ingreso_titular', 'ingreso_conyuge', 'tiene_deudas_comprometen_ingresos'],
+    4: [
+      'ingreso_titular', 'ingreso_conyuge', 'monto_servicios_basicos', 'monto_transporte',
+      'tiene_deudas_comprometen_ingresos', 'monto_deuda_mensual',
+    ],
     5: ['tipo_vivienda', 'imagen_consent_accepted'],
     6: [],
   };
@@ -269,7 +291,11 @@ export default function SocialEvaluationSelfPage() {
           formData.recibe_ayuda_otra_institucion === 'si' ? formData.nombre_institucion_ayuda : null,
         ingreso_titular: parseFloat(formData.ingreso_titular || 0),
         ingreso_conyuge: parseFloat(formData.ingreso_conyuge || 0),
+        monto_servicios_basicos: parseFloat(formData.monto_servicios_basicos || 0),
+        monto_transporte: parseFloat(formData.monto_transporte || 0),
         tiene_deudas_comprometen_ingresos: formData.tiene_deudas_comprometen_ingresos === 'si',
+        monto_deuda_mensual:
+          formData.tiene_deudas_comprometen_ingresos === 'si' ? parseFloat(formData.monto_deuda_mensual || 0) : 0,
         habeas_data_accepted: formData.habeas_data_accepted === true,
         imagen_consent_accepted: formData.imagen_consent_accepted === true,
         foto_ci_url: urls.foto_ci_url,
@@ -619,6 +645,54 @@ export default function SocialEvaluationSelfPage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Servicios básicos: agua, luz, gas (Bs./mes) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-3 text-gray-400 text-sm font-bold">Bs.</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    {...register('monto_servicios_basicos', {
+                      required: 'Campo obligatorio.',
+                      min: { value: 0, message: 'No puede ser negativo.' },
+                    })}
+                    className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500"
+                    placeholder="0.00"
+                  />
+                </div>
+                {errors.monto_servicios_basicos && (
+                  <p className="mt-1 text-xs text-red-600">{errors.monto_servicios_basicos.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Transporte y conectividad: pasajes, internet, celular (Bs./mes) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-3 text-gray-400 text-sm font-bold">Bs.</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    {...register('monto_transporte', {
+                      required: 'Campo obligatorio.',
+                      min: { value: 0, message: 'No puede ser negativo.' },
+                    })}
+                    className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500"
+                    placeholder="0.00"
+                  />
+                </div>
+                {errors.monto_transporte && (
+                  <p className="mt-1 text-xs text-red-600">{errors.monto_transporte.message}</p>
+                )}
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-3">
                 ¿Usted tiene deudas que comprometan sus ingresos mensuales en un 20% o más? *
@@ -645,10 +719,31 @@ export default function SocialEvaluationSelfPage() {
                   </label>
                 ))}
               </div>
+
               {tiene_deudas && (
-                <p className="mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-2">
-                  Se descontará un 20% de sus ingresos para el cálculo de su categoría.
-                </p>
+                <div className="animate-fade-in mt-3">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Cuota mensual total de sus deudas (Bs.) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-3 text-gray-400 text-sm font-bold">Bs.</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      {...register('monto_deuda_mensual', {
+                        validate: (v) =>
+                          watch('tiene_deudas_comprometen_ingresos') !== 'si' ||
+                          (Number(v) > 0) || 'Indique el monto mensual de sus deudas.',
+                      })}
+                      className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  {errors.monto_deuda_mensual && (
+                    <p className="mt-1 text-xs text-red-600">{errors.monto_deuda_mensual.message}</p>
+                  )}
+                </div>
               )}
             </div>
 
@@ -674,12 +769,9 @@ export default function SocialEvaluationSelfPage() {
                   <p className="text-2xl font-bold">Bs. {ingreso_per_capita.toFixed(2)}</p>
                 </div>
               </div>
-              <div className={`mt-4 rounded-xl px-4 py-2 text-center font-bold text-sm ${categoriaEstimada.color}`}>
-                Categoría estimada: {categoriaEstimada.label}
-              </div>
               <p className="text-xs text-white/50 mt-2 text-center">
-                * La categoría final es calculada y asignada por el sistema.
-                {tiene_deudas && ' Incluye el descuento del 20% por deudas declaradas.'}
+                * Su categoría de vulnerabilidad se calcula al final, considerando también su
+                situación de vivienda (Paso 5).
               </p>
             </div>
           </div>
@@ -818,7 +910,7 @@ export default function SocialEvaluationSelfPage() {
                   <span className="font-semibold">Ingreso total:</span> Bs. {ingreso_total.toFixed(2)}
                 </div>
                 <div>
-                  <span className="font-semibold">Per cápita:</span> Bs. {ingreso_per_capita.toFixed(2)}
+                  <span className="font-semibold">Costo de vida estimado:</span> Bs. {costo_vida_estimado.toFixed(2)}
                 </div>
                 <div>
                   <span className="font-semibold">Tengo seguro:</span>{' '}
@@ -835,12 +927,15 @@ export default function SocialEvaluationSelfPage() {
                 </div>
                 <div>
                   <span className="font-semibold">Deudas que comprometen ingresos:</span>{' '}
-                  {tiene_deudas ? 'Sí' : 'No'}
+                  {tiene_deudas ? `Sí (Bs. ${monto_deuda_watch.toFixed(2)}/mes)` : 'No'}
                 </div>
               </div>
               <div className={`mt-3 rounded-xl px-4 py-2 font-bold text-sm text-center ${categoriaEstimada.color}`}>
-                Categoría estimada: {categoriaEstimada.label}
+                Capacidad Financiera Neta Residual: Bs. {cfnr.toFixed(2)} — {categoriaEstimada.label}
               </div>
+              <p className="text-xs text-gray-400 mt-2 text-center">
+                * La categoría final es calculada y asignada por el sistema.
+              </p>
             </div>
           </div>
         );

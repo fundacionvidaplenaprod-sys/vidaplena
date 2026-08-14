@@ -162,7 +162,7 @@ export default function SocialEvaluationsReviewPage() {
                     {item.patient_nombre || `Paciente #${item.patient_id}`} — CI {item.patient_ci || 'Sin registrar'}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    Depto. {item.departamento} | Categoría {item.categoria_asignada} | Per cápita Bs. {item.ingreso_per_capita.toFixed(2)}
+                    Depto. {item.departamento} | Vulnerabilidad {item.categoria_asignada} | CFNR Bs. {item.cfnr.toFixed(2)}
                   </p>
                   {item.estado_alerta === 'REVISIÓN MANUAL URGENTE' && (
                     <p className="text-xs text-red-600 mt-2 font-bold flex items-center gap-1">
@@ -274,11 +274,15 @@ export default function SocialEvaluationsReviewPage() {
                     <p><span className="font-semibold">Condición laboral:</span> {item.condicion_laboral || 'No especificada'}</p>
                     <p><span className="font-semibold">Ingreso titular:</span> Bs. {item.ingreso_titular.toFixed(2)}</p>
                     <p><span className="font-semibold">Ingreso cónyuge:</span> Bs. {item.ingreso_conyuge.toFixed(2)}</p>
+                    <p><span className="font-semibold">Servicios básicos:</span> Bs. {item.monto_servicios_basicos.toFixed(2)}</p>
+                    <p><span className="font-semibold">Transporte y conectividad:</span> Bs. {item.monto_transporte.toFixed(2)}</p>
                     <p>
                       <span className="font-semibold">Deudas que comprometen ingresos (≥20%):</span>{' '}
-                      {item.tiene_deudas_comprometen_ingresos ? 'Sí (se descontó 20% para la categoría)' : 'No'}
+                      {item.tiene_deudas_comprometen_ingresos ? `Sí (Bs. ${item.monto_deuda_mensual.toFixed(2)}/mes)` : 'No'}
                     </p>
                     <p><span className="font-semibold">Ingreso per cápita:</span> Bs. {item.ingreso_per_capita.toFixed(2)}</p>
+                    <p><span className="font-semibold">Costo de vida estimado:</span> Bs. {item.costo_vida_estimado.toFixed(2)}</p>
+                    <p><span className="font-semibold">CFNR (Capacidad Financiera Neta Residual):</span> Bs. {item.cfnr.toFixed(2)}</p>
                     <p>
                       <span className="font-semibold">Ayuda de otra institución:</span>{' '}
                       {item.recibe_ayuda_otra_institucion

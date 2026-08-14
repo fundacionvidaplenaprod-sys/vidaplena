@@ -511,12 +511,20 @@ class SocialEvaluation(Base):
     # --- Ayuda externa y endeudamiento ---
     recibe_ayuda_otra_institucion = Column(Boolean, nullable=False, default=False)
     nombre_institucion_ayuda = Column(String(160), nullable=True)
-    # Si es True, se descuenta un 20% de los ingresos al calcular la categoría.
+    # Si es True, se pide el monto exacto de la cuota (monto_deuda_mensual) para el CFNR.
     tiene_deudas_comprometen_ingresos = Column(Boolean, nullable=False, default=False)
+    monto_deuda_mensual = Column(Float, nullable=False, default=0.0)
 
-    # --- Resultados del Motor de Categorización ---
-    ingreso_per_capita = Column(Float, nullable=False, default=0.0)
-    categoria_asignada = Column(String(10), nullable=False)  # A, B, C, N
+    # --- Costos de vida declarados (para el cálculo de CFNR) ---
+    monto_servicios_basicos = Column(Float, nullable=False, default=0.0)  # agua, luz, gas
+    monto_transporte = Column(Float, nullable=False, default=0.0)  # transporte + conectividad
+
+    # --- Resultados del Motor de Categorización (CFNR) ---
+    # CFNR = Ingresos Totales - (Canasta Básica + Vivienda/Servicios/Salud + Transporte + Deudas)
+    ingreso_per_capita = Column(Float, nullable=False, default=0.0)  # dato de referencia
+    costo_vida_estimado = Column(Float, nullable=False, default=0.0)  # total de egresos estimados
+    cfnr = Column(Float, nullable=False, default=0.0)  # Capacidad Financiera Neta Residual
+    categoria_asignada = Column(String(10), nullable=False)  # ALTA | MEDIA | BAJA
     estado_alerta = Column(String(50), nullable=False, default="NORMAL")  # NORMAL | REVISIÓN MANUAL URGENTE
 
     # --- Evidencias (URLs de Firebase Storage) ---
