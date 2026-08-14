@@ -241,6 +241,8 @@ class PatientResponse(PatientBase):
     user_id: Optional[int]
     edad_calc: Optional[int] = None
     estado: str
+    estado_beneficio: str = "ACTIVO"
+    evaluacion_bloqueada_hasta: Optional[date] = None
 
     created_at: datetime
     updated_at: datetime
@@ -817,9 +819,34 @@ class SocialEvaluationSelfCreate(BaseModel):
 
 
 class SocialEvaluationReviewUpdate(BaseModel):
-    """Payload enviado por el staff (SUPER_ADMIN / EVALUADOR_SOCIAL) para avalar o rechazar una evaluación."""
-    decision: Literal["APROBADO", "RECHAZADO"]
+    """
+    Payload enviado por el staff (SUPER_ADMIN / EVALUADOR_SOCIAL) para avalar
+    o rechazar una evaluación.
+    - RECHAZADO: rechazo estándar (Nivel 1) — aplica un cooldown temporal.
+    - RECHAZADO_FRAUDE: rechazo por falsedad/depuración (Nivel 2) — suspende
+      permanentemente al beneficiario hasta que un SUPER_ADMIN lo reactive.
+    """
+    decision: Literal["APROBADO", "RECHAZADO", "RECHAZADO_FRAUDE"]
     motivo: Optional[str] = Field(None, max_length=1000)
+
+
+class SocialEvaluationHistoryItem(BaseModel):
+    """Snapshot histórico de un veredicto (aprobación/rechazo) pasado, tomado de AuditLog."""
+    id: int
+    actor_id: Optional[int] = None
+    accion: str
+    payload: Optional[dict] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SocialEvaluationEligibility(BaseModel):
+    """Resultado de la verificación de elegibilidad para enviar una nueva evaluación."""
+    puede_evaluar: bool
+    motivo: Optional[str] = None
+    suspendido: bool = False
+    bloqueado_hasta: Optional[date] = None
 
 
 class SocialEvaluationInterviewUpdate(BaseModel):

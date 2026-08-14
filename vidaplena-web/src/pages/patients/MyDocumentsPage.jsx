@@ -639,7 +639,7 @@ export default function MyDocumentsPage() {
                             <div className={`border-l-4 rounded-r-xl p-4 mb-6 shadow-sm ${
                                 socialEvaluation.estado_revision === 'APROBADO'
                                     ? 'bg-green-50 border-green-500'
-                                    : socialEvaluation.estado_revision === 'RECHAZADO'
+                                    : socialEvaluation.estado_revision === 'RECHAZADO' || socialEvaluation.estado_revision === 'RECHAZADO_FRAUDE'
                                         ? 'bg-red-50 border-red-500'
                                         : 'bg-blue-50 border-blue-500'
                             }`}>
@@ -673,15 +673,33 @@ export default function MyDocumentsPage() {
                                         <p className="text-sm text-red-700 mt-1">
                                             {socialEvaluation.motivo_rechazo || 'Corrija su información y vuelva a enviarla.'}
                                         </p>
-                                        {!isReadOnly && (
-                                            <button
-                                                type="button"
-                                                onClick={() => navigate('/mi-evaluacion-social')}
-                                                className="mt-2 text-sm font-bold text-red-700 underline"
-                                            >
-                                                Corregir y reenviar evaluación
-                                            </button>
+                                        {patientProfile?.evaluacion_bloqueada_hasta ? (
+                                            <p className="text-xs text-red-600 mt-2 font-semibold">
+                                                Podrá volver a someterse a evaluación a partir del{' '}
+                                                {new Date(patientProfile.evaluacion_bloqueada_hasta).toLocaleDateString()}.
+                                            </p>
+                                        ) : (
+                                            !isReadOnly && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigate('/mi-evaluacion-social')}
+                                                    className="mt-2 text-sm font-bold text-red-700 underline"
+                                                >
+                                                    Corregir y reenviar evaluación
+                                                </button>
+                                            )
                                         )}
+                                    </>
+                                )}
+                                {socialEvaluation.estado_revision === 'RECHAZADO_FRAUDE' && (
+                                    <>
+                                        <h3 className="font-bold text-red-800 flex items-center gap-2">
+                                            <AlertTriangle size={20} /> Acceso suspendido
+                                        </h3>
+                                        <p className="text-sm text-red-700 mt-1">
+                                            Su acceso a evaluaciones socioeconómicas fue suspendido. Comuníquese
+                                            con la Fundación para más información.
+                                        </p>
                                     </>
                                 )}
                             </div>

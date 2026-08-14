@@ -7,11 +7,15 @@
  * Acceso: cualquier usuario autenticado con rol PACIENTE (JWT vía axios,
  * igual que MyDocumentsPage.jsx).
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { submitMySocialEvaluation, uploadMyEvaluationDocument } from '../../api/evaluations';
+import {
+  submitMySocialEvaluation,
+  uploadMyEvaluationDocument,
+  getMyEvaluationEligibility,
+} from '../../api/evaluations';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CONSTANTES DE DATOS
@@ -151,6 +155,26 @@ function FileInput({ label, accept, onUpload }) {
 
 export default function SocialEvaluationSelfPage() {
   const navigate = useNavigate();
+
+  const [checkingEligibility, setCheckingEligibility] = useState(true);
+  const [eligibility, setEligibility] = useState(null);
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      try {
+        const data = await getMyEvaluationEligibility();
+        if (!cancelado) setEligibility(data);
+      } catch (error) {
+        // Si falla la verificación (ej. red), no bloqueamos al beneficiario
+        // por un problema técnico ajeno a su elegibilidad.
+        if (!cancelado) setEligibility({ puede_evaluar: true });
+      } finally {
+        if (!cancelado) setCheckingEligibility(false);
+      }
+    })();
+    return () => { cancelado = true; };
+  }, []);
 
   const [pasoActual, setPasoActual] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -948,6 +972,43 @@ export default function SocialEvaluationSelfPage() {
   // ─────────────────────────────────────────────────────────────────────────
   //  RENDER PRINCIPAL
   // ─────────────────────────────────────────────────────────────────────────
+
+  if (checkingEligibility) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 to-blue-50 flex items-center justify-center">
+        <p className="text-gray-500">Verificando su elegibilidad...</p>
+      </div>
+    );
+  }
+
+  if (eligibility && !eligibility.puede_evaluar) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 to-blue-50 py-10 px-4 flex items-center justify-center">
+        <div className="max-w-lg w-full bg-white rounded-3xl shadow-xl p-8 md:p-10 border border-gray-100 text-center">
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
+            eligibility.suspendido ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'
+          }`}>
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-bold text-gray-900 mb-2">
+            {eligibility.suspendido ? 'Acceso suspendido' : 'Evaluación no disponible por el momento'}
+          </h1>
+          <p className="text-sm text-gray-600">{eligibility.motivo}</p>
+          <button
+            type="button"
+            onClick={() => navigate('/mi-portal')}
+            className="mt-6 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all"
+          >
+            Volver a mi portal
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 to-blue-50 py-10 px-4">
       <div className="max-w-2xl mx-auto">

@@ -24,7 +24,7 @@ import io
 import uuid
 import pytest
 import pytest_asyncio
-from datetime import date
+from datetime import date, timedelta
 from sqlalchemy import select
 
 from app import models
@@ -1090,3 +1090,195 @@ async def test_paciente_self_service_deudas_y_ayuda_institucion(client, patient_
     assert data["categoria_asignada"] == "ALTA"
     assert data["recibe_ayuda_otra_institucion"] is True
     assert data["nombre_institucion_ayuda"] == "ONG Diabetes Bolivia"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SECCIÓN 9: RECHAZO EN DOS NIVELES (cooldown / suspensión) + HISTORIAL
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _aprobar_o_rechazar(client, patient, decision, motivo=None):
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "Entrevista."})
+    payload = {"decision": decision}
+    if motivo:
+        payload["motivo"] = motivo
+    return await client.put(f"/social-evaluations/{patient.id}/review", json=payload)
+
+
+@pytest.mark.asyncio
+async def test_rechazo_estandar_aplica_cooldown_6_meses(client, superuser_token, db_session):
+    """Un rechazo RECHAZADO (Nivel 1) bloquea el reenvío por 6 meses desde hoy."""
+    patient = await _crear_patient(db_session)
+    resp = await _aprobar_o_rechazar(client, patient, "RECHAZADO", "No cumple criterios.")
+    assert resp.status_code == 200, resp.text
+
+    await db_session.refresh(patient)
+    assert patient.estado_beneficio == "ACTIVO"
+    assert patient.evaluacion_bloqueada_hasta is not None
+    # Diferencia de ~6 meses (tolerante a variaciones de longitud de mes).
+    delta_dias = (patient.evaluacion_bloqueada_hasta - date.today()).days
+    assert 175 <= delta_dias <= 186
+
+
+@pytest.mark.asyncio
+async def test_rechazo_por_falsedad_suspende_permanentemente(client, superuser_token, db_session):
+    """RECHAZADO_FRAUDE (Nivel 2) suspende al paciente y no aplica cooldown temporal."""
+    patient = await _crear_patient(db_session)
+    resp = await _aprobar_o_rechazar(client, patient, "RECHAZADO_FRAUDE", "Documentos falsificados.")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["estado_revision"] == "RECHAZADO_FRAUDE"
+
+    await db_session.refresh(patient)
+    assert patient.estado_beneficio == "SUSPENDIDO"
+    assert patient.evaluacion_bloqueada_hasta is None
+    assert patient.exonerado_aporte is False
+
+
+@pytest.mark.asyncio
+async def test_rechazo_por_falsedad_exige_motivo(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "Entrevista."})
+
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "RECHAZADO_FRAUDE"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_reenvio_bloqueado_durante_cooldown(client, patient_token, own_patient, db_session):
+    """Tras un rechazo estándar, /me devuelve 403 con la fecha de reactivación."""
+    own_patient.evaluacion_bloqueada_hasta = date.today() + timedelta(days=90)
+    await db_session.commit()
+    resp = await client.post("/social-evaluations/me", json=_self_payload_base())
+    assert resp.status_code == 403
+    assert "someterse a evaluación" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_reenvio_bloqueado_si_suspendido(client, patient_token, own_patient, db_session):
+    """Un paciente suspendido no puede enviar una nueva evaluación."""
+    own_patient.estado_beneficio = "SUSPENDIDO"
+    await db_session.commit()
+    resp = await client.post("/social-evaluations/me", json=_self_payload_base())
+    assert resp.status_code == 403
+    assert "suspendido" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_staff_no_puede_crear_evaluacion_para_paciente_bloqueado(client, superuser_token, db_session):
+    """El endpoint staff también respeta el bloqueo (no es una vía para saltarlo)."""
+    patient = await _crear_patient(db_session)
+    patient.estado_beneficio = "SUSPENDIDO"
+    await db_session.commit()
+
+    resp = await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_eligibility_refleja_cooldown(client, patient_token, own_patient, db_session):
+    own_patient.evaluacion_bloqueada_hasta = date.today() + timedelta(days=30)
+    await db_session.commit()
+    resp = await client.get("/social-evaluations/me/eligibility")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["puede_evaluar"] is False
+    assert data["suspendido"] is False
+    assert data["bloqueado_hasta"] == own_patient.evaluacion_bloqueada_hasta.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_eligibility_refleja_suspension(client, patient_token, own_patient, db_session):
+    own_patient.estado_beneficio = "SUSPENDIDO"
+    await db_session.commit()
+    resp = await client.get("/social-evaluations/me/eligibility")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["puede_evaluar"] is False
+    assert data["suspendido"] is True
+
+
+@pytest.mark.asyncio
+async def test_eligibility_activo_puede_evaluar(client, patient_token, own_patient):
+    resp = await client.get("/social-evaluations/me/eligibility")
+    assert resp.status_code == 200
+    assert resp.json()["puede_evaluar"] is True
+
+
+@pytest.mark.asyncio
+async def test_reactivar_permite_reenvio(client, superuser_token, db_session, patient_token, own_patient):
+    """SUPER_ADMIN reactiva a un paciente suspendido y este ya puede volver a enviar su evaluación."""
+    own_patient.estado_beneficio = "SUSPENDIDO"
+    await db_session.commit()
+
+    resp_reactivar = await client.put(f"/social-evaluations/{own_patient.id}/reactivate")
+    assert resp_reactivar.status_code == 200, resp_reactivar.text
+    assert resp_reactivar.json()["puede_evaluar"] is True
+
+    await db_session.refresh(own_patient)
+    assert own_patient.estado_beneficio == "ACTIVO"
+    assert own_patient.evaluacion_bloqueada_hasta is None
+
+    resp_envio = await client.post("/social-evaluations/me", json=_self_payload_base())
+    assert resp_envio.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_reactivar_requiere_super_admin(client, evaluador_token, db_session):
+    """EVALUADOR_SOCIAL no puede reactivar — es exclusivo de SUPER_ADMIN."""
+    patient = await _crear_patient(db_session)
+    patient.estado_beneficio = "SUSPENDIDO"
+    await db_session.commit()
+
+    resp = await client.put(f"/social-evaluations/{patient.id}/reactivate")
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_reactivar_paciente_inexistente_retorna_404(client, superuser_token):
+    resp = await client.put("/social-evaluations/999999999/reactivate")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_historial_registra_veredictos_pasados(client, superuser_token, db_session):
+    """
+    GET /{patient_id}/history conserva cada veredicto aunque la evaluación
+    "actual" luego se sobreescriba con un reenvío.
+    """
+    patient = await _crear_patient(db_session)
+    resp = await _aprobar_o_rechazar(client, patient, "RECHAZADO", "Fotos ilegibles.")
+    assert resp.status_code == 200, resp.text
+
+    resp_hist = await client.get(f"/social-evaluations/{patient.id}/history")
+    assert resp_hist.status_code == 200
+    hist = resp_hist.json()
+    assert len(hist) == 1
+    assert hist[0]["accion"] == "RECHAZADO"
+    assert hist[0]["payload"]["motivo_rechazo"] == "Fotos ilegibles."
+    assert hist[0]["actor_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_historial_acumula_multiples_veredictos(client, superuser_token, db_session):
+    """Varios veredictos consecutivos del mismo paciente se acumulan, más reciente primero."""
+    patient = await _crear_patient(db_session)
+    r1 = await _aprobar_o_rechazar(client, patient, "RECHAZADO", "Primer rechazo.")
+    assert r1.status_code == 200, r1.text
+    r2 = await _aprobar_o_rechazar(client, patient, "RECHAZADO_FRAUDE", "Segundo rechazo: fraude.")
+    assert r2.status_code == 200, r2.text
+
+    resp_hist = await client.get(f"/social-evaluations/{patient.id}/history")
+    hist = resp_hist.json()
+    assert len(hist) == 2
+    assert hist[0]["accion"] == "RECHAZADO_FRAUDE"
+    assert hist[1]["accion"] == "RECHAZADO"
+
+
+@pytest.mark.asyncio
+async def test_historial_requiere_staff(client, patient_token, own_patient):
+    resp = await client.get(f"/social-evaluations/{own_patient.id}/history")
+    assert resp.status_code == 403

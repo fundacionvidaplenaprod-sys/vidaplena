@@ -90,6 +90,13 @@ class Patient(Base):
 
     # Evaluación Socioeconómica
     exonerado_aporte = Column(Boolean, nullable=False, default=False)
+    # ACTIVO | SUSPENDIDO. SUSPENDIDO = depurado por falsedad en su evaluación
+    # (rechazo Nivel 2): bloquea permanentemente el envío de nuevas
+    # evaluaciones hasta que un SUPER_ADMIN lo reactive explícitamente.
+    estado_beneficio = Column(String(20), nullable=False, default="ACTIVO")
+    # Cooldown temporal (rechazo Nivel 1, estándar): no puede volver a enviar
+    # una evaluación socioeconómica hasta esta fecha.
+    evaluacion_bloqueada_hasta = Column(Date, nullable=True)
 
     # Auditoría
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -27,6 +27,15 @@ export const submitMySocialEvaluation = (payload) =>
   client.post('/social-evaluations/me', payload).then((r) => r.data);
 
 /**
+ * Verifica si el beneficiario autenticado puede enviar una nueva evaluación
+ * (puede estar en cooldown por un rechazo estándar, o suspendido por un
+ * rechazo por falsedad). Se consulta antes de mostrar el formulario.
+ * @returns {Promise<{puede_evaluar: boolean, motivo: string|null, suspendido: boolean, bloqueado_hasta: string|null}>}
+ */
+export const getMyEvaluationEligibility = () =>
+  client.get('/social-evaluations/me/eligibility').then((r) => r.data);
+
+/**
  * Sube una evidencia individual (foto) de la evaluación propia.
  * @param {string} docType - 'ci' | 'fachada' | 'sala' | 'dormitorio'
  * @param {File|Blob} file
@@ -72,8 +81,11 @@ export const listSocialEvaluations = (params = {}) =>
 /**
  * Avala (aprueba) o rechaza la evaluación socioeconómica de un paciente.
  * Requiere que la entrevista virtual ya haya sido registrada.
+ * - RECHAZADO: rechazo estándar (cooldown temporal de 6 meses).
+ * - RECHAZADO_FRAUDE: rechazo por falsedad/depuración (suspensión
+ *   permanente, requiere reactivación de un SUPER_ADMIN).
  * @param {number} patientId
- * @param {{decision: 'APROBADO'|'RECHAZADO', motivo?: string}} payload
+ * @param {{decision: 'APROBADO'|'RECHAZADO'|'RECHAZADO_FRAUDE', motivo?: string}} payload
  */
 export const reviewSocialEvaluation = (patientId, payload) =>
   client.put(`/social-evaluations/${patientId}/review`, payload).then((r) => r.data);
@@ -87,3 +99,21 @@ export const reviewSocialEvaluation = (patientId, payload) =>
  */
 export const markEvaluationInterviewDone = (patientId, notas) =>
   client.put(`/social-evaluations/${patientId}/interview`, { notas }).then((r) => r.data);
+
+/**
+ * Historial de veredictos (aprobaciones/rechazos) pasados de un paciente,
+ * del más reciente al más antiguo. Útil para ver precedentes (ej. un
+ * rechazo por falsedad) antes de avalar una nueva postulación.
+ * @param {number} patientId
+ */
+export const getEvaluationHistory = (patientId) =>
+  client.get(`/social-evaluations/${patientId}/history`).then((r) => r.data);
+
+/**
+ * Reactiva a un beneficiario suspendido (rechazo por falsedad) o levanta su
+ * cooldown temporal (rechazo estándar), permitiéndole volver a enviar una
+ * evaluación. Exclusivo de SUPER_ADMIN.
+ * @param {number} patientId
+ */
+export const reactivatePatientEvaluation = (patientId) =>
+  client.put(`/social-evaluations/${patientId}/reactivate`).then((r) => r.data);

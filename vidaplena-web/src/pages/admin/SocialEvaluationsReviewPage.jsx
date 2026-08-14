@@ -1,14 +1,31 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle, ExternalLink, RefreshCcw, ChevronDown, ChevronUp, Video } from 'lucide-react';
+import {
+  AlertTriangle, CheckCircle, ExternalLink, RefreshCcw, ChevronDown, ChevronUp,
+  Video, History, ShieldAlert, UserCheck,
+} from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { listSocialEvaluations, markEvaluationInterviewDone, reviewSocialEvaluation } from '../../api/evaluations';
+import {
+  listSocialEvaluations,
+  markEvaluationInterviewDone,
+  reviewSocialEvaluation,
+  getEvaluationHistory,
+  reactivatePatientEvaluation,
+} from '../../api/evaluations';
 import { Button } from '../../components/ui/Button';
 
 const ESTADO_STYLES = {
   PENDIENTE: 'bg-yellow-100 text-yellow-700 border-yellow-200',
   APROBADO: 'bg-green-100 text-green-700 border-green-200',
   RECHAZADO: 'bg-red-100 text-red-700 border-red-200',
+  RECHAZADO_FRAUDE: 'bg-red-200 text-red-900 border-red-400',
+};
+
+const DECISION_LABELS = {
+  APROBADO: 'Aprobado',
+  RECHAZADO: 'Rechazado (estándar)',
+  RECHAZADO_FRAUDE: 'Rechazado por falsedad',
+  REACTIVADO: 'Reactivado',
 };
 
 const EVIDENCIAS = [
@@ -19,6 +36,14 @@ const EVIDENCIAS = [
 ];
 
 export default function SocialEvaluationsReviewPage() {
+  const isSuperAdmin = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('user') || '{}').role === 'SUPER_ADMIN';
+    } catch {
+      return false;
+    }
+  })();
+
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [estadoFilter, setEstadoFilter] = useState('PENDIENTE');
@@ -28,6 +53,9 @@ export default function SocialEvaluationsReviewPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [interviewNotesById, setInterviewNotesById] = useState({});
   const [interviewSubmittingId, setInterviewSubmittingId] = useState(null);
+  const [historyByPatientId, setHistoryByPatientId] = useState({});
+  const [loadingHistoryId, setLoadingHistoryId] = useState(null);
+  const [reactivatingId, setReactivatingId] = useState(null);
 
   const fetchEvaluations = async () => {
     try {
@@ -48,7 +76,44 @@ export default function SocialEvaluationsReviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estadoFilter]);
 
-  const toggleExpanded = (id) => setExpandedId((prev) => (prev === id ? null : id));
+  const toggleExpanded = (item) => {
+    setExpandedId((prev) => (prev === item.id ? null : item.id));
+    if (!historyByPatientId[item.patient_id]) {
+      loadHistory(item.patient_id);
+    }
+  };
+
+  const loadHistory = async (patientId) => {
+    try {
+      setLoadingHistoryId(patientId);
+      const data = await getEvaluationHistory(patientId);
+      setHistoryByPatientId((prev) => ({ ...prev, [patientId]: data }));
+    } catch (error) {
+      console.error(error);
+      toast.error('No se pudo cargar el historial de este beneficiario.');
+    } finally {
+      setLoadingHistoryId(null);
+    }
+  };
+
+  const handleReactivate = async (patientId) => {
+    const confirmado = window.confirm(
+      '¿Reactivar a este beneficiario? Podrá volver a enviar una evaluación socioeconómica de inmediato.'
+    );
+    if (!confirmado) return;
+    try {
+      setReactivatingId(patientId);
+      await reactivatePatientEvaluation(patientId);
+      toast.success('Beneficiario reactivado.');
+      loadHistory(patientId);
+    } catch (error) {
+      console.error(error);
+      const detail = error?.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'No se pudo reactivar al beneficiario.');
+    } finally {
+      setReactivatingId(null);
+    }
+  };
 
   const handleMarkInterview = async (patientId) => {
     try {
@@ -90,7 +155,7 @@ export default function SocialEvaluationsReviewPage() {
     setRejectReason('');
   };
 
-  const submitReject = async () => {
+  const submitReject = async (decision) => {
     if (!rejectReason.trim()) {
       toast.error('Debe indicar el motivo del rechazo.');
       return;
@@ -98,10 +163,14 @@ export default function SocialEvaluationsReviewPage() {
     try {
       setSubmittingId(rejectModal.patientId);
       await reviewSocialEvaluation(rejectModal.patientId, {
-        decision: 'RECHAZADO',
+        decision,
         motivo: rejectReason.trim(),
       });
-      toast.success('Evaluación rechazada. El beneficiario podrá corregir y reenviar.');
+      toast.success(
+        decision === 'RECHAZADO_FRAUDE'
+          ? 'Evaluación rechazada por falsedad. El beneficiario quedó suspendido permanentemente.'
+          : 'Evaluación rechazada. El beneficiario podrá volver a intentar en 6 meses.'
+      );
       closeRejectModal();
       await fetchEvaluations();
     } catch (error) {
@@ -132,6 +201,7 @@ export default function SocialEvaluationsReviewPage() {
             <option value="PENDIENTE">PENDIENTE</option>
             <option value="APROBADO">APROBADO</option>
             <option value="RECHAZADO">RECHAZADO</option>
+            <option value="RECHAZADO_FRAUDE">RECHAZADO POR FALSEDAD</option>
           </select>
           <Button
             type="button"
@@ -174,7 +244,7 @@ export default function SocialEvaluationsReviewPage() {
                   <div className="flex items-center gap-3 mt-3">
                     <button
                       type="button"
-                      onClick={() => toggleExpanded(item.id)}
+                      onClick={() => toggleExpanded(item)}
                       className="text-sm text-blue-600 hover:text-blue-700 font-semibold inline-flex items-center gap-1"
                     >
                       {expandedId === item.id ? 'Ocultar detalle' : 'Ver detalle'}
@@ -217,6 +287,16 @@ export default function SocialEvaluationsReviewPage() {
                     <p className="text-xs text-orange-600 font-semibold max-w-[220px] text-right">
                       Registre la entrevista virtual (ver detalle) para poder emitir un veredicto.
                     </p>
+                  )}
+                  {isSuperAdmin && (item.estado_revision === 'RECHAZADO' || item.estado_revision === 'RECHAZADO_FRAUDE') && (
+                    <button
+                      type="button"
+                      onClick={() => handleReactivate(item.patient_id)}
+                      disabled={reactivatingId === item.patient_id}
+                      className="text-xs font-bold text-vida-primary hover:underline inline-flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <UserCheck size={14} /> {reactivatingId === item.patient_id ? 'Reactivando...' : 'Reactivar beneficiario'}
+                    </button>
                   )}
                 </div>
               </div>
@@ -312,6 +392,52 @@ export default function SocialEvaluationsReviewPage() {
                     </div>
                   </div>
                   </div>
+
+                  <div className="border-t border-gray-200 pt-4">
+                    <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <History size={16} /> Historial de evaluaciones anteriores
+                    </h4>
+                    {loadingHistoryId === item.patient_id ? (
+                      <p className="text-sm text-gray-500">Cargando historial...</p>
+                    ) : (historyByPatientId[item.patient_id] || []).length === 0 ? (
+                      <p className="text-sm text-gray-500">Sin veredictos anteriores registrados.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {historyByPatientId[item.patient_id].map((h) => (
+                          <div
+                            key={h.id}
+                            className={`rounded-lg p-3 text-sm border ${
+                              h.accion === 'RECHAZADO_FRAUDE'
+                                ? 'bg-red-100 border-red-300'
+                                : h.accion === 'RECHAZADO'
+                                  ? 'bg-red-50 border-red-200'
+                                  : h.accion === 'APROBADO'
+                                    ? 'bg-green-50 border-green-200'
+                                    : 'bg-gray-50 border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold flex items-center gap-1">
+                                {h.accion === 'RECHAZADO_FRAUDE' && <ShieldAlert size={14} className="text-red-700" />}
+                                {DECISION_LABELS[h.accion] || h.accion}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {new Date(h.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            {h.payload?.motivo_rechazo && (
+                              <p className="mt-1 text-gray-700">Motivo: {h.payload.motivo_rechazo}</p>
+                            )}
+                            {h.payload?.categoria_asignada && (
+                              <p className="mt-1 text-xs text-gray-500">
+                                Categoría en ese momento: {h.payload.categoria_asignada} (CFNR Bs. {Number(h.payload.cfnr).toFixed(2)})
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -324,7 +450,7 @@ export default function SocialEvaluationsReviewPage() {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
             <h3 className="text-lg font-bold text-gray-800 mb-2">Rechazar evaluación</h3>
             <p className="text-sm text-gray-500 mb-4">
-              Registre el motivo para que el beneficiario lo vea y pueda corregir su información.
+              Registre el motivo. Elija el nivel de rechazo según corresponda.
             </p>
             <textarea
               value={rejectReason}
@@ -332,21 +458,51 @@ export default function SocialEvaluationsReviewPage() {
               className="w-full border rounded-lg px-3 py-2 text-sm min-h-[110px]"
               placeholder="Ej: Las fotos de evidencia no son legibles."
             />
-            <div className="mt-4 flex justify-end gap-2">
+
+            <div className="mt-4 space-y-2">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm font-bold text-amber-800">Nivel 1 — Rechazo estándar</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  No cumple los criterios (sí tiene capacidad de aportar). El beneficiario podrá
+                  volver a intentarlo recién en 6 meses.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => submitReject('RECHAZADO')}
+                  disabled={submittingId === rejectModal.patientId}
+                  className="mt-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold disabled:opacity-50"
+                >
+                  Confirmar rechazo estándar
+                </button>
+              </div>
+
+              <div className="rounded-lg border border-red-300 bg-red-50 p-3">
+                <p className="text-sm font-bold text-red-800 flex items-center gap-1">
+                  <ShieldAlert size={14} /> Nivel 2 — Rechazo por falsedad
+                </p>
+                <p className="text-xs text-red-700 mt-0.5">
+                  Falsificación de documentos, ocultamiento de ingresos comprobados o
+                  inconsistencias graves y malintencionadas. Suspende permanentemente al
+                  beneficiario; solo un SUPER_ADMIN podrá reactivarlo.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => submitReject('RECHAZADO_FRAUDE')}
+                  disabled={submittingId === rejectModal.patientId}
+                  className="mt-2 px-4 py-2 rounded-lg bg-red-700 hover:bg-red-800 text-white text-sm font-bold disabled:opacity-50"
+                >
+                  Confirmar rechazo por falsedad
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end">
               <button
                 type="button"
                 onClick={closeRejectModal}
                 className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
               >
                 Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={submitReject}
-                disabled={submittingId === rejectModal.patientId}
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
-              >
-                Confirmar rechazo
               </button>
             </div>
           </div>

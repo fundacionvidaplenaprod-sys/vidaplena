@@ -6,7 +6,8 @@ Módulo de Evaluación Socioeconómica y Categorización de Beneficiarios.
 - SUPER_ADMIN y EVALUADOR_SOCIAL revisan, avalan o rechazan las evaluaciones
   enviadas (endpoints staff).
 """
-from datetime import datetime, timezone
+import calendar
+from datetime import date, datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
@@ -252,6 +253,102 @@ def _validar_consentimientos(evaluation_in) -> None:
 
 
 # ==============================================================================
+# BLOQUEO EN DOS NIVELES TRAS UN RECHAZO
+#
+#   Nivel 1 (RECHAZADO, estándar): cooldown temporal de N meses
+#     (patient.evaluacion_bloqueada_hasta).
+#   Nivel 2 (RECHAZADO_FRAUDE, falsedad/depuración): suspensión permanente
+#     (patient.estado_beneficio = "SUSPENDIDO") — solo un SUPER_ADMIN puede
+#     reactivar (ver PUT /{patient_id}/reactivate).
+# ==============================================================================
+
+RECHAZO_ESTANDAR_COOLDOWN_MESES = 6
+
+
+def _agregar_meses(fecha: date, meses: int) -> date:
+    mes_total = fecha.month - 1 + meses
+    anio = fecha.year + mes_total // 12
+    mes = mes_total % 12 + 1
+    dia = min(fecha.day, calendar.monthrange(anio, mes)[1])
+    return date(anio, mes, dia)
+
+
+def _evaluar_elegibilidad(patient: models.Patient) -> schemas.SocialEvaluationEligibility:
+    """Determina si el beneficiario puede enviar una nueva evaluación socioeconómica."""
+    if patient.estado_beneficio == "SUSPENDIDO":
+        return schemas.SocialEvaluationEligibility(
+            puede_evaluar=False,
+            suspendido=True,
+            motivo=(
+                "Su acceso a evaluaciones socioeconómicas fue suspendido. "
+                "Comuníquese con la Fundación para más información."
+            ),
+        )
+    if patient.evaluacion_bloqueada_hasta and date.today() < patient.evaluacion_bloqueada_hasta:
+        fecha_texto = patient.evaluacion_bloqueada_hasta.strftime("%d/%m/%Y")
+        return schemas.SocialEvaluationEligibility(
+            puede_evaluar=False,
+            bloqueado_hasta=patient.evaluacion_bloqueada_hasta,
+            motivo=f"Su solicitud fue denegada. Podrá volver a someterse a evaluación a partir del {fecha_texto}.",
+        )
+    return schemas.SocialEvaluationEligibility(puede_evaluar=True)
+
+
+def _exigir_elegibilidad(patient: models.Patient) -> None:
+    elegibilidad = _evaluar_elegibilidad(patient)
+    if not elegibilidad.puede_evaluar:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=elegibilidad.motivo)
+
+
+async def _archivar_veredicto(
+    db: AsyncSession,
+    evaluation: models.SocialEvaluation,
+    patient: models.Patient,
+    actor_id: int,
+    decision: str,
+) -> None:
+    """
+    Guarda una copia inmutable del veredicto (aprobación/rechazo) en AuditLog
+    antes de que un futuro reenvío del beneficiario sobreescriba la fila de
+    `social_evaluations` (relación 1:1). Permite mantener un historial
+    completo por beneficiario aunque la evaluación "actual" cambie.
+    """
+    snapshot = {
+        "departamento": evaluation.departamento,
+        "integrantes_hogar": evaluation.integrantes_hogar,
+        "dependientes": evaluation.dependientes,
+        "tipo_vivienda": evaluation.tipo_vivienda,
+        "monto_alquiler": evaluation.monto_alquiler,
+        "tiene_seguro": evaluation.tiene_seguro,
+        "condicion_laboral": evaluation.condicion_laboral,
+        "ingreso_titular": evaluation.ingreso_titular,
+        "ingreso_conyuge": evaluation.ingreso_conyuge,
+        "recibe_ayuda_otra_institucion": evaluation.recibe_ayuda_otra_institucion,
+        "nombre_institucion_ayuda": evaluation.nombre_institucion_ayuda,
+        "tiene_deudas_comprometen_ingresos": evaluation.tiene_deudas_comprometen_ingresos,
+        "monto_deuda_mensual": evaluation.monto_deuda_mensual,
+        "ingreso_per_capita": evaluation.ingreso_per_capita,
+        "costo_vida_estimado": evaluation.costo_vida_estimado,
+        "cfnr": evaluation.cfnr,
+        "categoria_asignada": evaluation.categoria_asignada,
+        "estado_alerta": evaluation.estado_alerta,
+        "decision": decision,
+        "motivo_rechazo": evaluation.motivo_rechazo,
+        "entrevista_fecha": evaluation.entrevista_fecha.isoformat() if evaluation.entrevista_fecha else None,
+        "entrevista_notas": evaluation.entrevista_notas,
+    }
+    db.add(
+        models.AuditLog(
+            actor_id=actor_id,
+            entidad="social_evaluation",
+            entidad_id=patient.id,
+            accion=decision,
+            payload=snapshot,
+        )
+    )
+
+
+# ==============================================================================
 # ENDPOINTS — STAFF (SUPER_ADMIN / EVALUADOR_SOCIAL)
 # ==============================================================================
 
@@ -289,6 +386,7 @@ async def create_or_update_social_evaluation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Paciente con ID {evaluation_in.patient_id} no encontrado.",
         )
+    _exigir_elegibilidad(patient)
 
     base_data = evaluation_in.model_dump(exclude={"patient_id"})
     db_evaluation = await _upsert_evaluation(
@@ -335,6 +433,7 @@ async def create_or_update_my_social_evaluation(
     _validar_consentimientos(evaluation_in)
 
     patient = await _get_own_patient(db, current_user)
+    _exigir_elegibilidad(patient)
 
     client_ip = request.client.host if request.client else "desconocida"
     user_agent = request.headers.get("user-agent", "desconocido")[:300]
@@ -379,6 +478,24 @@ async def get_my_social_evaluation(
             detail="Aún no registra una evaluación socioeconómica.",
         )
     return evaluation
+
+
+@router.get(
+    "/me/eligibility",
+    response_model=schemas.SocialEvaluationEligibility,
+    summary="El beneficiario verifica si puede enviar una nueva evaluación socioeconómica",
+)
+async def get_my_evaluation_eligibility(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_active_user),
+):
+    """
+    Se consulta antes de mostrar el formulario de evaluación: si el
+    beneficiario está en cooldown (rechazo estándar) o suspendido (rechazo
+    por falsedad), `puede_evaluar` viene en `false` con el motivo/fecha.
+    """
+    patient = await _get_own_patient(db, current_user)
+    return _evaluar_elegibilidad(patient)
 
 
 @router.post(
@@ -463,6 +580,69 @@ async def get_social_evaluation(
         )
 
     return _attach_patient_info(evaluation)
+
+
+@router.get(
+    "/{patient_id}/history",
+    response_model=list[schemas.SocialEvaluationHistoryItem],
+    summary="Historial de veredictos (aprobaciones/rechazos) pasados de un paciente",
+)
+async def get_social_evaluation_history(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(get_evaluator_or_admin),
+):
+    """
+    Devuelve, del más reciente al más antiguo, cada veredicto (APROBADO /
+    RECHAZADO / RECHAZADO_FRAUDE) que se haya registrado para este paciente
+    a lo largo del tiempo — incluso si la evaluación "actual" ya fue
+    sobreescrita por un reenvío posterior. Es el precedente a revisar antes
+    de avalar una nueva postulación de alguien que ya fue rechazado antes.
+    """
+    result = await db.execute(
+        select(models.AuditLog)
+        .where(
+            models.AuditLog.entidad == "social_evaluation",
+            models.AuditLog.entidad_id == patient_id,
+        )
+        .order_by(models.AuditLog.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.put(
+    "/{patient_id}/reactivate",
+    response_model=schemas.SocialEvaluationEligibility,
+    summary="Reactivar a un beneficiario suspendido o levantar su cooldown (solo SUPER_ADMIN)",
+)
+async def reactivate_patient_evaluation(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Levanta la suspensión permanente (rechazo por falsedad) o el cooldown
+    temporal (rechazo estándar), permitiendo que el beneficiario vuelva a
+    enviar una evaluación socioeconómica. Acción exclusiva de SUPER_ADMIN.
+    """
+    patient = await db.get(models.Patient, patient_id)
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paciente no encontrado.")
+
+    patient.estado_beneficio = "ACTIVO"
+    patient.evaluacion_bloqueada_hasta = None
+    db.add(
+        models.AuditLog(
+            actor_id=current_user.id,
+            entidad="social_evaluation",
+            entidad_id=patient.id,
+            accion="REACTIVADO",
+            payload={"nota": "Reactivado manualmente por SUPER_ADMIN."},
+        )
+    )
+    await db.commit()
+
+    return schemas.SocialEvaluationEligibility(puede_evaluar=True)
 
 
 @router.get(
@@ -565,12 +745,19 @@ async def review_social_evaluation(
     current_user: models.User = Depends(get_evaluator_or_admin),
 ):
     """
-    Avala (APROBADO) o rechaza (RECHAZADO) la evaluación socioeconómica de un
-    paciente. Requiere que la entrevista virtual ya haya sido registrada
+    Avala (APROBADO) o rechaza la evaluación socioeconómica de un paciente.
+    Requiere que la entrevista virtual ya haya sido registrada
     (`entrevista_realizada`). Al aprobar, exonera al paciente del aporte
-    solidario (`patient.exonerado_aporte = True`); al rechazar exige un motivo.
+    solidario. El rechazo tiene dos niveles, ambos exigen motivo:
+      - RECHAZADO (estándar): cooldown temporal (no puede reenviar por
+        `RECHAZO_ESTANDAR_COOLDOWN_MESES` meses).
+      - RECHAZADO_FRAUDE (falsedad/depuración): suspensión permanente,
+        requiere reactivación explícita de un SUPER_ADMIN.
+    En ambos casos de rechazo, y en la aprobación, se archiva un snapshot
+    del veredicto en AuditLog (ver GET /{patient_id}/history), porque el
+    reenvío posterior del beneficiario sobreescribe la fila de evaluación.
     """
-    if review_in.decision == "RECHAZADO" and not (review_in.motivo or "").strip():
+    if review_in.decision in ("RECHAZADO", "RECHAZADO_FRAUDE") and not (review_in.motivo or "").strip():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Debe indicar el motivo del rechazo.",
@@ -604,8 +791,18 @@ async def review_social_evaluation(
     evaluation.estado_revision = review_in.decision
     evaluation.reviewer_id = current_user.id
     evaluation.revisado_at = datetime.now(timezone.utc)
-    evaluation.motivo_rechazo = review_in.motivo if review_in.decision == "RECHAZADO" else None
+    evaluation.motivo_rechazo = review_in.motivo if review_in.decision != "APROBADO" else None
     patient.exonerado_aporte = review_in.decision == "APROBADO"
+
+    if review_in.decision == "RECHAZADO":
+        patient.evaluacion_bloqueada_hasta = _agregar_meses(date.today(), RECHAZO_ESTANDAR_COOLDOWN_MESES)
+    elif review_in.decision == "RECHAZADO_FRAUDE":
+        patient.estado_beneficio = "SUSPENDIDO"
+        patient.evaluacion_bloqueada_hasta = None
+    else:  # APROBADO
+        patient.evaluacion_bloqueada_hasta = None
+
+    await _archivar_veredicto(db, evaluation, patient, current_user.id, review_in.decision)
 
     try:
         db.add(evaluation)
