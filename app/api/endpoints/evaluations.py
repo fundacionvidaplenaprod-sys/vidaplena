@@ -645,6 +645,34 @@ async def reactivate_patient_evaluation(
     return schemas.SocialEvaluationEligibility(puede_evaluar=True)
 
 
+# TODO: ELIMINAR ENDPOINT AL TERMINAR QA (MODO PRUEBAS)
+@router.delete(
+    "/debug-delete/{patient_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="[QA] Borrado físico de una evaluación socioeconómica (solo SUPER_ADMIN)",
+)
+async def debug_delete_social_evaluation(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Herramienta temporal de QA: borra físicamente la evaluación socioeconómica
+    de un paciente para poder resetear su estado y volver a probar el flujo
+    de autoservicio desde cero. No toca el historial en AuditLog ni el estado
+    de bloqueo/suspensión del paciente (`estado_beneficio`,
+    `evaluacion_bloqueada_hasta`) — si se necesita limpiar esos también, usar
+    PUT /{patient_id}/reactivate por separado.
+    """
+    result = await db.execute(
+        select(models.SocialEvaluation).where(models.SocialEvaluation.patient_id == patient_id)
+    )
+    evaluation = result.scalars().first()
+    if evaluation:
+        await db.delete(evaluation)
+        await db.commit()
+
+
 @router.get(
     "/",
     response_model=list[schemas.SocialEvaluationResponse],

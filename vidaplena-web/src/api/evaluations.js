@@ -117,3 +117,13 @@ export const getEvaluationHistory = (patientId) =>
  */
 export const reactivatePatientEvaluation = (patientId) =>
   client.put(`/social-evaluations/${patientId}/reactivate`).then((r) => r.data);
+
+// TODO: ELIMINAR AL TERMINAR QA (MODO PRUEBAS)
+/**
+ * [QA] Borra físicamente la evaluación socioeconómica de un paciente, para
+ * resetear su estado y volver a probar el flujo de autoservicio. Exclusivo
+ * de SUPER_ADMIN.
+ * @param {number} patientId
+ */
+export const debugDeleteSocialEvaluation = (patientId) =>
+  client.delete(`/social-evaluations/debug-delete/${patientId}`);

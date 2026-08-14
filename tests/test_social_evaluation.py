@@ -1282,3 +1282,57 @@ async def test_historial_acumula_multiples_veredictos(client, superuser_token, d
 async def test_historial_requiere_staff(client, patient_token, own_patient):
     resp = await client.get(f"/social-evaluations/{own_patient.id}/history")
     assert resp.status_code == 403
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SECCIÓN 10: [QA] DELETE /debug-delete/{patient_id} — borrado físico temporal
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_debug_delete_borra_fisicamente_la_evaluacion(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+
+    resp = await client.delete(f"/social-evaluations/debug-delete/{patient.id}")
+    assert resp.status_code == 204
+
+    result = await db_session.execute(
+        select(models.SocialEvaluation).where(models.SocialEvaluation.patient_id == patient.id)
+    )
+    assert result.scalars().first() is None
+
+    # El paciente puede volver a llenar el formulario desde cero.
+    resp_get = await client.get(f"/social-evaluations/{patient.id}")
+    assert resp_get.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_debug_delete_no_existente_no_falla(client, superuser_token, db_session):
+    """Si no hay evaluación para ese paciente, es un no-op (204), no un error."""
+    patient = await _crear_patient(db_session)
+    resp = await client.delete(f"/social-evaluations/debug-delete/{patient.id}")
+    assert resp.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_debug_delete_requiere_super_admin(client, evaluador_token, db_session):
+    """EVALUADOR_SOCIAL no puede usar el borrado físico — exclusivo de SUPER_ADMIN."""
+    patient = await _crear_patient(db_session)
+    resp = await client.delete(f"/social-evaluations/debug-delete/{patient.id}")
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_debug_delete_no_borra_el_historial(client, superuser_token, db_session):
+    """El borrado físico no toca el historial en AuditLog (precedente se conserva)."""
+    patient = await _crear_patient(db_session)
+    resp_reject = await _aprobar_o_rechazar(client, patient, "RECHAZADO_FRAUDE", "Falsificación detectada.")
+    assert resp_reject.status_code == 200, resp_reject.text
+
+    resp_delete = await client.delete(f"/social-evaluations/debug-delete/{patient.id}")
+    assert resp_delete.status_code == 204
+
+    resp_hist = await client.get(f"/social-evaluations/{patient.id}/history")
+    assert resp_hist.status_code == 200
+    assert len(resp_hist.json()) == 1
+    assert resp_hist.json()[0]["accion"] == "RECHAZADO_FRAUDE"

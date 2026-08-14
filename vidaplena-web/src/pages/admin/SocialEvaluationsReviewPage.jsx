@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle, CheckCircle, ExternalLink, RefreshCcw, ChevronDown, ChevronUp,
-  Video, History, ShieldAlert, UserCheck,
+  Video, History, ShieldAlert, UserCheck, Trash2,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
@@ -11,6 +11,7 @@ import {
   reviewSocialEvaluation,
   getEvaluationHistory,
   reactivatePatientEvaluation,
+  debugDeleteSocialEvaluation,
 } from '../../api/evaluations';
 import { Button } from '../../components/ui/Button';
 
@@ -56,6 +57,7 @@ export default function SocialEvaluationsReviewPage() {
   const [historyByPatientId, setHistoryByPatientId] = useState({});
   const [loadingHistoryId, setLoadingHistoryId] = useState(null);
   const [reactivatingId, setReactivatingId] = useState(null);
+  const [debugDeletingId, setDebugDeletingId] = useState(null);
 
   const fetchEvaluations = async () => {
     try {
@@ -112,6 +114,27 @@ export default function SocialEvaluationsReviewPage() {
       toast.error(typeof detail === 'string' ? detail : 'No se pudo reactivar al beneficiario.');
     } finally {
       setReactivatingId(null);
+    }
+  };
+
+  // TODO: ELIMINAR AL TERMINAR QA (MODO PRUEBAS)
+  const handleDebugDelete = async (patientId) => {
+    const confirmado = window.confirm(
+      '[MODO PRUEBAS] ¿Eliminar físicamente esta evaluación socioeconómica? ' +
+        'Esta acción NO se puede deshacer y el beneficiario podrá volver a llenar el formulario desde cero.'
+    );
+    if (!confirmado) return;
+    try {
+      setDebugDeletingId(patientId);
+      await debugDeleteSocialEvaluation(patientId);
+      toast.success('Evaluación eliminada físicamente');
+      await fetchEvaluations();
+    } catch (error) {
+      console.error(error);
+      const detail = error?.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'No se pudo eliminar la evaluación.');
+    } finally {
+      setDebugDeletingId(null);
     }
   };
 
@@ -296,6 +319,17 @@ export default function SocialEvaluationsReviewPage() {
                       className="text-xs font-bold text-vida-primary hover:underline inline-flex items-center gap-1 disabled:opacity-50"
                     >
                       <UserCheck size={14} /> {reactivatingId === item.patient_id ? 'Reactivando...' : 'Reactivar beneficiario'}
+                    </button>
+                  )}
+                  {isSuperAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => handleDebugDelete(item.patient_id)}
+                      disabled={debugDeletingId === item.patient_id}
+                      title="Herramienta temporal de QA: borra físicamente el registro."
+                      className="text-xs font-bold px-3 py-1.5 rounded-lg bg-red-700 hover:bg-red-800 text-white inline-flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Trash2 size={14} /> {debugDeletingId === item.patient_id ? 'Eliminando...' : 'Eliminar Evaluación (Modo Prueba)'}
                     </button>
                   )}
                 </div>
