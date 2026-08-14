@@ -25,6 +25,9 @@ export default function DashboardHome() {
             if (['SUPER_ADMIN', 'REGISTRADOR'].includes(user.role)) {
                 // Admin -> Lista
                 navigate('/dashboard/lista-pacientes', { replace: true });
+            } else if (user.role === 'EVALUADOR_SOCIAL') {
+                // Evaluador Social -> Revisión de Evaluaciones Socioeconómicas
+                navigate('/dashboard/evaluacion-social', { replace: true });
             } else if (user.role === 'PACIENTE') {
                 // Paciente -> Su Portal
                 navigate('/mi-portal', { replace: true });

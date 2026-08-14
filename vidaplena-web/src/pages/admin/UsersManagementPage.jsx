@@ -203,9 +203,11 @@ export default function UsersManagementPage() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-2 py-1 rounded text-xs font-bold border ${
-                                                user.role === 'SUPER_ADMIN' 
-                                                    ? 'bg-purple-100 text-purple-700 border-purple-200' 
-                                                    : 'bg-blue-100 text-blue-700 border-blue-200'
+                                                user.role === 'SUPER_ADMIN'
+                                                    ? 'bg-purple-100 text-purple-700 border-purple-200'
+                                                    : user.role === 'EVALUADOR_SOCIAL'
+                                                        ? 'bg-teal-100 text-teal-700 border-teal-200'
+                                                        : 'bg-blue-100 text-blue-700 border-blue-200'
                                             }`}>
                                                 {user.role.replace('_', ' ')}
                                             </span>
@@ -320,6 +322,7 @@ export default function UsersManagementPage() {
                                         onChange={(e) => setFormData({...formData, role: e.target.value})}
                                     >
                                         <option value="REGISTRADOR">REGISTRADOR (Operativo)</option>
+                                        <option value="EVALUADOR_SOCIAL">EVALUADOR SOCIAL</option>
                                         <option value="SUPER_ADMIN">SUPER ADMIN (Total)</option>
                                         {/* No permitimos crear pacientes aquí, eso es otro flujo */}
                                     </select>
