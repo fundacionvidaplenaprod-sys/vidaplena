@@ -514,6 +514,7 @@ class SocialEvaluation(Base):
     condicion_laboral = Column(String(80), nullable=True)
     ingreso_titular = Column(Float, nullable=False, default=0.0)
     ingreso_conyuge = Column(Float, nullable=False, default=0.0)
+    ingreso_otros_familiares = Column(Float, nullable=False, default=0.0)  # otros miembros del hogar
 
     # --- Ayuda externa y endeudamiento ---
     recibe_ayuda_otra_institucion = Column(Boolean, nullable=False, default=False)
@@ -522,15 +523,20 @@ class SocialEvaluation(Base):
     tiene_deudas_comprometen_ingresos = Column(Boolean, nullable=False, default=False)
     monto_deuda_mensual = Column(Float, nullable=False, default=0.0)
 
-    # --- Costos de vida declarados (para el cálculo de CFNR) ---
-    monto_servicios_basicos = Column(Float, nullable=False, default=0.0)  # agua, luz, gas
-    monto_transporte = Column(Float, nullable=False, default=0.0)  # transporte + conectividad
-
-    # --- Servicios con los que cuenta el hogar (indicador cualitativo, no entra al CFNR) ---
+    # --- Servicios del hogar (para el cálculo de CFNR) ---
+    # Cada servicio se declara con su propio costo; el monto solo entra al CFNR
+    # si el hogar marcó que cuenta con ese servicio.
     tiene_agua = Column(Boolean, nullable=False, default=False)
+    monto_agua = Column(Float, nullable=False, default=0.0)
     tiene_luz = Column(Boolean, nullable=False, default=False)
+    monto_luz = Column(Float, nullable=False, default=0.0)
     tiene_gas_domiciliario = Column(Boolean, nullable=False, default=False)
+    monto_gas_domiciliario = Column(Float, nullable=False, default=0.0)
     tiene_internet = Column(Boolean, nullable=False, default=False)
+    monto_internet = Column(Float, nullable=False, default=0.0)
+
+    # --- Transporte (pasajes / movilidad, Bs/mes) ---
+    monto_transporte = Column(Float, nullable=False, default=0.0)
 
     # --- Resultados del Motor de Categorización (CFNR) ---
     # CFNR = Ingresos Totales - (Canasta Básica + Vivienda/Servicios/Salud + Transporte + Deudas)

@@ -33,11 +33,13 @@ ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/jpg"]
 #        - (Canasta Básica Familiar + Vivienda y Servicios + Transporte y Deudas)
 #
 # Fuente: criterio proporcionado por la Fundación (Base Bolivia 2026). Los
-# montos de servicios básicos, transporte/conectividad y cuota de deuda se
-# declaran en el formulario; el resto de los rubros (canasta básica escalada
-# por tamaño de hogar, mantenimiento de vivienda propia, salud/educación por
-# dependiente) son estimaciones fijas dentro de los rangos de referencia
-# dados, ya que no se piden como preguntas individuales.
+# montos de agua, luz, gas domiciliario, internet, transporte y la cuota de
+# deuda se declaran en el formulario (el monto de cada servicio solo entra
+# al cálculo si el hogar marcó que cuenta con él); el resto de los rubros
+# (canasta básica escalada por tamaño de hogar, mantenimiento de vivienda
+# propia, salud/educación por dependiente) son estimaciones fijas dentro de
+# los rangos de referencia dados, ya que no se piden como preguntas
+# individuales.
 # ==============================================================================
 
 CANASTA_BASE_1_PERSONA = 1000.0
@@ -68,6 +70,13 @@ def _costo_vivienda(tipo_vivienda: str, monto_alquiler: float) -> float:
     if (tipo_vivienda or "").strip().lower() == "propia":
         return MANTENIMIENTO_VIVIENDA_PROPIA
     return monto_alquiler or 0.0
+
+
+def _monto_servicio(data: dict, flag_key: str, monto_key: str) -> float:
+    """El monto de un servicio solo entra al CFNR si el hogar declaró contar con él."""
+    if not data.get(flag_key):
+        return 0.0
+    return data.get(monto_key) or 0.0
 
 
 def _calcular_categoria_cfnr(cfnr: float) -> str:
@@ -138,12 +147,19 @@ def _build_categorization(data: dict) -> dict:
     A partir de los campos crudos, calcula la Capacidad Financiera Neta
     Residual (CFNR) y clasifica el hogar en ALTA/MEDIA/BAJA vulnerabilidad.
     """
-    ingreso_total = data["ingreso_titular"] + data["ingreso_conyuge"]
+    ingreso_total = (
+        data["ingreso_titular"] + data["ingreso_conyuge"] + (data.get("ingreso_otros_familiares") or 0.0)
+    )
     integrantes = max(data["integrantes_hogar"], 1)
 
     canasta = _canasta_familiar(integrantes)
     vivienda = _costo_vivienda(data["tipo_vivienda"], data["monto_alquiler"])
-    servicios = data.get("monto_servicios_basicos") or 0.0
+    servicios = (
+        _monto_servicio(data, "tiene_agua", "monto_agua")
+        + _monto_servicio(data, "tiene_luz", "monto_luz")
+        + _monto_servicio(data, "tiene_gas_domiciliario", "monto_gas_domiciliario")
+        + _monto_servicio(data, "tiene_internet", "monto_internet")
+    )
     salud_educacion = data.get("dependientes", 0) * COSTO_SALUD_EDUCACION_POR_DEPENDIENTE
     transporte = data.get("monto_transporte") or 0.0
     # El monto de deuda solo se descuenta si se declaró explícitamente que las
@@ -323,14 +339,20 @@ async def _archivar_veredicto(
         "condicion_laboral": evaluation.condicion_laboral,
         "ingreso_titular": evaluation.ingreso_titular,
         "ingreso_conyuge": evaluation.ingreso_conyuge,
+        "ingreso_otros_familiares": evaluation.ingreso_otros_familiares,
         "recibe_ayuda_otra_institucion": evaluation.recibe_ayuda_otra_institucion,
         "nombre_institucion_ayuda": evaluation.nombre_institucion_ayuda,
         "tiene_deudas_comprometen_ingresos": evaluation.tiene_deudas_comprometen_ingresos,
         "monto_deuda_mensual": evaluation.monto_deuda_mensual,
         "tiene_agua": evaluation.tiene_agua,
+        "monto_agua": evaluation.monto_agua,
         "tiene_luz": evaluation.tiene_luz,
+        "monto_luz": evaluation.monto_luz,
         "tiene_gas_domiciliario": evaluation.tiene_gas_domiciliario,
+        "monto_gas_domiciliario": evaluation.monto_gas_domiciliario,
         "tiene_internet": evaluation.tiene_internet,
+        "monto_internet": evaluation.monto_internet,
+        "monto_transporte": evaluation.monto_transporte,
         "ingreso_per_capita": evaluation.ingreso_per_capita,
         "costo_vida_estimado": evaluation.costo_vida_estimado,
         "cfnr": evaluation.cfnr,

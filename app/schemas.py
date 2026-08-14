@@ -736,6 +736,7 @@ class SocialEvaluationCreate(BaseModel):
     condicion_laboral: Optional[str] = Field(None, max_length=80)
     ingreso_titular: float = Field(0.0, ge=0.0)
     ingreso_conyuge: float = Field(0.0, ge=0.0)
+    ingreso_otros_familiares: float = Field(0.0, ge=0.0, description="Otros miembros del hogar")
 
     # Ayuda externa y endeudamiento
     recibe_ayuda_otra_institucion: bool = False
@@ -743,15 +744,19 @@ class SocialEvaluationCreate(BaseModel):
     tiene_deudas_comprometen_ingresos: bool = False
     monto_deuda_mensual: float = Field(0.0, ge=0.0)
 
-    # Costos de vida declarados (para el cálculo de CFNR)
-    monto_servicios_basicos: float = Field(0.0, ge=0.0, description="Agua, luz, gas (Bs/mes)")
-    monto_transporte: float = Field(0.0, ge=0.0, description="Transporte y conectividad (Bs/mes)")
-
-    # Servicios con los que cuenta el hogar (indicador cualitativo)
+    # Servicios del hogar y su costo (cada monto solo entra al CFNR si el
+    # servicio correspondiente está marcado como True)
     tiene_agua: bool = False
+    monto_agua: float = Field(0.0, ge=0.0)
     tiene_luz: bool = False
+    monto_luz: float = Field(0.0, ge=0.0)
     tiene_gas_domiciliario: bool = False
+    monto_gas_domiciliario: float = Field(0.0, ge=0.0)
     tiene_internet: bool = False
+    monto_internet: float = Field(0.0, ge=0.0)
+
+    # Transporte (pasajes / movilidad, Bs/mes)
+    monto_transporte: float = Field(0.0, ge=0.0)
 
     # Evidencias (URLs de Firebase Storage, opcionales al momento de crear)
     foto_ci_url: Optional[str] = Field(None, max_length=500)
@@ -796,6 +801,7 @@ class SocialEvaluationSelfCreate(BaseModel):
     condicion_laboral: Optional[str] = Field(None, max_length=80)
     ingreso_titular: float = Field(0.0, ge=0.0)
     ingreso_conyuge: float = Field(0.0, ge=0.0)
+    ingreso_otros_familiares: float = Field(0.0, ge=0.0, description="Otros miembros del hogar")
 
     # Ayuda externa y endeudamiento
     recibe_ayuda_otra_institucion: bool = False
@@ -803,15 +809,19 @@ class SocialEvaluationSelfCreate(BaseModel):
     tiene_deudas_comprometen_ingresos: bool = False
     monto_deuda_mensual: float = Field(0.0, ge=0.0)
 
-    # Costos de vida declarados (para el cálculo de CFNR)
-    monto_servicios_basicos: float = Field(0.0, ge=0.0, description="Agua, luz, gas (Bs/mes)")
-    monto_transporte: float = Field(0.0, ge=0.0, description="Transporte y conectividad (Bs/mes)")
-
-    # Servicios con los que cuenta el hogar (indicador cualitativo)
+    # Servicios del hogar y su costo (cada monto solo entra al CFNR si el
+    # servicio correspondiente está marcado como True)
     tiene_agua: bool = False
+    monto_agua: float = Field(0.0, ge=0.0)
     tiene_luz: bool = False
+    monto_luz: float = Field(0.0, ge=0.0)
     tiene_gas_domiciliario: bool = False
+    monto_gas_domiciliario: float = Field(0.0, ge=0.0)
     tiene_internet: bool = False
+    monto_internet: float = Field(0.0, ge=0.0)
+
+    # Transporte (pasajes / movilidad, Bs/mes)
+    monto_transporte: float = Field(0.0, ge=0.0)
 
     # Evidencias (URLs de Firebase Storage, ya subidas vía /me/upload-document)
     foto_ci_url: Optional[str] = Field(None, max_length=500)
@@ -896,6 +906,7 @@ class SocialEvaluationResponse(BaseModel):
     condicion_laboral: Optional[str] = None
     ingreso_titular: float
     ingreso_conyuge: float
+    ingreso_otros_familiares: float = 0.0
 
     # Ayuda externa y endeudamiento
     recibe_ayuda_otra_institucion: bool = False
@@ -903,15 +914,18 @@ class SocialEvaluationResponse(BaseModel):
     tiene_deudas_comprometen_ingresos: bool = False
     monto_deuda_mensual: float = 0.0
 
-    # Costos de vida declarados
-    monto_servicios_basicos: float = 0.0
-    monto_transporte: float = 0.0
-
-    # Servicios con los que cuenta el hogar
+    # Servicios del hogar y su costo
     tiene_agua: bool = False
+    monto_agua: float = 0.0
     tiene_luz: bool = False
+    monto_luz: float = 0.0
     tiene_gas_domiciliario: bool = False
+    monto_gas_domiciliario: float = 0.0
     tiene_internet: bool = False
+    monto_internet: float = 0.0
+
+    # Transporte (pasajes / movilidad, Bs/mes)
+    monto_transporte: float = 0.0
 
     # Resultados calculados (CFNR)
     ingreso_per_capita: float

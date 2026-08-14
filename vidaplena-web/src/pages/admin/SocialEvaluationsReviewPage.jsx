@@ -484,17 +484,17 @@ export default function SocialEvaluationsReviewPage() {
                     <p><span className="font-semibold">Condición laboral:</span> {item.condicion_laboral || 'No especificada'}</p>
                     <p><span className="font-semibold">Ingreso titular:</span> Bs. {item.ingreso_titular.toFixed(2)}</p>
                     <p><span className="font-semibold">Ingreso cónyuge:</span> Bs. {item.ingreso_conyuge.toFixed(2)}</p>
-                    <p><span className="font-semibold">Servicios básicos:</span> Bs. {item.monto_servicios_basicos.toFixed(2)}</p>
+                    <p><span className="font-semibold">Ingreso otros familiares:</span> Bs. {(item.ingreso_otros_familiares ?? 0).toFixed(2)}</p>
                     <p>
                       <span className="font-semibold">Cuenta con:</span>{' '}
                       {[
-                        item.tiene_agua && 'Agua',
-                        item.tiene_luz && 'Luz',
-                        item.tiene_gas_domiciliario && 'Gas domiciliario',
-                        item.tiene_internet && 'Internet',
+                        item.tiene_agua && `Agua (Bs. ${(item.monto_agua ?? 0).toFixed(2)})`,
+                        item.tiene_luz && `Luz (Bs. ${(item.monto_luz ?? 0).toFixed(2)})`,
+                        item.tiene_gas_domiciliario && `Gas domiciliario (Bs. ${(item.monto_gas_domiciliario ?? 0).toFixed(2)})`,
+                        item.tiene_internet && `Internet (Bs. ${(item.monto_internet ?? 0).toFixed(2)})`,
                       ].filter(Boolean).join(', ') || 'Ninguno declarado'}
                     </p>
-                    <p><span className="font-semibold">Transporte y conectividad:</span> Bs. {item.monto_transporte.toFixed(2)}</p>
+                    <p><span className="font-semibold">Transporte:</span> Bs. {item.monto_transporte.toFixed(2)}</p>
                     <p>
                       <span className="font-semibold">Deudas que comprometen ingresos (≥20%):</span>{' '}
                       {item.tiene_deudas_comprometen_ingresos ? `Sí (Bs. ${item.monto_deuda_mensual.toFixed(2)}/mes)` : 'No'}

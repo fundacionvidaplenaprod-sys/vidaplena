@@ -207,12 +207,16 @@ export default function SocialEvaluationSelfPage() {
       nombre_institucion_ayuda: '',
       ingreso_titular: 0,
       ingreso_conyuge: 0,
-      monto_servicios_basicos: 0,
+      ingreso_otros_familiares: 0,
       monto_transporte: 0,
       tiene_agua: false,
+      monto_agua: 0,
       tiene_luz: false,
+      monto_luz: 0,
       tiene_gas_domiciliario: false,
+      monto_gas_domiciliario: 0,
       tiene_internet: false,
+      monto_internet: 0,
       tiene_deudas_comprometen_ingresos: 'no',
       monto_deuda_mensual: 0,
       tipo_vivienda: '',
@@ -231,17 +235,22 @@ export default function SocialEvaluationSelfPage() {
   // CFNR = Ingresos Totales - (Canasta Básica + Vivienda/Servicios/Salud + Transporte + Deudas)
   const ingreso_titular = parseFloat(watch('ingreso_titular') || 0);
   const ingreso_conyuge = parseFloat(watch('ingreso_conyuge') || 0);
+  const ingreso_otros_familiares = parseFloat(watch('ingreso_otros_familiares') || 0);
   const integrantes_hogar = Math.max(1, parseInt(watch('integrantes_hogar') || 1, 10));
   const dependientes_watch = Math.max(0, parseInt(watch('dependientes') || 0, 10));
   const tiene_seguro = watch('tiene_seguro') === 'si';
   const tipo_vivienda = watch('tipo_vivienda');
   const monto_alquiler_watch = parseFloat(watch('monto_alquiler') || 0);
-  const monto_servicios_watch = parseFloat(watch('monto_servicios_basicos') || 0);
+  const monto_servicios_watch =
+    (watch('tiene_agua') ? parseFloat(watch('monto_agua') || 0) : 0) +
+    (watch('tiene_luz') ? parseFloat(watch('monto_luz') || 0) : 0) +
+    (watch('tiene_gas_domiciliario') ? parseFloat(watch('monto_gas_domiciliario') || 0) : 0) +
+    (watch('tiene_internet') ? parseFloat(watch('monto_internet') || 0) : 0);
   const monto_transporte_watch = parseFloat(watch('monto_transporte') || 0);
   const tiene_deudas = watch('tiene_deudas_comprometen_ingresos') === 'si';
   const monto_deuda_watch = tiene_deudas ? parseFloat(watch('monto_deuda_mensual') || 0) : 0;
 
-  const ingreso_total = ingreso_titular + ingreso_conyuge;
+  const ingreso_total = ingreso_titular + ingreso_conyuge + ingreso_otros_familiares;
   const ingreso_per_capita = ingreso_total / integrantes_hogar;
 
   const canasta_familiar = integrantes_hogar === 1
@@ -267,7 +276,8 @@ export default function SocialEvaluationSelfPage() {
     2: ['departamento', 'integrantes_hogar', 'dependientes'],
     3: ['tiene_seguro', 'recibe_ayuda_otra_institucion', 'nombre_institucion_ayuda'],
     4: [
-      'ingreso_titular', 'ingreso_conyuge', 'monto_servicios_basicos', 'monto_transporte',
+      'ingreso_titular', 'ingreso_conyuge', 'ingreso_otros_familiares', 'monto_transporte',
+      'monto_agua', 'monto_luz', 'monto_gas_domiciliario', 'monto_internet',
       'tiene_deudas_comprometen_ingresos', 'monto_deuda_mensual',
     ],
     5: ['tipo_vivienda', 'imagen_consent_accepted'],
@@ -319,12 +329,17 @@ export default function SocialEvaluationSelfPage() {
           formData.recibe_ayuda_otra_institucion === 'si' ? formData.nombre_institucion_ayuda : null,
         ingreso_titular: parseFloat(formData.ingreso_titular || 0),
         ingreso_conyuge: parseFloat(formData.ingreso_conyuge || 0),
-        monto_servicios_basicos: parseFloat(formData.monto_servicios_basicos || 0),
+        ingreso_otros_familiares: parseFloat(formData.ingreso_otros_familiares || 0),
         monto_transporte: parseFloat(formData.monto_transporte || 0),
         tiene_agua: formData.tiene_agua === true,
+        monto_agua: formData.tiene_agua === true ? parseFloat(formData.monto_agua || 0) : 0,
         tiene_luz: formData.tiene_luz === true,
+        monto_luz: formData.tiene_luz === true ? parseFloat(formData.monto_luz || 0) : 0,
         tiene_gas_domiciliario: formData.tiene_gas_domiciliario === true,
+        monto_gas_domiciliario:
+          formData.tiene_gas_domiciliario === true ? parseFloat(formData.monto_gas_domiciliario || 0) : 0,
         tiene_internet: formData.tiene_internet === true,
+        monto_internet: formData.tiene_internet === true ? parseFloat(formData.monto_internet || 0) : 0,
         tiene_deudas_comprometen_ingresos: formData.tiene_deudas_comprometen_ingresos === 'si',
         monto_deuda_mensual:
           formData.tiene_deudas_comprometen_ingresos === 'si' ? parseFloat(formData.monto_deuda_mensual || 0) : 0,
@@ -629,7 +644,7 @@ export default function SocialEvaluationSelfPage() {
       case 4:
         return (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">
                   Mi ingreso mensual (Bs.) *
@@ -675,12 +690,10 @@ export default function SocialEvaluationSelfPage() {
                 )}
                 <p className="mt-1 text-xs text-gray-400">Si no aplica, dejar en 0.</p>
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Servicios básicos: agua, luz, gas (Bs./mes) *
+                  Ingreso de otros familiares con los que vive (Bs.)
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-3 text-gray-400 text-sm font-bold">Bs.</span>
@@ -688,22 +701,75 @@ export default function SocialEvaluationSelfPage() {
                     type="number"
                     min="0"
                     step="0.01"
-                    {...register('monto_servicios_basicos', {
-                      required: 'Campo obligatorio.',
+                    {...register('ingreso_otros_familiares', {
                       min: { value: 0, message: 'No puede ser negativo.' },
                     })}
                     className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500"
                     placeholder="0.00"
                   />
                 </div>
-                {errors.monto_servicios_basicos && (
-                  <p className="mt-1 text-xs text-red-600">{errors.monto_servicios_basicos.message}</p>
+                {errors.ingreso_otros_familiares && (
+                  <p className="mt-1 text-xs text-red-600">{errors.ingreso_otros_familiares.message}</p>
                 )}
+                <p className="mt-1 text-xs text-gray-400">Suma de ingresos de otros miembros del hogar. Si no aplica, dejar en 0.</p>
               </div>
+            </div>
 
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Marque con qué servicios cuenta su hogar y cuánto paga por cada uno:
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { flag: 'tiene_agua', monto: 'monto_agua', label: 'Agua' },
+                  { flag: 'tiene_luz', monto: 'monto_luz', label: 'Luz' },
+                  { flag: 'tiene_gas_domiciliario', monto: 'monto_gas_domiciliario', label: 'Gas domiciliario' },
+                  { flag: 'tiene_internet', monto: 'monto_internet', label: 'Internet' },
+                ].map(({ flag, monto, label }) => {
+                  const marcado = watch(flag);
+                  return (
+                    <div
+                      key={flag}
+                      className={`rounded-xl border-2 transition-colors ${marcado ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}
+                    >
+                      <label className="flex items-center gap-2 p-3 cursor-pointer">
+                        <input type="checkbox" {...register(flag)} className="w-4 h-4 rounded accent-blue-600" />
+                        <span className="text-sm font-semibold text-gray-700">{label}</span>
+                      </label>
+                      {marcado && (
+                        <div className="px-3 pb-3">
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            ¿Cuánto paga por {label.toLowerCase()} al mes? (Bs.) *
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-2.5 text-gray-400 text-xs font-bold">Bs.</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              {...register(monto, {
+                                required: marcado ? 'Indique el monto que paga.' : false,
+                                min: { value: 0, message: 'No puede ser negativo.' },
+                              })}
+                              className="w-full pl-9 pr-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 bg-white"
+                              placeholder="0.00"
+                            />
+                          </div>
+                          {errors[monto] && (
+                            <p className="mt-1 text-xs text-red-600">{errors[monto].message}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Transporte y conectividad: pasajes, internet, celular (Bs./mes) *
+                  Transporte: pasajes, movilidad (Bs./mes) *
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-3 text-gray-400 text-sm font-bold">Bs.</span>
@@ -722,29 +788,6 @@ export default function SocialEvaluationSelfPage() {
                 {errors.monto_transporte && (
                   <p className="mt-1 text-xs text-red-600">{errors.monto_transporte.message}</p>
                 )}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Marque con qué servicios cuenta su hogar:
-              </label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                  { name: 'tiene_agua', label: 'Agua' },
-                  { name: 'tiene_luz', label: 'Luz' },
-                  { name: 'tiene_gas_domiciliario', label: 'Gas domiciliario' },
-                  { name: 'tiene_internet', label: 'Internet' },
-                ].map(({ name, label }) => (
-                  <label
-                    key={name}
-                    className={`flex items-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-colors
-                      ${watch(name) ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}
-                  >
-                    <input type="checkbox" {...register(name)} className="w-4 h-4 rounded accent-blue-600" />
-                    <span className="text-sm font-semibold text-gray-700">{label}</span>
-                  </label>
-                ))}
               </div>
             </div>
 
