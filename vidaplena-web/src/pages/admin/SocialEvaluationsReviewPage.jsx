@@ -672,16 +672,14 @@ export default function SocialEvaluationsReviewPage() {
                 )}
               </div>
             ) : LEGACY_CATEGORIA_INFO[approveModal.categoriaSugerida] ? (
-              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 mb-4">
-                <p className="text-sm text-amber-800">
-                  <AlertTriangle size={14} className="inline mr-1 -mt-0.5" />
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 mb-4">
+                <p className="text-sm text-blue-800">
                   <span className="font-semibold">
-                    Sugerencia del sistema anterior: "{approveModal.categoriaSugerida}" —{' '}
+                    Sugerencia del sistema: "{approveModal.categoriaSugerida}" —{' '}
                     {LEGACY_CATEGORIA_INFO[approveModal.categoriaSugerida].label}.
                   </span>{' '}
-                  {LEGACY_CATEGORIA_INFO[approveModal.categoriaSugerida].descripcion} Ese cálculo usaba otro
-                  criterio (ingreso per cápita), no es comparable directamente con las categorías actuales.
-                  Elija la categoría final usando el CFNR
+                  {LEGACY_CATEGORIA_INFO[approveModal.categoriaSugerida].descripcion} Confírmela o corríjala
+                  usando el CFNR
                   {approveModal.cfnr !== null && approveModal.cfnr !== undefined
                     ? ` (Bs. ${Number(approveModal.cfnr).toFixed(2)})`
                     : ''}{' '}
