@@ -77,7 +77,7 @@ function categoriaBadgeClass(code) {
 function categoriaLabel(code) {
   if (!code) return '—';
   if (CATEGORIA_INFO[code]) return code;
-  if (LEGACY_CATEGORIA_INFO[code]) return `${code} · ${LEGACY_CATEGORIA_INFO[code].label} (sistema anterior)`;
+  if (LEGACY_CATEGORIA_INFO[code]) return `${code} · ${LEGACY_CATEGORIA_INFO[code].label}`;
   return `${code} (código no reconocido)`;
 }
 
