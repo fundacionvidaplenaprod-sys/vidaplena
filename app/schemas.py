@@ -747,6 +747,12 @@ class SocialEvaluationCreate(BaseModel):
     monto_servicios_basicos: float = Field(0.0, ge=0.0, description="Agua, luz, gas (Bs/mes)")
     monto_transporte: float = Field(0.0, ge=0.0, description="Transporte y conectividad (Bs/mes)")
 
+    # Servicios con los que cuenta el hogar (indicador cualitativo)
+    tiene_agua: bool = False
+    tiene_luz: bool = False
+    tiene_gas_domiciliario: bool = False
+    tiene_internet: bool = False
+
     # Evidencias (URLs de Firebase Storage, opcionales al momento de crear)
     foto_ci_url: Optional[str] = Field(None, max_length=500)
     foto_fachada_url: Optional[str] = Field(None, max_length=500)
@@ -801,6 +807,12 @@ class SocialEvaluationSelfCreate(BaseModel):
     monto_servicios_basicos: float = Field(0.0, ge=0.0, description="Agua, luz, gas (Bs/mes)")
     monto_transporte: float = Field(0.0, ge=0.0, description="Transporte y conectividad (Bs/mes)")
 
+    # Servicios con los que cuenta el hogar (indicador cualitativo)
+    tiene_agua: bool = False
+    tiene_luz: bool = False
+    tiene_gas_domiciliario: bool = False
+    tiene_internet: bool = False
+
     # Evidencias (URLs de Firebase Storage, ya subidas vía /me/upload-document)
     foto_ci_url: Optional[str] = Field(None, max_length=500)
     foto_fachada_url: Optional[str] = Field(None, max_length=500)
@@ -825,9 +837,13 @@ class SocialEvaluationReviewUpdate(BaseModel):
     - RECHAZADO: rechazo estándar (Nivel 1) — aplica un cooldown temporal.
     - RECHAZADO_FRAUDE: rechazo por falsedad/depuración (Nivel 2) — suspende
       permanentemente al beneficiario hasta que un SUPER_ADMIN lo reactive.
+    - categoria_final: obligatoria al APROBAR. El sistema sugiere una
+      categoría (categoria_asignada, calculada por CFNR); el entrevistador
+      la confirma o la corrige aquí, y esa es la que queda vigente.
     """
     decision: Literal["APROBADO", "RECHAZADO", "RECHAZADO_FRAUDE"]
     motivo: Optional[str] = Field(None, max_length=1000)
+    categoria_final: Optional[Literal["ALTA", "MEDIA", "BAJA"]] = None
 
 
 class SocialEvaluationHistoryItem(BaseModel):
@@ -891,11 +907,18 @@ class SocialEvaluationResponse(BaseModel):
     monto_servicios_basicos: float = 0.0
     monto_transporte: float = 0.0
 
+    # Servicios con los que cuenta el hogar
+    tiene_agua: bool = False
+    tiene_luz: bool = False
+    tiene_gas_domiciliario: bool = False
+    tiene_internet: bool = False
+
     # Resultados calculados (CFNR)
     ingreso_per_capita: float
     costo_vida_estimado: float = 0.0
     cfnr: float = 0.0
     categoria_asignada: str
+    categoria_final: Optional[str] = None
     estado_alerta: str
 
     # Evidencias

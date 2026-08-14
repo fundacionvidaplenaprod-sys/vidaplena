@@ -327,10 +327,15 @@ async def _archivar_veredicto(
         "nombre_institucion_ayuda": evaluation.nombre_institucion_ayuda,
         "tiene_deudas_comprometen_ingresos": evaluation.tiene_deudas_comprometen_ingresos,
         "monto_deuda_mensual": evaluation.monto_deuda_mensual,
+        "tiene_agua": evaluation.tiene_agua,
+        "tiene_luz": evaluation.tiene_luz,
+        "tiene_gas_domiciliario": evaluation.tiene_gas_domiciliario,
+        "tiene_internet": evaluation.tiene_internet,
         "ingreso_per_capita": evaluation.ingreso_per_capita,
         "costo_vida_estimado": evaluation.costo_vida_estimado,
         "cfnr": evaluation.cfnr,
         "categoria_asignada": evaluation.categoria_asignada,
+        "categoria_final": evaluation.categoria_final,
         "estado_alerta": evaluation.estado_alerta,
         "decision": decision,
         "motivo_rechazo": evaluation.motivo_rechazo,
@@ -790,6 +795,11 @@ async def review_social_evaluation(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Debe indicar el motivo del rechazo.",
         )
+    if review_in.decision == "APROBADO" and not review_in.categoria_final:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Debe elegir la categoría final (ALTA, MEDIA o BAJA) para aprobar.",
+        )
 
     result = await db.execute(
         select(models.SocialEvaluation).where(
@@ -820,6 +830,7 @@ async def review_social_evaluation(
     evaluation.reviewer_id = current_user.id
     evaluation.revisado_at = datetime.now(timezone.utc)
     evaluation.motivo_rechazo = review_in.motivo if review_in.decision != "APROBADO" else None
+    evaluation.categoria_final = review_in.categoria_final if review_in.decision == "APROBADO" else None
     patient.exonerado_aporte = review_in.decision == "APROBADO"
 
     if review_in.decision == "RECHAZADO":

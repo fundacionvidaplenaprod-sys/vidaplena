@@ -209,6 +209,10 @@ export default function SocialEvaluationSelfPage() {
       ingreso_conyuge: 0,
       monto_servicios_basicos: 0,
       monto_transporte: 0,
+      tiene_agua: false,
+      tiene_luz: false,
+      tiene_gas_domiciliario: false,
+      tiene_internet: false,
       tiene_deudas_comprometen_ingresos: 'no',
       monto_deuda_mensual: 0,
       tipo_vivienda: '',
@@ -317,6 +321,10 @@ export default function SocialEvaluationSelfPage() {
         ingreso_conyuge: parseFloat(formData.ingreso_conyuge || 0),
         monto_servicios_basicos: parseFloat(formData.monto_servicios_basicos || 0),
         monto_transporte: parseFloat(formData.monto_transporte || 0),
+        tiene_agua: formData.tiene_agua === true,
+        tiene_luz: formData.tiene_luz === true,
+        tiene_gas_domiciliario: formData.tiene_gas_domiciliario === true,
+        tiene_internet: formData.tiene_internet === true,
         tiene_deudas_comprometen_ingresos: formData.tiene_deudas_comprometen_ingresos === 'si',
         monto_deuda_mensual:
           formData.tiene_deudas_comprometen_ingresos === 'si' ? parseFloat(formData.monto_deuda_mensual || 0) : 0,
@@ -714,6 +722,29 @@ export default function SocialEvaluationSelfPage() {
                 {errors.monto_transporte && (
                   <p className="mt-1 text-xs text-red-600">{errors.monto_transporte.message}</p>
                 )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Marque con qué servicios cuenta su hogar:
+              </label>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { name: 'tiene_agua', label: 'Agua' },
+                  { name: 'tiene_luz', label: 'Luz' },
+                  { name: 'tiene_gas_domiciliario', label: 'Gas domiciliario' },
+                  { name: 'tiene_internet', label: 'Internet' },
+                ].map(({ name, label }) => (
+                  <label
+                    key={name}
+                    className={`flex items-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-colors
+                      ${watch(name) ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}
+                  >
+                    <input type="checkbox" {...register(name)} className="w-4 h-4 rounded accent-blue-600" />
+                    <span className="text-sm font-semibold text-gray-700">{label}</span>
+                  </label>
+                ))}
               </div>
             </div>
 

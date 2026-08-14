@@ -526,12 +526,21 @@ class SocialEvaluation(Base):
     monto_servicios_basicos = Column(Float, nullable=False, default=0.0)  # agua, luz, gas
     monto_transporte = Column(Float, nullable=False, default=0.0)  # transporte + conectividad
 
+    # --- Servicios con los que cuenta el hogar (indicador cualitativo, no entra al CFNR) ---
+    tiene_agua = Column(Boolean, nullable=False, default=False)
+    tiene_luz = Column(Boolean, nullable=False, default=False)
+    tiene_gas_domiciliario = Column(Boolean, nullable=False, default=False)
+    tiene_internet = Column(Boolean, nullable=False, default=False)
+
     # --- Resultados del Motor de Categorización (CFNR) ---
     # CFNR = Ingresos Totales - (Canasta Básica + Vivienda/Servicios/Salud + Transporte + Deudas)
     ingreso_per_capita = Column(Float, nullable=False, default=0.0)  # dato de referencia
     costo_vida_estimado = Column(Float, nullable=False, default=0.0)  # total de egresos estimados
     cfnr = Column(Float, nullable=False, default=0.0)  # Capacidad Financiera Neta Residual
-    categoria_asignada = Column(String(10), nullable=False)  # ALTA | MEDIA | BAJA
+    categoria_asignada = Column(String(10), nullable=False)  # ALTA | MEDIA | BAJA (sugerida por el sistema)
+    # Categoría que el entrevistador elige explícitamente al aprobar (puede confirmar o
+    # corregir la sugerencia del sistema). Es la que realmente queda vigente para el beneficiario.
+    categoria_final = Column(String(10), nullable=True)  # ALTA | MEDIA | BAJA
     estado_alerta = Column(String(50), nullable=False, default="NORMAL")  # NORMAL | REVISIÓN MANUAL URGENTE
 
     # --- Evidencias (URLs de Firebase Storage) ---

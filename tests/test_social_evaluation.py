@@ -766,12 +766,13 @@ async def test_aprobar_evaluacion_exonera_al_paciente(client, superuser_token, d
 
     resp = await client.put(
         f"/social-evaluations/{patient.id}/review",
-        json={"decision": "APROBADO"},
+        json={"decision": "APROBADO", "categoria_final": "ALTA"},
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["estado_revision"] == "APROBADO"
     assert data["reviewer_id"] is not None
+    assert data["categoria_final"] == "ALTA"
     assert data["revisado_at"] is not None
 
     await db_session.refresh(patient)
@@ -817,7 +818,7 @@ async def test_review_evaluacion_inexistente_retorna_404(client, superuser_token
     patient = await _crear_patient(db_session)
     resp = await client.put(
         f"/social-evaluations/{patient.id}/review",
-        json={"decision": "APROBADO"},
+        json={"decision": "APROBADO", "categoria_final": "ALTA"},
     )
     assert resp.status_code == 404
 
@@ -858,7 +859,10 @@ async def test_listar_evaluaciones_filtro_estado_revision(client, superuser_toke
     await client.post("/social-evaluations/", json=_payload_base(patient_b.id))
     await client.put(f"/social-evaluations/{patient_a.id}/interview", json={"notas": "OK"})
 
-    await client.put(f"/social-evaluations/{patient_a.id}/review", json={"decision": "APROBADO"})
+    await client.put(
+        f"/social-evaluations/{patient_a.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "MEDIA"},
+    )
 
     resp = await client.get("/social-evaluations/", params={"estado_revision": "APROBADO"})
     assert resp.status_code == 200
@@ -879,7 +883,7 @@ async def test_review_sin_entrevista_retorna_422(client, superuser_token, db_ses
 
     resp = await client.put(
         f"/social-evaluations/{patient.id}/review",
-        json={"decision": "APROBADO"},
+        json={"decision": "APROBADO", "categoria_final": "ALTA"},
     )
     assert resp.status_code == 422
     assert "entrevista" in resp.json()["detail"].lower()
@@ -914,7 +918,7 @@ async def test_entrevista_habilita_el_veredicto(client, superuser_token, db_sess
 
     resp = await client.put(
         f"/social-evaluations/{patient.id}/review",
-        json={"decision": "APROBADO"},
+        json={"decision": "APROBADO", "categoria_final": "ALTA"},
     )
     assert resp.status_code == 200
 
@@ -1336,3 +1340,113 @@ async def test_debug_delete_no_borra_el_historial(client, superuser_token, db_se
     assert resp_hist.status_code == 200
     assert len(resp_hist.json()) == 1
     assert resp_hist.json()[0]["accion"] == "RECHAZADO_FRAUDE"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SECCIÓN 11: SERVICIOS DEL HOGAR + CATEGORÍA FINAL ELEGIDA POR EL EVALUADOR
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_servicios_del_hogar_se_guardan(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session)
+    payload = _payload_base(
+        patient.id,
+        tiene_agua=True,
+        tiene_luz=True,
+        tiene_gas_domiciliario=False,
+        tiene_internet=True,
+    )
+    resp = await client.post("/social-evaluations/", json=payload)
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["tiene_agua"] is True
+    assert data["tiene_luz"] is True
+    assert data["tiene_gas_domiciliario"] is False
+    assert data["tiene_internet"] is True
+
+
+@pytest.mark.asyncio
+async def test_servicios_del_hogar_default_false(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session)
+    resp = await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["tiene_agua"] is False
+    assert data["tiene_luz"] is False
+    assert data["tiene_gas_domiciliario"] is False
+    assert data["tiene_internet"] is False
+
+
+@pytest.mark.asyncio
+async def test_aprobar_sin_categoria_final_retorna_422(client, superuser_token, db_session):
+    """No se puede aprobar sin elegir la categoría final."""
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO"},
+    )
+    assert resp.status_code == 422
+    assert "categoría" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_aprobar_con_categoria_final_invalida_retorna_422(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "EXTREMA"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_categoria_final_puede_diferir_de_la_sugerida(client, superuser_token, db_session):
+    """
+    El sistema sugiere ALTA (payload base tiene CFNR muy negativo), pero el
+    entrevistador, con su criterio, elige MEDIA como categoría final.
+    """
+    patient = await _crear_patient(db_session)
+    resp_create = await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    assert resp_create.json()["categoria_asignada"] == "ALTA"
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "MEDIA"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["categoria_asignada"] == "ALTA"  # la sugerencia del sistema no cambia
+    assert data["categoria_final"] == "MEDIA"  # lo que el evaluador decidió
+
+
+@pytest.mark.asyncio
+async def test_categoria_final_no_se_guarda_en_rechazo(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session)
+    resp = await _aprobar_o_rechazar(client, patient, "RECHAZADO", "No cumple criterios.")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["categoria_final"] is None
+
+
+@pytest.mark.asyncio
+async def test_categoria_final_se_archiva_en_historial(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "BAJA"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp_hist = await client.get(f"/social-evaluations/{patient.id}/history")
+    hist = resp_hist.json()
+    assert len(hist) == 1
+    assert hist[0]["payload"]["categoria_final"] == "BAJA"
+    assert hist[0]["payload"]["categoria_asignada"] == "ALTA"

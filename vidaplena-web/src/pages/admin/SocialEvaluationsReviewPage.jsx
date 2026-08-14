@@ -29,6 +29,58 @@ const DECISION_LABELS = {
   REACTIVADO: 'Reactivado',
 };
 
+// Orden fijo: de MAYOR a MENOR vulnerabilidad. No reordenar — evita que un
+// evaluador nuevo o rotativo confunda "BAJA" con "necesita más ayuda".
+const CATEGORIA_INFO = {
+  ALTA: {
+    subtitle: 'Mayor necesidad',
+    rango: 'CFNR ≤ 0 Bs',
+    descripcion: 'Déficit: no le alcanza para cubrir la canasta básica ni sus gastos esenciales.',
+    badge: 'bg-red-100 text-red-700 border-red-300',
+    selected: 'border-red-600 bg-red-600 text-white',
+    idle: 'border-red-200 text-red-700 hover:border-red-400',
+  },
+  MEDIA: {
+    subtitle: 'Necesidad moderada',
+    rango: '0 – 1.500 Bs',
+    descripcion: 'Cubre lo esencial, con margen ajustado para sostener un aporte.',
+    badge: 'bg-amber-100 text-amber-700 border-amber-300',
+    selected: 'border-amber-600 bg-amber-500 text-white',
+    idle: 'border-amber-200 text-amber-700 hover:border-amber-400',
+  },
+  BAJA: {
+    subtitle: 'Situación acomodada',
+    rango: '> 1.500 Bs',
+    descripcion: 'Sin vulnerabilidad económica: en principio NO requeriría exoneración.',
+    badge: 'bg-green-100 text-green-700 border-green-300',
+    selected: 'border-green-600 bg-green-600 text-white',
+    idle: 'border-green-200 text-green-700 hover:border-green-400',
+  },
+};
+const CATEGORIA_ORDEN = ['ALTA', 'MEDIA', 'BAJA'];
+
+// Evaluaciones de antes del motor CFNR usaban otro esquema (ingreso per cápita +
+// seguro médico) con sus propios códigos A/B/C/N. Siguen teniendo un significado
+// preciso — no son basura ni "no reconocidos" — pero no son comparables 1:1 con
+// ALTA/MEDIA/BAJA (fórmula distinta), así que nunca se muestran en crudo.
+const LEGACY_CATEGORIA_INFO = {
+  A: { label: 'Extrema pobreza', descripcion: 'Ingreso per cápita menor a Bs. 500 y sin seguro médico.' },
+  B: { label: 'Pobreza moderada', descripcion: 'Ingreso per cápita entre Bs. 500 y Bs. 1.200.' },
+  C: { label: 'Vulnerabilidad leve', descripcion: 'Ingreso per cápita entre Bs. 1.201 y Bs. 2.250.' },
+  N: { label: 'No prioritario', descripcion: 'Ingreso per cápita mayor a Bs. 2.250 (no elegible para beneficios prioritarios).' },
+};
+function categoriaBadgeClass(code) {
+  if (CATEGORIA_INFO[code]) return CATEGORIA_INFO[code].badge;
+  if (LEGACY_CATEGORIA_INFO[code]) return 'bg-slate-100 text-slate-700 border-slate-300';
+  return 'bg-gray-100 text-gray-500 border-gray-300 border-dashed';
+}
+function categoriaLabel(code) {
+  if (!code) return '—';
+  if (CATEGORIA_INFO[code]) return code;
+  if (LEGACY_CATEGORIA_INFO[code]) return `${code} · ${LEGACY_CATEGORIA_INFO[code].label} (sistema anterior)`;
+  return `${code} (código no reconocido)`;
+}
+
 const EVIDENCIAS = [
   { key: 'foto_ci_url', label: 'Carnet de Identidad' },
   { key: 'foto_fachada_url', label: 'Fachada del domicilio' },
@@ -52,6 +104,9 @@ export default function SocialEvaluationsReviewPage() {
   const [submittingId, setSubmittingId] = useState(null);
   const [rejectModal, setRejectModal] = useState({ open: false, patientId: null });
   const [rejectReason, setRejectReason] = useState('');
+  const [approveModal, setApproveModal] = useState({ open: false, patientId: null, categoriaSugerida: null, cfnr: null });
+  const [approveCategoria, setApproveCategoria] = useState('');
+  const [bajaAcknowledged, setBajaAcknowledged] = useState(false);
   const [interviewNotesById, setInterviewNotesById] = useState({});
   const [interviewSubmittingId, setInterviewSubmittingId] = useState(null);
   const [historyByPatientId, setHistoryByPatientId] = useState({});
@@ -153,11 +208,38 @@ export default function SocialEvaluationsReviewPage() {
     }
   };
 
-  const handleApprove = async (patientId) => {
+  const openApproveModal = (item) => {
+    setApproveModal({ open: true, patientId: item.patient_id, categoriaSugerida: item.categoria_asignada, cfnr: item.cfnr });
+    // Solo precargar la sugerencia si es una categoría válida (ALTA/MEDIA/BAJA).
+    // Si es un código del esquema anterior (ej. "A"), no es un valor válido de
+    // categoria_final hoy: se deja vacío para forzar una elección informada.
+    setApproveCategoria(CATEGORIA_INFO[item.categoria_asignada] ? item.categoria_asignada : '');
+    setBajaAcknowledged(false);
+  };
+
+  const closeApproveModal = () => {
+    setApproveModal({ open: false, patientId: null, categoriaSugerida: null, cfnr: null });
+    setApproveCategoria('');
+    setBajaAcknowledged(false);
+  };
+
+  const submitApprove = async () => {
+    if (!approveCategoria) {
+      toast.error('Debe elegir la categoría final del beneficiario.');
+      return;
+    }
+    if (approveCategoria === 'BAJA' && !bajaAcknowledged) {
+      toast.error('Marque la casilla de confirmación: BAJA significa que el beneficiario no tiene vulnerabilidad económica.');
+      return;
+    }
     try {
-      setSubmittingId(patientId);
-      await reviewSocialEvaluation(patientId, { decision: 'APROBADO' });
+      setSubmittingId(approveModal.patientId);
+      await reviewSocialEvaluation(approveModal.patientId, {
+        decision: 'APROBADO',
+        categoria_final: approveCategoria,
+      });
       toast.success('Evaluación avalada. El beneficiario quedó exonerado del aporte.');
+      closeApproveModal();
       await fetchEvaluations();
     } catch (error) {
       console.error(error);
@@ -253,9 +335,24 @@ export default function SocialEvaluationsReviewPage() {
                   <p className="font-semibold text-gray-800">
                     {item.patient_nombre || `Paciente #${item.patient_id}`} — CI {item.patient_ci || 'Sin registrar'}
                   </p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Depto. {item.departamento} | Vulnerabilidad {item.categoria_asignada} | CFNR Bs. {item.cfnr.toFixed(2)}
+                  <p className="text-sm text-gray-500 mt-1 flex items-center flex-wrap gap-1.5">
+                    <span>Depto. {item.departamento} | Sugerida (sistema):</span>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${categoriaBadgeClass(item.categoria_asignada)}`}>
+                      {categoriaLabel(item.categoria_asignada)}
+                    </span>
+                    <span>| CFNR Bs. {item.cfnr.toFixed(2)}</span>
                   </p>
+                  {item.categoria_final && (
+                    <p className="text-sm mt-1 flex items-center flex-wrap gap-1.5">
+                      <span className="font-semibold text-gray-700">Categoría final:</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${categoriaBadgeClass(item.categoria_final)}`}>
+                        {categoriaLabel(item.categoria_final)}
+                      </span>
+                      {item.categoria_final !== item.categoria_asignada && (
+                        <span className="font-normal text-xs text-gray-500">(corregida por el evaluador)</span>
+                      )}
+                    </p>
+                  )}
                   {item.estado_alerta === 'REVISIÓN MANUAL URGENTE' && (
                     <p className="text-xs text-red-600 mt-2 font-bold flex items-center gap-1">
                       <AlertTriangle size={14} /> {item.estado_alerta}
@@ -292,7 +389,7 @@ export default function SocialEvaluationsReviewPage() {
                       className="px-4 py-2 rounded-xl font-bold text-sm bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       disabled={submittingId === item.patient_id || item.estado_revision === 'APROBADO' || !item.entrevista_realizada}
                       title={!item.entrevista_realizada ? 'Debe registrar la entrevista virtual antes de emitir un veredicto.' : undefined}
-                      onClick={() => handleApprove(item.patient_id)}
+                      onClick={() => openApproveModal(item)}
                     >
                       Aprobar y Exonerar
                     </button>
@@ -388,6 +485,15 @@ export default function SocialEvaluationsReviewPage() {
                     <p><span className="font-semibold">Ingreso titular:</span> Bs. {item.ingreso_titular.toFixed(2)}</p>
                     <p><span className="font-semibold">Ingreso cónyuge:</span> Bs. {item.ingreso_conyuge.toFixed(2)}</p>
                     <p><span className="font-semibold">Servicios básicos:</span> Bs. {item.monto_servicios_basicos.toFixed(2)}</p>
+                    <p>
+                      <span className="font-semibold">Cuenta con:</span>{' '}
+                      {[
+                        item.tiene_agua && 'Agua',
+                        item.tiene_luz && 'Luz',
+                        item.tiene_gas_domiciliario && 'Gas domiciliario',
+                        item.tiene_internet && 'Internet',
+                      ].filter(Boolean).join(', ') || 'Ninguno declarado'}
+                    </p>
                     <p><span className="font-semibold">Transporte y conectividad:</span> Bs. {item.monto_transporte.toFixed(2)}</p>
                     <p>
                       <span className="font-semibold">Deudas que comprometen ingresos (≥20%):</span>{' '}
@@ -464,7 +570,9 @@ export default function SocialEvaluationsReviewPage() {
                             )}
                             {h.payload?.categoria_asignada && (
                               <p className="mt-1 text-xs text-gray-500">
-                                Categoría en ese momento: {h.payload.categoria_asignada} (CFNR Bs. {Number(h.payload.cfnr).toFixed(2)})
+                                Sugerida: {categoriaLabel(h.payload.categoria_asignada)}
+                                {h.payload?.categoria_final && ` — Final asignada: ${categoriaLabel(h.payload.categoria_final)}`}
+                                {' '}(CFNR Bs. {Number(h.payload.cfnr).toFixed(2)})
                               </p>
                             )}
                           </div>
@@ -537,6 +645,133 @@ export default function SocialEvaluationsReviewPage() {
                 className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
               >
                 Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {approveModal.open && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-xl p-6 my-8">
+            <h3 className="text-lg font-bold text-gray-800 mb-2 flex items-center gap-2">
+              <CheckCircle size={18} className="text-green-600" /> Aprobar evaluación
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Orden fijo de <span className="font-semibold">mayor a menor</span> vulnerabilidad: ALTA → MEDIA → BAJA.
+              El sistema sugiere una categoría según el CFNR declarado; usted la confirma o la corrige.
+            </p>
+
+            {CATEGORIA_INFO[approveModal.categoriaSugerida] ? (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 mb-4 flex items-center justify-between gap-3">
+                <p className="text-sm text-blue-800">
+                  <span className="font-semibold">Sugerencia del sistema:</span> {approveModal.categoriaSugerida}
+                </p>
+                {approveModal.cfnr !== null && approveModal.cfnr !== undefined && (
+                  <p className="text-sm text-blue-800 font-semibold">CFNR: Bs. {Number(approveModal.cfnr).toFixed(2)}</p>
+                )}
+              </div>
+            ) : LEGACY_CATEGORIA_INFO[approveModal.categoriaSugerida] ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 mb-4">
+                <p className="text-sm text-amber-800">
+                  <AlertTriangle size={14} className="inline mr-1 -mt-0.5" />
+                  <span className="font-semibold">
+                    Sugerencia del sistema anterior: "{approveModal.categoriaSugerida}" —{' '}
+                    {LEGACY_CATEGORIA_INFO[approveModal.categoriaSugerida].label}.
+                  </span>{' '}
+                  {LEGACY_CATEGORIA_INFO[approveModal.categoriaSugerida].descripcion} Ese cálculo usaba otro
+                  criterio (ingreso per cápita), no es comparable directamente con las categorías actuales.
+                  Elija la categoría final usando el CFNR
+                  {approveModal.cfnr !== null && approveModal.cfnr !== undefined
+                    ? ` (Bs. ${Number(approveModal.cfnr).toFixed(2)})`
+                    : ''}{' '}
+                  y su criterio de la entrevista.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 mb-4">
+                <p className="text-sm text-amber-800">
+                  <AlertTriangle size={14} className="inline mr-1 -mt-0.5" />
+                  <span className="font-semibold">Sin sugerencia válida</span> (código guardado: "
+                  {approveModal.categoriaSugerida || 'vacío'}"). Elija la categoría final usando el CFNR
+                  {approveModal.cfnr !== null && approveModal.cfnr !== undefined
+                    ? ` (Bs. ${Number(approveModal.cfnr).toFixed(2)})`
+                    : ''}{' '}
+                  y su criterio de la entrevista.
+                </p>
+              </div>
+            )}
+
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Categoría final *</label>
+            <div className="space-y-2 mb-4">
+              {CATEGORIA_ORDEN.map((cat) => {
+                const info = CATEGORIA_INFO[cat];
+                const isSelected = approveCategoria === cat;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => {
+                      setApproveCategoria(cat);
+                      setBajaAcknowledged(false);
+                    }}
+                    className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors flex items-center justify-between gap-3 ${
+                      isSelected ? info.selected : `bg-white ${info.idle}`
+                    }`}
+                  >
+                    <div>
+                      <span className="font-bold">{cat}</span>
+                      <span className={`ml-2 text-sm ${isSelected ? 'text-white/90' : 'text-gray-500'}`}>
+                        {info.subtitle}
+                      </span>
+                      <p className={`text-xs mt-0.5 ${isSelected ? 'text-white/80' : 'text-gray-400'}`}>
+                        {info.descripcion}
+                      </p>
+                    </div>
+                    <span
+                      className={`text-xs font-bold px-2 py-1 rounded-full border whitespace-nowrap ${
+                        isSelected ? 'border-white/50 text-white' : info.badge
+                      }`}
+                    >
+                      {info.rango}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {approveCategoria === 'BAJA' && (
+              <label className="flex items-start gap-2 p-3 rounded-lg border-2 border-amber-300 bg-amber-50 mb-4 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={bajaAcknowledged}
+                  onChange={(e) => setBajaAcknowledged(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-amber-600"
+                />
+                <span className="text-sm text-amber-800">
+                  Entiendo que <span className="font-bold">BAJA</span> significa que el beneficiario está en una
+                  situación económica acomodada, <span className="font-bold">sin vulnerabilidad</span>, y que
+                  normalmente no correspondería exonerarlo del aporte solidario. Confirmo que igual corresponde
+                  aprobar en este caso.
+                </span>
+              </label>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeApproveModal}
+                className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={submitApprove}
+                disabled={submittingId === approveModal.patientId || (approveCategoria === 'BAJA' && !bajaAcknowledged)}
+                className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submittingId === approveModal.patientId ? 'Guardando...' : 'Confirmar aprobación'}
               </button>
             </div>
           </div>
