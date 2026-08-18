@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, RefreshCcw } from 'lucide-react';
+import { ExternalLink, FileDown, RefreshCcw } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import client from '../../api/axios';
 import { Button } from '../../components/ui/Button';
@@ -10,6 +10,7 @@ export default function ContributionsReviewPage() {
     const [items, setItems] = useState([]);
     const [statusFilter, setStatusFilter] = useState('DECLARADO');
     const [submittingId, setSubmittingId] = useState(null);
+    const [exporting, setExporting] = useState(false);
     const [observationModal, setObservationModal] = useState({ open: false, contributionId: null });
     const [observationText, setObservationText] = useState('');
 
@@ -59,6 +60,30 @@ export default function ContributionsReviewPage() {
         }
     };
 
+    const handleExportPdf = async () => {
+        try {
+            setExporting(true);
+            const params = statusFilter ? { estado: statusFilter } : undefined;
+            const response = await client.get('/contributions/review/export.pdf', {
+                params,
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `Reporte_Vouchers_${statusFilter || 'TODOS'}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error(error);
+            toast.error('No se pudo generar el reporte en PDF.');
+        } finally {
+            setExporting(false);
+        }
+    };
+
     const openObservationModal = (contributionId) => {
         setObservationModal({ open: true, contributionId });
         setObservationText('');
@@ -103,6 +128,16 @@ export default function ContributionsReviewPage() {
                     >
                         <RefreshCcw size={16} className="mr-2" />
                         Recargar
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        className="border border-gray-200 text-gray-700"
+                        onClick={handleExportPdf}
+                        disabled={exporting}
+                    >
+                        <FileDown size={16} className="mr-2" />
+                        {exporting ? 'Generando...' : 'Exportar a PDF'}
                     </Button>
                 </div>
             </div>
