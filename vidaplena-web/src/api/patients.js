@@ -71,6 +71,21 @@ export const uploadDocument = async (docType, file) => {
   return response.data;
 };
 
+// SUPER_ADMIN sube o reemplaza un documento en nombre del paciente (p. ej.
+// cuando el beneficiario no puede volver a subirlo por su cuenta).
+export const uploadPatientDocumentAdmin = async (patientId, docType, file) => {
+  const formData = new FormData();
+  formData.append('doc_type', docType);
+  formData.append('file', file);
+
+  const response = await client.post(`/patients/${patientId}/upload-document`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
 export const deletePatient = async (id) => {
   const response = await client.delete(`/patients/${id}`);
   return response.data;

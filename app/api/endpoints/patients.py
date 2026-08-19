@@ -40,6 +40,16 @@ MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/jpg"]
 WHATSAPP_CONTACTO = "+59172966106"
 
+# doc_type -> (subcarpeta en Firebase, prefijo de archivo, columna en Patient)
+DOCUMENT_STRUCTURE_MAP = {
+    "ci":         ("legal/identidad",   "ci_paciente",        "url_ci_paciente"),
+    "medico":     ("legal/medico",      "cert_medico",        "url_certificado_medico"),
+    "foto":       ("legal/fotos",       "foto_paciente",      "url_foto_paciente"),
+    "compromiso": ("legal/compromisos", "declaracion_aporte", "url_declaracion_aporte"),
+    "ci_tutor":   ("legal/identidad",   "ci_tutor",           "url_ci_tutor"),
+    "foto_tutor": ("legal/fotos",       "foto_tutor",         "url_foto_tutor"),
+}
+
 # --- Funciones Auxiliares ---
 
 def calculate_age(born: date):
@@ -840,19 +850,10 @@ async def upload_my_document(
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
     # 1. DEFINIR ESTRUCTURA
-    structure_map = {
-        "ci":         ("legal/identidad",   "ci_paciente",        "url_ci_paciente"),
-        "medico":     ("legal/medico",      "cert_medico",        "url_certificado_medico"),
-        "foto":       ("legal/fotos",       "foto_paciente",      "url_foto_paciente"),
-        "compromiso": ("legal/compromisos", "declaracion_aporte", "url_declaracion_aporte"),
-        "ci_tutor":   ("legal/identidad",   "ci_tutor",           "url_ci_tutor"),
-        "foto_tutor": ("legal/fotos",       "foto_tutor",         "url_foto_tutor")
-    }
-
-    if doc_type not in structure_map:
+    if doc_type not in DOCUMENT_STRUCTURE_MAP:
         raise HTTPException(status_code=400, detail="Tipo de documento inválido.")
 
-    subfolder, file_prefix, db_column = structure_map[doc_type]
+    subfolder, file_prefix, db_column = DOCUMENT_STRUCTURE_MAP[doc_type]
 
     # 2. VALIDAR TIPO Y TAMAÑO
     content_type = file.content_type or ""
@@ -885,6 +886,56 @@ async def upload_my_document(
     await db.commit()
 
     return {"msg": "Actualizado exitosamente", "url": public_url, "type": doc_type}
+
+
+@router.post("/{patient_id}/upload-document")
+async def upload_patient_document_admin(
+    patient_id: int,
+    doc_type: str = Form(...),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Permite al SUPER_ADMIN subir o reemplazar un documento del paciente en su
+    nombre (mismo mecanismo que /me/upload-document, sobrescribe el anterior).
+    Cubre casos donde el beneficiario no puede volver a subir el archivo por
+    su cuenta, o se registró sin un documento y lo envía después.
+    """
+    patient = await db.get(models.Patient, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+
+    if doc_type not in DOCUMENT_STRUCTURE_MAP:
+        raise HTTPException(status_code=400, detail="Tipo de documento inválido.")
+
+    subfolder, file_prefix, db_column = DOCUMENT_STRUCTURE_MAP[doc_type]
+
+    content_type = file.content_type or ""
+    if content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Tipo de archivo no permitido.")
+
+    file_extension = file.filename.split(".")[-1]
+    firebase_path = f"pacientes/{patient.id}/{subfolder}/{file_prefix}.{file_extension}"
+
+    file_content = await file.read()
+    if len(file_content) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Archivo demasiado grande. Máximo {MAX_FILE_SIZE_MB}MB."
+        )
+    try:
+        public_url = await run_in_threadpool(
+            upload_file_to_firebase, file_content, firebase_path, file.content_type
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error subiendo: {str(e)}")
+
+    setattr(patient, db_column, public_url)
+    await db.commit()
+
+    return {"msg": "Actualizado exitosamente", "url": public_url, "type": doc_type}
+
 
 @router.put("/me/complete-registration")
 async def complete_registration(

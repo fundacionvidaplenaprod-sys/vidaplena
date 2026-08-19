@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FileText, CheckCircle, XCircle, User, ArrowLeft, ExternalLink, Users } from 'lucide-react';
+import { FileText, CheckCircle, XCircle, User, ArrowLeft, ExternalLink, Users, UploadCloud } from 'lucide-react';
 import { Button } from '../../components/ui/Button'; // Ajusta la ruta a tu componente Button
 import { toast } from 'react-hot-toast';
 import client from '../../api/axios'; // Ajusta la ruta a tu cliente axios
+import { uploadPatientDocumentAdmin } from '../../api/patients';
+
+const DOC_FIELD_BY_KEY = {
+    ci: 'url_ci_paciente',
+    medico: 'url_certificado_medico',
+    foto: 'url_foto_paciente',
+    compromiso: 'url_declaracion_aporte',
+    ci_tutor: 'url_ci_tutor',
+    foto_tutor: 'url_foto_tutor',
+};
 
 export default function PatientReviewPage() {
     const { id } = useParams(); // El ID del paciente viene de la URL
@@ -15,6 +25,7 @@ export default function PatientReviewPage() {
     const [resetCommitmentReason, setResetCommitmentReason] = useState('');
     const [observedDocs, setObservedDocs] = useState({});
     const [observationNotes, setObservationNotes] = useState({});
+    const [uploadingDoc, setUploadingDoc] = useState(null);
 
     // 1. Cargar datos del paciente
     useEffect(() => {
@@ -78,6 +89,28 @@ export default function PatientReviewPage() {
         }
     };
 
+    const handleUploadDocument = async (docKey, file) => {
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) {
+            toast.error('El archivo supera el tamaño máximo permitido (2 MB).');
+            return;
+        }
+        const field = DOC_FIELD_BY_KEY[docKey];
+        try {
+            setUploadingDoc(docKey);
+            const toastId = toast.loading('Subiendo documento...');
+            const { url } = await uploadPatientDocumentAdmin(id, docKey, file);
+            setPatient((prev) => ({ ...prev, [field]: url }));
+            toast.success('Documento actualizado.', { id: toastId });
+        } catch (error) {
+            console.error(error);
+            const detail = error?.response?.data?.detail;
+            toast.error(typeof detail === 'string' ? detail : 'No se pudo subir el documento.');
+        } finally {
+            setUploadingDoc(null);
+        }
+    };
+
     if (loading) return <div className="p-10 text-center">Cargando expediente...</div>;
     if (!patient) return <div className="p-10 text-center text-red-500">Paciente no encontrado</div>;
 
@@ -131,31 +164,60 @@ export default function PatientReviewPage() {
     };
 
     // Helper para mostrar tarjeta de documento
-    const DocumentCard = ({ title, url, icon }) => {
+    const DocumentCard = ({ title, url, icon, docKey }) => {
         const IconComponent = icon;
+        const isUploading = uploadingDoc === docKey;
+        const inputId = `doc-upload-${docKey}`;
         return (
-            <div className="border rounded-lg p-4 flex items-center justify-between bg-white shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-full ${url ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-500'}`}>
-                        <IconComponent size={20} />
+            <div className="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-full ${url ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-500'}`}>
+                            <IconComponent size={20} />
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-sm text-gray-700">{title}</h4>
+                            <p className={`text-xs font-bold ${url ? 'text-green-600' : 'text-red-500'}`}>
+                                {url ? 'Cargado' : 'No cargado'}
+                            </p>
+                        </div>
                     </div>
-                    <div>
-                        <h4 className="font-bold text-sm text-gray-700">{title}</h4>
-                        <p className={`text-xs font-bold ${url ? 'text-green-600' : 'text-red-500'}`}>
-                            {url ? 'Cargado' : 'No cargado'}
-                        </p>
+                    <div className="flex items-center gap-2">
+                        {url && (
+                            <a
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium px-3 py-1 bg-blue-50 rounded-md"
+                            >
+                                Ver <ExternalLink size={14} />
+                            </a>
+                        )}
+                        <label
+                            htmlFor={inputId}
+                            className={`flex items-center gap-1 text-sm font-medium px-3 py-1 rounded-md cursor-pointer ${
+                                isUploading
+                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    : 'bg-vida-bg text-vida-primary hover:bg-vida-light/40'
+                            }`}
+                        >
+                            <UploadCloud size={14} />
+                            {isUploading ? 'Subiendo...' : url ? 'Reemplazar' : 'Subir'}
+                        </label>
+                        <input
+                            id={inputId}
+                            type="file"
+                            accept="application/pdf,image/jpeg,image/png,image/jpg"
+                            className="hidden"
+                            disabled={isUploading}
+                            onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                event.target.value = '';
+                                handleUploadDocument(docKey, file);
+                            }}
+                        />
                     </div>
                 </div>
-                {url && (
-                    <a 
-                        href={url} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium px-3 py-1 bg-blue-50 rounded-md"
-                    >
-                        Ver <ExternalLink size={14} />
-                    </a>
-                )}
             </div>
         );
     };
@@ -197,10 +259,10 @@ export default function PatientReviewPage() {
                         <h3 className="font-bold text-gray-700 flex items-center gap-2">
                             <FileText size={18} /> Documentación del Paciente
                         </h3>
-                        <DocumentCard title="Cédula de Identidad" url={patient.url_ci_paciente} icon={FileText} />
-                        <DocumentCard title="Certificado Médico" url={patient.url_certificado_medico} icon={FileText} />
-                        <DocumentCard title="Foto Tipo Carnet" url={patient.url_foto_paciente} icon={User} />
-                        <DocumentCard title="Compromiso Firmado" url={patient.url_declaracion_aporte} icon={FileText} />
+                        <DocumentCard title="Cédula de Identidad" url={patient.url_ci_paciente} icon={FileText} docKey="ci" />
+                        <DocumentCard title="Certificado Médico" url={patient.url_certificado_medico} icon={FileText} docKey="medico" />
+                        <DocumentCard title="Foto Tipo Carnet" url={patient.url_foto_paciente} icon={User} docKey="foto" />
+                        <DocumentCard title="Compromiso Firmado" url={patient.url_declaracion_aporte} icon={FileText} docKey="compromiso" />
                     </div>
 
                     {/* Columna Derecha: Documentos del Tutor (Si existen) */}
@@ -213,8 +275,8 @@ export default function PatientReviewPage() {
                                 <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-800 mb-2">
                                     <span className="font-bold">Tutor:</span> {patient.tutor.nombres} {patient.tutor.ap_paterno}
                                 </div>
-                                <DocumentCard title="Cédula del Tutor" url={patient.url_ci_tutor} icon={Users} />
-                                <DocumentCard title="Foto del Tutor" url={patient.url_foto_tutor} icon={User} />
+                                <DocumentCard title="Cédula del Tutor" url={patient.url_ci_tutor} icon={Users} docKey="ci_tutor" />
+                                <DocumentCard title="Foto del Tutor" url={patient.url_foto_tutor} icon={User} docKey="foto_tutor" />
                             </>
                         ) : (
                             <div className="h-full flex items-center justify-center border-2 border-dashed border-gray-200 rounded-lg text-gray-400 p-8">
