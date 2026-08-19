@@ -1797,7 +1797,7 @@ async def get_patient_warnings(
 
 @router.get("/me/commitment-template")
 async def download_commitment_template(
-    monto_compromiso: float = Query(..., ge=100),
+    monto_compromiso: float = Query(..., gt=0),
     current_user: models.User = Depends(deps.get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1818,6 +1818,16 @@ async def download_commitment_template(
                 detail=f"Su aporte comprometido ya está fijado en Bs. {committed_amount:.2f}.",
             )
     else:
+        # Sin evaluación de por medio (o evaluación con categoría ALTA/BAJA,
+        # que no fija un monto), rige el aporte estándar mínimo de Bs. 100.
+        # Un monto menor solo es válido si lo fijó el evaluador en una
+        # evaluación MEDIA (caso cubierto arriba, donde ya hay un
+        # committed_amount previo distinto de None).
+        if monto_compromiso < 100:
+            raise HTTPException(
+                status_code=400,
+                detail="El aporte mínimo es de Bs. 100. Si no puede cubrirlo, solicite una evaluación socioeconómica.",
+            )
         patient.monto_aporte_comprometido = monto_compromiso
         db.add(patient)
         await db.commit()
