@@ -106,7 +106,9 @@ export default function SocialEvaluationsReviewPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [approveModal, setApproveModal] = useState({ open: false, patientId: null, categoriaSugerida: null, cfnr: null });
   const [approveCategoria, setApproveCategoria] = useState('');
-  const [bajaAcknowledged, setBajaAcknowledged] = useState(false);
+  const [montoComprometido, setMontoComprometido] = useState('');
+  const [exclusionSugerida, setExclusionSugerida] = useState(false);
+  const [motivoExclusion, setMotivoExclusion] = useState('');
   const [interviewNotesById, setInterviewNotesById] = useState({});
   const [interviewSubmittingId, setInterviewSubmittingId] = useState(null);
   const [historyByPatientId, setHistoryByPatientId] = useState({});
@@ -214,13 +216,17 @@ export default function SocialEvaluationsReviewPage() {
     // Si es un código del esquema anterior (ej. "A"), no es un valor válido de
     // categoria_final hoy: se deja vacío para forzar una elección informada.
     setApproveCategoria(CATEGORIA_INFO[item.categoria_asignada] ? item.categoria_asignada : '');
-    setBajaAcknowledged(false);
+    setMontoComprometido('');
+    setExclusionSugerida(false);
+    setMotivoExclusion('');
   };
 
   const closeApproveModal = () => {
     setApproveModal({ open: false, patientId: null, categoriaSugerida: null, cfnr: null });
     setApproveCategoria('');
-    setBajaAcknowledged(false);
+    setMontoComprometido('');
+    setExclusionSugerida(false);
+    setMotivoExclusion('');
   };
 
   const submitApprove = async () => {
@@ -228,8 +234,12 @@ export default function SocialEvaluationsReviewPage() {
       toast.error('Debe elegir la categoría final del beneficiario.');
       return;
     }
-    if (approveCategoria === 'BAJA' && !bajaAcknowledged) {
-      toast.error('Marque la casilla de confirmación: BAJA significa que el beneficiario no tiene vulnerabilidad económica.');
+    if (approveCategoria === 'MEDIA' && !(Number(montoComprometido) > 0)) {
+      toast.error('Debe indicar el monto de aporte reducido que se le fijará al beneficiario.');
+      return;
+    }
+    if (approveCategoria === 'BAJA' && exclusionSugerida && !motivoExclusion.trim()) {
+      toast.error('Debe indicar el motivo de la sugerencia de exclusión.');
       return;
     }
     try {
@@ -237,8 +247,22 @@ export default function SocialEvaluationsReviewPage() {
       await reviewSocialEvaluation(approveModal.patientId, {
         decision: 'APROBADO',
         categoria_final: approveCategoria,
+        ...(approveCategoria === 'MEDIA' ? { monto_comprometido: Number(montoComprometido) } : {}),
+        ...(approveCategoria === 'BAJA' && exclusionSugerida
+          ? { exclusion_sugerida: true, motivo_exclusion_sugerida: motivoExclusion.trim() }
+          : {}),
       });
-      toast.success('Evaluación avalada. El beneficiario quedó exonerado del aporte.');
+      const exclusionSuffix = approveCategoria === 'BAJA' && exclusionSugerida
+        ? ' Se registró la sugerencia de exclusión para revisión de un SUPER_ADMIN.'
+        : '';
+      toast.success(
+        (approveCategoria === 'MEDIA'
+          ? `Evaluación avalada. Aporte reducido fijado en Bs. ${Number(montoComprometido).toFixed(2)}.`
+          : approveCategoria === 'ALTA'
+            ? 'Evaluación avalada. El beneficiario quedó exonerado del aporte.'
+            : 'Evaluación avalada. Al ser BAJA (pudiente), no se exonera: corresponde el aporte solidario completo.'
+        ) + exclusionSuffix
+      );
       closeApproveModal();
       await fetchEvaluations();
     } catch (error) {
@@ -357,6 +381,18 @@ export default function SocialEvaluationsReviewPage() {
                     <p className="text-xs text-red-600 mt-2 font-bold flex items-center gap-1">
                       <AlertTriangle size={14} /> {item.estado_alerta}
                     </p>
+                  )}
+                  {item.exclusion_sugerida && (
+                    <div className="text-xs text-purple-700 mt-2 font-bold flex items-start gap-1 bg-purple-50 border border-purple-200 rounded-md px-2 py-1.5">
+                      <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+                      <span>
+                        Exclusión sugerida por el evaluador: es pudiente, cuenta con medios económicos
+                        suficientes. Pendiente de revisión por SUPER_ADMIN.
+                        {item.motivo_exclusion_sugerida && (
+                          <span className="font-normal block mt-0.5">Motivo: {item.motivo_exclusion_sugerida}</span>
+                        )}
+                      </span>
+                    </div>
                   )}
                   {item.motivo_rechazo && (
                     <p className="text-xs text-red-600 mt-2">Motivo del rechazo: {item.motivo_rechazo}</p>
@@ -575,6 +611,11 @@ export default function SocialEvaluationsReviewPage() {
                                 {' '}(CFNR Bs. {Number(h.payload.cfnr).toFixed(2)})
                               </p>
                             )}
+                            {h.payload?.exclusion_sugerida && (
+                              <p className="mt-1 text-xs text-purple-700 font-semibold">
+                                Exclusión sugerida{h.payload?.motivo_exclusion_sugerida ? `: ${h.payload.motivo_exclusion_sugerida}` : ''}
+                              </p>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -739,20 +780,70 @@ export default function SocialEvaluationsReviewPage() {
             </div>
 
             {approveCategoria === 'BAJA' && (
-              <label className="flex items-start gap-2 p-3 rounded-lg border-2 border-amber-300 bg-amber-50 mb-4 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={bajaAcknowledged}
-                  onChange={(e) => setBajaAcknowledged(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 accent-amber-600"
-                />
-                <span className="text-sm text-amber-800">
-                  Entiendo que <span className="font-bold">BAJA</span> significa que el beneficiario está en una
-                  situación económica acomodada, <span className="font-bold">sin vulnerabilidad</span>, y que
-                  normalmente no correspondería exonerarlo del aporte solidario. Confirmo que igual corresponde
-                  aprobar en este caso.
-                </span>
-              </label>
+              <div className="p-3 rounded-lg border-2 border-amber-300 bg-amber-50 mb-4">
+                <p className="text-sm text-amber-800">
+                  <span className="font-bold">BAJA</span> significa que el beneficiario está en una situación
+                  económica acomodada, <span className="font-bold">sin vulnerabilidad</span>. No se le exonerará
+                  del aporte: le corresponde el aporte solidario completo, igual que a un beneficiario sin
+                  evaluación.
+                </p>
+              </div>
+            )}
+
+            {approveCategoria === 'BAJA' && (
+              <div className="p-3 rounded-lg border-2 border-purple-300 bg-purple-50 mb-4">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exclusionSugerida}
+                    onChange={(e) => setExclusionSugerida(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 accent-purple-600"
+                  />
+                  <span className="text-sm text-purple-800">
+                    <span className="font-bold">Sugerir exclusión del programa:</span> el beneficiario cuenta
+                    con medios económicos suficientes para sostener su condición sin la Fundación. Esto es solo
+                    una sugerencia para que un SUPER_ADMIN la revise — no excluye al beneficiario
+                    automáticamente.
+                  </span>
+                </label>
+                {exclusionSugerida && (
+                  <div className="mt-3">
+                    <label className="block text-xs font-semibold text-purple-800 mb-1">
+                      Motivo de la sugerencia *
+                    </label>
+                    <textarea
+                      value={motivoExclusion}
+                      onChange={(e) => setMotivoExclusion(e.target.value)}
+                      className="w-full border-2 border-purple-300 rounded-lg px-3 py-2 text-sm min-h-[70px] bg-white focus:outline-none focus:border-purple-500"
+                      placeholder="Ej: Es propietario de un negocio con ingresos estables y altos."
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {approveCategoria === 'MEDIA' && (
+              <div className="p-3 rounded-lg border-2 border-amber-300 bg-amber-50 mb-4">
+                <label className="block text-sm font-semibold text-amber-800 mb-1">
+                  Monto de aporte reducido (Bs.) *
+                </label>
+                <p className="text-xs text-amber-700 mb-2">
+                  MEDIA no exonera del todo: fije el aporte mensual reducido que el beneficiario deberá pagar.
+                  Este monto quedará cerrado — el beneficiario ya no podrá elegir otro al descargar su compromiso.
+                </p>
+                <div className="relative w-40">
+                  <span className="absolute left-3 top-2.5 text-amber-600 text-xs font-bold">Bs.</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    value={montoComprometido}
+                    onChange={(e) => setMontoComprometido(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 border-2 border-amber-300 rounded-lg text-sm focus:outline-none focus:border-amber-500 bg-white"
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
             )}
 
             <div className="flex justify-end gap-2">
@@ -766,7 +857,11 @@ export default function SocialEvaluationsReviewPage() {
               <button
                 type="button"
                 onClick={submitApprove}
-                disabled={submittingId === approveModal.patientId || (approveCategoria === 'BAJA' && !bajaAcknowledged)}
+                disabled={
+                  submittingId === approveModal.patientId ||
+                  (approveCategoria === 'MEDIA' && !(Number(montoComprometido) > 0)) ||
+                  (approveCategoria === 'BAJA' && exclusionSugerida && !motivoExclusion.trim())
+                }
                 className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submittingId === approveModal.patientId ? 'Guardando...' : 'Confirmar aprobación'}

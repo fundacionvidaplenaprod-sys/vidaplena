@@ -243,6 +243,7 @@ class PatientResponse(PatientBase):
     estado: str
     estado_beneficio: str = "ACTIVO"
     evaluacion_bloqueada_hasta: Optional[date] = None
+    exonerado_aporte: bool = False
 
     created_at: datetime
     updated_at: datetime
@@ -850,10 +851,22 @@ class SocialEvaluationReviewUpdate(BaseModel):
     - categoria_final: obligatoria al APROBAR. El sistema sugiere una
       categoría (categoria_asignada, calculada por CFNR); el entrevistador
       la confirma o la corrige aquí, y esa es la que queda vigente.
+    - monto_comprometido: obligatorio solo cuando categoria_final es MEDIA.
+      ALTA y BAJA quedan con exoneración total (no pagan aporte); MEDIA no se
+      exonera del todo, sino que paga el monto reducido que aquí fija el
+      entrevistador, y ese monto queda cerrado para el beneficiario.
+    - exclusion_sugerida: solo aplica con categoria_final BAJA. Es una
+      sugerencia del entrevistador para que un SUPER_ADMIN evalúe excluir al
+      beneficiario del programa por contar con medios económicos suficientes
+      para sostener su condición sin la Fundación. No cambia el estado del
+      beneficiario por sí sola; requiere motivo_exclusion_sugerida.
     """
     decision: Literal["APROBADO", "RECHAZADO", "RECHAZADO_FRAUDE"]
     motivo: Optional[str] = Field(None, max_length=1000)
     categoria_final: Optional[Literal["ALTA", "MEDIA", "BAJA"]] = None
+    monto_comprometido: Optional[float] = Field(None, gt=0)
+    exclusion_sugerida: bool = False
+    motivo_exclusion_sugerida: Optional[str] = Field(None, max_length=1000)
 
 
 class SocialEvaluationHistoryItem(BaseModel):
@@ -934,6 +947,8 @@ class SocialEvaluationResponse(BaseModel):
     categoria_asignada: str
     categoria_final: Optional[str] = None
     estado_alerta: str
+    exclusion_sugerida: bool = False
+    motivo_exclusion_sugerida: Optional[str] = None
 
     # Evidencias
     foto_ci_url: Optional[str] = None

@@ -359,7 +359,13 @@ async def _archivar_veredicto(
         "categoria_asignada": evaluation.categoria_asignada,
         "categoria_final": evaluation.categoria_final,
         "estado_alerta": evaluation.estado_alerta,
+        "exclusion_sugerida": evaluation.exclusion_sugerida,
+        "motivo_exclusion_sugerida": evaluation.motivo_exclusion_sugerida,
         "decision": decision,
+        "exonerado_aporte": patient.exonerado_aporte,
+        "monto_aporte_comprometido": (
+            float(patient.monto_aporte_comprometido) if patient.monto_aporte_comprometido is not None else None
+        ),
         "motivo_rechazo": evaluation.motivo_rechazo,
         "entrevista_fecha": evaluation.entrevista_fecha.isoformat() if evaluation.entrevista_fecha else None,
         "entrevista_notas": evaluation.entrevista_notas,
@@ -802,8 +808,22 @@ async def review_social_evaluation(
     """
     Avala (APROBADO) o rechaza la evaluación socioeconómica de un paciente.
     Requiere que la entrevista virtual ya haya sido registrada
-    (`entrevista_realizada`). Al aprobar, exonera al paciente del aporte
-    solidario. El rechazo tiene dos niveles, ambos exigen motivo:
+    (`entrevista_realizada`). El efecto sobre el aporte depende de la
+    categoría final:
+      - ALTA: exoneración total, ya no debe ningún aporte.
+      - MEDIA: no hay exoneración total; el entrevistador fija un monto de
+        aporte reducido (`monto_comprometido`), que queda cerrado para el
+        beneficiario — su "Compromiso" para descargar ya no le permite
+        elegir otro monto.
+      - BAJA: sin exoneración. Es pudiente y puede cubrir el aporte, así que
+        vuelve al proceso normal de aporte completo (el beneficiario elige
+        su propio monto, igual que alguien sin evaluación). Además, el
+        entrevistador puede marcar `exclusion_sugerida` (con
+        `motivo_exclusion_sugerida` obligatorio) si considera que el
+        beneficiario cuenta con medios suficientes para sostener su
+        condición sin la Fundación. Es solo una sugerencia para que un
+        SUPER_ADMIN la revise: no cambia el estado del beneficiario.
+    El rechazo tiene dos niveles, ambos exigen motivo:
       - RECHAZADO (estándar): cooldown temporal (no puede reenviar por
         `RECHAZO_ESTANDAR_COOLDOWN_MESES` meses).
       - RECHAZADO_FRAUDE (falsedad/depuración): suspensión permanente,
@@ -821,6 +841,27 @@ async def review_social_evaluation(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Debe elegir la categoría final (ALTA, MEDIA o BAJA) para aprobar.",
+        )
+    if (
+        review_in.decision == "APROBADO"
+        and review_in.categoria_final == "MEDIA"
+        and not review_in.monto_comprometido
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Debe indicar el monto comprometido para la categoría MEDIA.",
+        )
+    if review_in.exclusion_sugerida and not (review_in.motivo_exclusion_sugerida or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Debe indicar el motivo de la sugerencia de exclusión.",
+        )
+    if review_in.exclusion_sugerida and not (
+        review_in.decision == "APROBADO" and review_in.categoria_final == "BAJA"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="La sugerencia de exclusión solo aplica al aprobar con categoría BAJA.",
         )
 
     result = await db.execute(
@@ -853,7 +894,28 @@ async def review_social_evaluation(
     evaluation.revisado_at = datetime.now(timezone.utc)
     evaluation.motivo_rechazo = review_in.motivo if review_in.decision != "APROBADO" else None
     evaluation.categoria_final = review_in.categoria_final if review_in.decision == "APROBADO" else None
-    patient.exonerado_aporte = review_in.decision == "APROBADO"
+    evaluation.exclusion_sugerida = review_in.exclusion_sugerida
+    evaluation.motivo_exclusion_sugerida = (
+        review_in.motivo_exclusion_sugerida.strip() if review_in.exclusion_sugerida else None
+    )
+    if review_in.decision == "APROBADO" and review_in.categoria_final == "MEDIA":
+        # MEDIA no exonera del todo: el entrevistador fija un aporte reducido,
+        # y ese monto queda cerrado (no lo elige el beneficiario).
+        patient.exonerado_aporte = False
+        patient.monto_aporte_comprometido = review_in.monto_comprometido
+    elif review_in.decision == "APROBADO" and review_in.categoria_final == "ALTA":
+        # ALTA: única categoría con exoneración total.
+        patient.exonerado_aporte = True
+        patient.monto_aporte_comprometido = None
+    elif review_in.decision == "APROBADO":
+        # BAJA: es pudiente, sí puede pagar. No hay exoneración ni monto
+        # reducido — vuelve al proceso normal de aporte completo, con el
+        # beneficiario eligiendo su propio monto (mínimo Bs. 100) como
+        # cualquier beneficiario sin evaluación.
+        patient.exonerado_aporte = False
+        patient.monto_aporte_comprometido = None
+    else:
+        patient.exonerado_aporte = False
 
     if review_in.decision == "RECHAZADO":
         patient.evaluacion_bloqueada_hasta = _agregar_meses(date.today(), RECHAZO_ESTANDAR_COOLDOWN_MESES)

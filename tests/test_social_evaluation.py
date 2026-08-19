@@ -869,7 +869,7 @@ async def test_listar_evaluaciones_filtro_estado_revision(client, superuser_toke
 
     await client.put(
         f"/social-evaluations/{patient_a.id}/review",
-        json={"decision": "APROBADO", "categoria_final": "MEDIA"},
+        json={"decision": "APROBADO", "categoria_final": "MEDIA", "monto_comprometido": 150.0},
     )
 
     resp = await client.get("/social-evaluations/", params={"estado_revision": "APROBADO"})
@@ -1426,12 +1426,142 @@ async def test_categoria_final_puede_diferir_de_la_sugerida(client, superuser_to
 
     resp = await client.put(
         f"/social-evaluations/{patient.id}/review",
-        json={"decision": "APROBADO", "categoria_final": "MEDIA"},
+        json={"decision": "APROBADO", "categoria_final": "MEDIA", "monto_comprometido": 150.0},
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["categoria_asignada"] == "ALTA"  # la sugerencia del sistema no cambia
     assert data["categoria_final"] == "MEDIA"  # lo que el evaluador decidió
+
+
+@pytest.mark.asyncio
+async def test_aprobacion_alta_exonera_totalmente(client, superuser_token, db_session):
+    """ALTA es la única categoría que exonera por completo (no queda monto comprometido)."""
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "ALTA"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    await db_session.refresh(patient)
+    assert patient.exonerado_aporte is True
+    assert patient.monto_aporte_comprometido is None
+
+
+@pytest.mark.asyncio
+async def test_aprobacion_baja_no_exonera(client, superuser_token, db_session):
+    """BAJA es pudiente y puede pagar: no hay exoneración ni monto fijo, vuelve al aporte normal."""
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "BAJA"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    await db_session.refresh(patient)
+    assert patient.exonerado_aporte is False
+    assert patient.monto_aporte_comprometido is None
+
+
+@pytest.mark.asyncio
+async def test_aprobacion_media_requiere_monto_comprometido(client, superuser_token, db_session):
+    """MEDIA no exonera del todo: sin monto_comprometido, la aprobación es rechazada con 422."""
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "MEDIA"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_aprobacion_media_fija_monto_y_no_exonera(client, superuser_token, db_session):
+    """MEDIA fija el monto reducido que definió el evaluador; no hay exoneración total."""
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "MEDIA", "monto_comprometido": 200.0},
+    )
+    assert resp.status_code == 200, resp.text
+
+    await db_session.refresh(patient)
+    assert patient.exonerado_aporte is False
+    assert float(patient.monto_aporte_comprometido) == 200.0
+
+
+@pytest.mark.asyncio
+async def test_exclusion_sugerida_requiere_motivo(client, superuser_token, db_session):
+    """Marcar exclusion_sugerida sin motivo_exclusion_sugerida es 422."""
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "BAJA", "exclusion_sugerida": True},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_exclusion_sugerida_solo_aplica_a_baja(client, superuser_token, db_session):
+    """exclusion_sugerida con categoria_final distinto de BAJA es 422."""
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={
+            "decision": "APROBADO",
+            "categoria_final": "MEDIA",
+            "monto_comprometido": 150.0,
+            "exclusion_sugerida": True,
+            "motivo_exclusion_sugerida": "Tiene un negocio propio.",
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_exclusion_sugerida_se_guarda_con_baja_sin_cambiar_estado(client, superuser_token, db_session):
+    """
+    BAJA + exclusion_sugerida queda registrada, pero es solo una sugerencia:
+    el estado del beneficiario (ACTIVO, sin exoneración) no cambia solo por
+    marcarla.
+    """
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "OK"})
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={
+            "decision": "APROBADO",
+            "categoria_final": "BAJA",
+            "exclusion_sugerida": True,
+            "motivo_exclusion_sugerida": "Es propietario de un negocio y tiene ingresos estables altos.",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["exclusion_sugerida"] is True
+    assert data["motivo_exclusion_sugerida"] == "Es propietario de un negocio y tiene ingresos estables altos."
+
+    await db_session.refresh(patient)
+    assert patient.exonerado_aporte is False  # BAJA es pudiente: no se exonera, paga el aporte completo
+    assert patient.estado_beneficio == "ACTIVO"  # no se suspende solo por la sugerencia
+
+    resp_hist = await client.get(f"/social-evaluations/{patient.id}/history")
+    hist = resp_hist.json()
+    assert hist[0]["payload"]["exclusion_sugerida"] is True
+    assert hist[0]["payload"]["motivo_exclusion_sugerida"] == "Es propietario de un negocio y tiene ingresos estables altos."
 
 
 @pytest.mark.asyncio

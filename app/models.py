@@ -549,6 +549,14 @@ class SocialEvaluation(Base):
     categoria_final = Column(String(10), nullable=True)  # ALTA | MEDIA | BAJA
     estado_alerta = Column(String(50), nullable=False, default="NORMAL")  # NORMAL | REVISIÓN MANUAL URGENTE
 
+    # --- Sugerencia de exclusión del programa (solo aplica con categoria_final BAJA) ---
+    # El entrevistador puede marcarla al aprobar si el beneficiario cuenta con medios
+    # económicos suficientes para sostener su condición sin la Fundación. Es solo una
+    # sugerencia: no cambia el estado del beneficiario, queda para que un SUPER_ADMIN
+    # la revise y decida aparte.
+    exclusion_sugerida = Column(Boolean, nullable=False, default=False)
+    motivo_exclusion_sugerida = Column(Text, nullable=True)
+
     # --- Evidencias (URLs de Firebase Storage) ---
     foto_ci_url = Column(String(500), nullable=True)
     foto_fachada_url = Column(String(500), nullable=True)

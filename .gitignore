@@ -6,3 +6,4 @@ PRIVATE_KEY_DO_NOT_SHARE
 firebase_key.json
 firebase-adminsdk.json
 *.csv
+PROJECT_ANALYSIS.MD

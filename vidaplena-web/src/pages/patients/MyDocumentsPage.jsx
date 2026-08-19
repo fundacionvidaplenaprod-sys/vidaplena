@@ -120,16 +120,21 @@ export default function MyDocumentsPage() {
                 };
 
                 // --- CONFIGURACIÓN DE DOCUMENTOS BASE ---
-                // El "Compromiso Firmado" se omite si el paciente ya tiene una
-                // Evaluación Socioeconómica en curso: la revisión de esa
-                // evaluación (avalar/rechazar) reemplaza a ese documento.
+                // El "Compromiso Firmado" se omite solo si la evaluación fue
+                // aprobada con categoría ALTA (exoneración total). Con MEDIA
+                // el compromiso sigue siendo obligatorio con el monto reducido
+                // que fijó el evaluador (ya cerrado, no lo elige el
+                // beneficiario); con BAJA también sigue siendo obligatorio,
+                // pero con el monto completo normal (es pudiente, no se
+                // exonera), igual que un beneficiario sin evaluación.
+                const evaluacionSinExoneracionTotal = evaluation?.estado_revision === 'APROBADO' && evaluation?.categoria_final !== 'ALTA';
                 const baseDocs = [
                     { id: 'ci', label: 'Cédula de Identidad (Paciente)', url: getDocUrl('ci', 'url_ci_paciente'), icon: 'file' },
                     { id: 'medico', label: 'Certificado Médico', url: getDocUrl('medico', 'url_certificado_medico'), icon: 'file' },
                     { id: 'foto', label: 'Foto Actual (Paciente)', url: getDocUrl('foto', 'url_foto_paciente'), icon: 'camera' },
-                    ...(evaluation ? [] : [
+                    ...(!evaluation || evaluacionSinExoneracionTotal ? [
                         { id: 'compromiso', label: 'Compromiso Firmado', url: getDocUrl('compromiso', 'url_declaracion_aporte'), icon: 'file' },
-                    ]),
+                    ] : []),
                 ];
 
                 // --- SI TIENE TUTOR, AGREGAMOS LOS EXTRAS ---
@@ -201,7 +206,7 @@ export default function MyDocumentsPage() {
             link.click();
             link.remove();
 
-            toast.success("Formulario descargado. Fírmalo y súbelo.");
+            toast.success("Compromiso descargado. Fírmalo y súbelo.");
             setShowConfirmModal(false);
         } catch (error) {
             console.error(error);
@@ -276,6 +281,9 @@ export default function MyDocumentsPage() {
     const currentPeriod = new Date().toISOString().slice(0, 7);
     const committedAmount = parseCommittedAmount(patientProfile?.monto_aporte_comprometido) || 0;
     const hasCommittedAmount = committedAmount > 0;
+    const mediaAprobada = socialEvaluation?.estado_revision === 'APROBADO' && socialEvaluation?.categoria_final === 'MEDIA';
+    const bajaAprobada = socialEvaluation?.estado_revision === 'APROBADO' && socialEvaluation?.categoria_final === 'BAJA';
+    const sinExoneracionAprobada = mediaAprobada || bajaAprobada;
     const currentPeriodContribution = contributions.find((item) => item.periodo === currentPeriod);
     const todayDoseTotal = (patientProfile?.treatments || []).reduce((acc, treatment) => {
         return acc + Number(treatment.dosis_diaria || 0);
@@ -577,13 +585,19 @@ export default function MyDocumentsPage() {
                     <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
                         <h2 className="text-2xl font-bold text-gray-800 mb-2">Expediente Digital</h2>
 
-                        {!isReadOnly && !socialEvaluation && (
+                        {!isReadOnly && (!socialEvaluation || sinExoneracionAprobada) && (
                             <div className="bg-gradient-to-r from-vida-main to-vida-primary rounded-2xl shadow-lg p-6 mb-8 text-white">
                                 <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
                                     <FileText /> Paso 1: Generar Compromiso de Aporte Voluntario
                                 </h3>
                                 <p className="text-sm text-white/80 mb-4">
-                                    Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su compromiso.
+                                    {hasCommittedAmount
+                                        ? mediaAprobada
+                                            ? `Su evaluación socioeconómica fijó un aporte mensual reducido de Bs. ${committedAmount}. Descargue, imprima y firme su compromiso con ese monto.`
+                                            : `Su aporte mensual ya está fijado en Bs. ${committedAmount}. Descargue, imprima y firme su compromiso.`
+                                        : bajaAprobada
+                                            ? 'Su evaluación socioeconómica determinó que no corresponde exoneración. Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su compromiso.'
+                                            : 'Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su compromiso.'}
                                 </p>
 
                                 <div className="flex flex-col sm:flex-row items-end gap-4">
@@ -612,7 +626,7 @@ export default function MyDocumentsPage() {
                                         className="bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200 font-bold shadow-lg w-full sm:w-auto"
                                     >
 
-                                        <Download size={18} className="mr-2" /> Descargar Formulario
+                                        <Download size={18} className="mr-2" /> Descargar Compromiso
                                     </Button>
                                 </div>
 
@@ -637,13 +651,40 @@ export default function MyDocumentsPage() {
                         )}
                         {socialEvaluation && (
                             <div className={`border-l-4 rounded-r-xl p-4 mb-6 shadow-sm ${
-                                socialEvaluation.estado_revision === 'APROBADO'
-                                    ? 'bg-green-50 border-green-500'
-                                    : socialEvaluation.estado_revision === 'RECHAZADO' || socialEvaluation.estado_revision === 'RECHAZADO_FRAUDE'
-                                        ? 'bg-red-50 border-red-500'
-                                        : 'bg-blue-50 border-blue-500'
+                                socialEvaluation.estado_revision === 'APROBADO' && bajaAprobada
+                                    ? 'bg-amber-50 border-amber-500'
+                                    : socialEvaluation.estado_revision === 'APROBADO'
+                                        ? 'bg-green-50 border-green-500'
+                                        : socialEvaluation.estado_revision === 'RECHAZADO' || socialEvaluation.estado_revision === 'RECHAZADO_FRAUDE'
+                                            ? 'bg-red-50 border-red-500'
+                                            : 'bg-blue-50 border-blue-500'
                             }`}>
-                                {socialEvaluation.estado_revision === 'APROBADO' && (
+                                {socialEvaluation.estado_revision === 'APROBADO' && mediaAprobada && (
+                                    <>
+                                        <h3 className="font-bold text-green-800 flex items-center gap-2">
+                                            <CheckCircle size={20} /> Evaluación avalada — aporte reducido
+                                        </h3>
+                                        <p className="text-sm text-green-700 mt-1">
+                                            Su evaluación socioeconómica fue avalada con un aporte mensual
+                                            reducido{hasCommittedAmount ? ` de Bs. ${committedAmount}` : ''}.
+                                            Descargue y suba el compromiso firmado con ese monto en el Paso 1.
+                                        </p>
+                                    </>
+                                )}
+                                {socialEvaluation.estado_revision === 'APROBADO' && bajaAprobada && (
+                                    <>
+                                        <h3 className="font-bold text-amber-800 flex items-center gap-2">
+                                            <AlertTriangle size={20} /> Evaluación avalada — sin exoneración
+                                        </h3>
+                                        <p className="text-sm text-amber-700 mt-1">
+                                            Su evaluación socioeconómica fue avalada, pero no corresponde
+                                            exoneración: cuenta con los medios económicos para sostener su
+                                            aporte. Descargue y suba el compromiso firmado con el aporte
+                                            completo en el Paso 1.
+                                        </p>
+                                    </>
+                                )}
+                                {socialEvaluation.estado_revision === 'APROBADO' && !mediaAprobada && !bajaAprobada && (
                                     <>
                                         <h3 className="font-bold text-green-800 flex items-center gap-2">
                                             <CheckCircle size={20} /> Exonerado del aporte solidario
