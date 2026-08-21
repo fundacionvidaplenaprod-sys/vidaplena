@@ -154,3 +154,52 @@ async def test_registrar_aporte_no_reemplaza_ya_aceptado(client, superuser_token
         files=_fake_file(),
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_historial_de_aportes_de_un_beneficiario(client, superuser_token, db_session):
+    """
+    GET /contributions/patient/{id} trae todos los periodos/estados de UN
+    beneficiario, para verificar/certificar si subió su voucher de un mes
+    puntual sin buscarlo en la lista general.
+    """
+    patient = await _crear_patient(db_session)
+    otro_patient = await _crear_patient(db_session)
+
+    db_session.add_all([
+        models.MonthlyContribution(
+            patient_id=patient.id, periodo="2026-07", fecha_pago=date(2026, 7, 3),
+            monto=100.0, url_comprobante="https://fake-storage.test/julio.jpg", estado="ACEPTADO",
+        ),
+        models.MonthlyContribution(
+            patient_id=patient.id, periodo="2026-08", fecha_pago=date(2026, 8, 4),
+            monto=100.0, url_comprobante="https://fake-storage.test/agosto.jpg", estado="DECLARADO",
+        ),
+        # De otro beneficiario: no debe aparecer en el historial de `patient`.
+        models.MonthlyContribution(
+            patient_id=otro_patient.id, periodo="2026-08", fecha_pago=date(2026, 8, 4),
+            monto=100.0, url_comprobante="https://fake-storage.test/otro.jpg", estado="ACEPTADO",
+        ),
+    ])
+    await db_session.commit()
+
+    resp = await client.get(f"/contributions/patient/{patient.id}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 2
+    periodos = {item["periodo"]: item["estado"] for item in body}
+    assert periodos == {"2026-07": "ACEPTADO", "2026-08": "DECLARADO"}
+    assert all(item["patient_id"] == patient.id for item in body)
+
+
+@pytest.mark.asyncio
+async def test_historial_de_aportes_requiere_staff(client, patient_token, db_session):
+    patient = await _crear_patient(db_session)
+    resp = await client.get(f"/contributions/patient/{patient.id}")
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_historial_de_aportes_paciente_inexistente_404(client, superuser_token):
+    resp = await client.get("/contributions/patient/999999999")
+    assert resp.status_code == 404

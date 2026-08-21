@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FileText, CheckCircle, XCircle, User, ArrowLeft, ExternalLink, Users, UploadCloud } from 'lucide-react';
+import { FileText, CheckCircle, XCircle, User, ArrowLeft, ExternalLink, Users, UploadCloud, Wallet } from 'lucide-react';
 import { Button } from '../../components/ui/Button'; // Ajusta la ruta a tu componente Button
 import { toast } from 'react-hot-toast';
 import client from '../../api/axios'; // Ajusta la ruta a tu cliente axios
 import { uploadPatientDocumentAdmin } from '../../api/patients';
+
+const APORTE_ESTADO_STYLES = {
+    ACEPTADO: 'bg-green-100 text-green-700 border-green-200',
+    OBSERVADO: 'bg-red-100 text-red-700 border-red-200',
+    DECLARADO: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+};
 
 const DOC_FIELD_BY_KEY = {
     ci: 'url_ci_paciente',
@@ -26,6 +32,8 @@ export default function PatientReviewPage() {
     const [observedDocs, setObservedDocs] = useState({});
     const [observationNotes, setObservationNotes] = useState({});
     const [uploadingDoc, setUploadingDoc] = useState(null);
+    const [contributions, setContributions] = useState([]);
+    const [loadingContributions, setLoadingContributions] = useState(true);
 
     // 1. Cargar datos del paciente
     useEffect(() => {
@@ -42,6 +50,23 @@ export default function PatientReviewPage() {
             }
         };
         fetchPatient();
+    }, [id]);
+
+    // 1.b Cargar historial de aportes (vouchers) del beneficiario, para poder
+    // verificar/certificar si realmente subió el de un mes puntual.
+    useEffect(() => {
+        const fetchContributions = async () => {
+            try {
+                setLoadingContributions(true);
+                const { data } = await client.get(`/contributions/patient/${id}`);
+                setContributions(Array.isArray(data) ? data : []);
+            } catch (error) {
+                console.error("Error cargando historial de aportes:", error);
+            } finally {
+                setLoadingContributions(false);
+            }
+        };
+        fetchContributions();
     }, [id]);
 
     // 2. Función para cambiar estado (Aprobar/Rechazar)
@@ -284,6 +309,54 @@ export default function PatientReviewPage() {
                             </div>
                         )}
                     </div>
+                </div>
+
+                {/* Historial de Aportes (Vouchers) */}
+                <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+                    <h3 className="font-bold text-gray-700 flex items-center gap-2 mb-4">
+                        <Wallet size={18} /> Historial de Aportes (Vouchers)
+                    </h3>
+                    {loadingContributions ? (
+                        <p className="text-sm text-gray-400">Cargando historial...</p>
+                    ) : contributions.length === 0 ? (
+                        <p className="text-sm text-gray-400">
+                            Este beneficiario no tiene ningún aporte declarado todavía.
+                        </p>
+                    ) : (
+                        <div className="space-y-2">
+                            {contributions.map((item) => (
+                                <div
+                                    key={item.id}
+                                    className="border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap"
+                                >
+                                    <div>
+                                        <p className="text-sm font-semibold text-gray-800">
+                                            Periodo {item.periodo} — Bs. {item.monto}
+                                        </p>
+                                        <p className="text-xs text-gray-500">
+                                            Fecha de pago: {item.fecha_pago}
+                                            {item.observacion_admin && (
+                                                <span className="text-red-600"> · {item.observacion_admin}</span>
+                                            )}
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-xs font-bold px-2 py-1 rounded-full border ${APORTE_ESTADO_STYLES[item.estado] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                                            {item.estado}
+                                        </span>
+                                        <a
+                                            href={item.url_comprobante}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium px-3 py-1 bg-blue-50 rounded-md"
+                                        >
+                                            Ver voucher <ExternalLink size={14} />
+                                        </a>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Barra de Acciones */}

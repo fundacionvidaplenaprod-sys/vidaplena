@@ -246,7 +246,7 @@ async def read_my_contributions(
     return result.scalars().all()
 
 async def _fetch_contributions_for_review(
-    db: AsyncSession, estado: Optional[str]
+    db: AsyncSession, estado: Optional[str], patient_id: Optional[int] = None
 ) -> List[schemas.ContributionReviewResponse]:
     query = (
         select(models.MonthlyContribution, models.Patient)
@@ -258,6 +258,8 @@ async def _fetch_contributions_for_review(
     )
     if estado:
         query = query.where(models.MonthlyContribution.estado == estado)
+    if patient_id:
+        query = query.where(models.MonthlyContribution.patient_id == patient_id)
 
     result = await db.execute(query)
     rows = result.all()
@@ -290,6 +292,28 @@ async def read_contributions_for_review(
         raise HTTPException(status_code=403, detail="No tiene permisos para revisar aportes.")
 
     return await _fetch_contributions_for_review(db, estado)
+
+
+@router.get("/patient/{patient_id}", response_model=List[schemas.ContributionReviewResponse])
+async def read_contributions_for_patient(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_active_user),
+):
+    """
+    Historial completo de aportes de un beneficiario específico (todos los
+    periodos y estados), para cuando hay que verificar/certificar si
+    realmente subió su voucher de un mes puntual — sin tener que buscarlo
+    en la lista general de revisión.
+    """
+    if current_user.role not in ["SUPER_ADMIN", "REGISTRADOR"]:
+        raise HTTPException(status_code=403, detail="No tiene permisos para revisar aportes.")
+
+    patient = await db.get(models.Patient, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado.")
+
+    return await _fetch_contributions_for_review(db, estado=None, patient_id=patient_id)
 
 
 @router.get("/review/export.pdf")
