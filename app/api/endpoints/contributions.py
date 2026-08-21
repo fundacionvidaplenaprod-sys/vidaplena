@@ -376,7 +376,7 @@ async def export_contributions_report_pdf(
     for item in items:
         table_data.append([
             Paragraph(item.patient_nombre, styles["Normal"]),
-            item.patient_ci,
+            item.patient_ci or "Sin CI",
             item.periodo,
             item.fecha_pago.strftime("%d/%m/%Y"),
             f"{item.monto:.2f}",

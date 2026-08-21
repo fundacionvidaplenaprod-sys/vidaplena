@@ -408,7 +408,7 @@ class ContributionReviewResponse(BaseModel):
     id: int
     patient_id: int
     patient_nombre: str
-    patient_ci: str
+    patient_ci: Optional[str] = None
     periodo: str
     fecha_pago: date
     monto: float

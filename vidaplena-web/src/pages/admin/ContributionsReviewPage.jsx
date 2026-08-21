@@ -262,7 +262,7 @@ export default function ContributionsReviewPage() {
                             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                                 <div>
                                     <p className="font-semibold text-gray-800">
-                                        {item.patient_nombre} - CI {item.patient_ci}
+                                        {item.patient_nombre} - CI {item.patient_ci || 'Sin CI registrado'}
                                     </p>
                                     <p className="text-sm text-gray-500 mt-1">
                                         Periodo {item.periodo} | Pago {item.fecha_pago} | Monto Bs. {item.monto}

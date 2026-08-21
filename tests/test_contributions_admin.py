@@ -13,7 +13,31 @@ from datetime import date
 import pytest
 
 from app import models
+from app.main import app
+from app.api import deps
 from app.api.endpoints import contributions as contributions_module
+
+
+async def _switch_identity(db_session, role: str) -> models.User:
+    """Crea un usuario con el rol dado y hace que el `client` autentique como él."""
+    user = models.User(
+        email=f"{role.lower()}_{uuid.uuid4().hex[:8]}@test.com",
+        password_hash="fakehash",
+        role=role,
+        estado="ACTIVO",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    async def _override():
+        return user
+
+    app.dependency_overrides[deps.get_current_active_user] = _override
+    app.dependency_overrides[deps.get_current_user] = _override
+    if role == "SUPER_ADMIN":
+        app.dependency_overrides[deps.get_current_super_user] = _override
+    return user
 
 
 def _fake_upload(file_content, path, content_type):
@@ -203,3 +227,105 @@ async def test_historial_de_aportes_requiere_staff(client, patient_token, db_ses
 async def test_historial_de_aportes_paciente_inexistente_404(client, superuser_token):
     resp = await client.get("/contributions/patient/999999999")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_voucher_declarado_por_beneficiario_aparece_en_revision_filtrada(
+    client, db_session, monkeypatch
+):
+    """
+    Reproduce el reclamo: un beneficiario declara su voucher (queda DECLARADO,
+    igual que el flujo real desde `/contributions/me`, no el registro manual de
+    un admin). Ese voucher debe verse tanto en el historial del beneficiario
+    (`/contributions/patient/{id}`) como en la revisión general filtrando por
+    `estado=DECLARADO` (`/contributions/review`) — ambos deben coincidir.
+    """
+    monkeypatch.setattr(contributions_module, "upload_file_to_firebase", _fake_upload)
+
+    patient_user = await _switch_identity(db_session, "PACIENTE")
+    patient = models.Patient(
+        user_id=patient_user.id,
+        nombres="Voucher",
+        ap_paterno="Declarado",
+        ci=f"CI-{uuid.uuid4().hex[:6]}",
+        fecha_nac=date(1990, 1, 1),
+        estado="ACTIVO",
+    )
+    db_session.add(patient)
+    await db_session.commit()
+    await db_session.refresh(patient)
+
+    declare_resp = await client.post(
+        "/contributions/me",
+        data={"monto": "100.00", "periodo": "2026-09", "fecha_pago": "2026-09-05"},
+        files=_fake_file(),
+    )
+    assert declare_resp.status_code == 201, declare_resp.text
+    assert declare_resp.json()["estado"] == "DECLARADO"
+
+    await _switch_identity(db_session, "SUPER_ADMIN")
+
+    review_resp = await client.get("/contributions/review", params={"estado": "DECLARADO"})
+    assert review_resp.status_code == 200, review_resp.text
+    review_ids = {item["id"] for item in review_resp.json()}
+
+    history_resp = await client.get(f"/contributions/patient/{patient.id}")
+    assert history_resp.status_code == 200, history_resp.text
+    history_declarados = {
+        item["id"] for item in history_resp.json() if item["estado"] == "DECLARADO"
+    }
+
+    assert history_declarados, "El historial del paciente debería mostrar el voucher recién declarado."
+    assert history_declarados.issubset(review_ids), (
+        "El voucher aparece en el historial del paciente pero no en la revisión general "
+        "filtrada por DECLARADO — este es exactamente el síntoma reportado."
+    )
+
+
+@pytest.mark.asyncio
+async def test_revision_no_falla_si_algun_beneficiario_no_tiene_ci(
+    client, db_session, monkeypatch
+):
+    """
+    `Patient.ci` es nullable en la BD (un beneficiario puede estar registrado
+    sin CI todavía), pero `ContributionReviewResponse.patient_ci` exigía un
+    str obligatorio. Bastaba UN beneficiario con `ci=None` y un voucher
+    DECLARADO/OBSERVADO para que `GET /contributions/review` reventara con
+    500 al construir la lista completa — afectando también a "Todos", pero
+    no a filtrar por ACEPTADO si esa fila puntual no estaba en ese estado.
+    Este es el bug real detrás del reclamo de producción.
+    """
+    monkeypatch.setattr(contributions_module, "upload_file_to_firebase", _fake_upload)
+
+    patient_user = await _switch_identity(db_session, "PACIENTE")
+    patient_sin_ci = models.Patient(
+        user_id=patient_user.id,
+        nombres="SinCI",
+        ap_paterno="Registrado",
+        ci=None,
+        fecha_nac=date(1990, 1, 1),
+        estado="PENDIENTE_DOC",
+    )
+    db_session.add(patient_sin_ci)
+    await db_session.commit()
+    await db_session.refresh(patient_sin_ci)
+
+    declare_resp = await client.post(
+        "/contributions/me",
+        data={"monto": "100.00", "periodo": "2026-09", "fecha_pago": "2026-09-05"},
+        files=_fake_file(),
+    )
+    assert declare_resp.status_code == 201, declare_resp.text
+
+    await _switch_identity(db_session, "SUPER_ADMIN")
+
+    resp_declarado = await client.get("/contributions/review", params={"estado": "DECLARADO"})
+    assert resp_declarado.status_code == 200, resp_declarado.text
+    assert any(item["patient_id"] == patient_sin_ci.id for item in resp_declarado.json())
+
+    resp_todos = await client.get("/contributions/review")
+    assert resp_todos.status_code == 200, resp_todos.text
+
+    resp_historial = await client.get(f"/contributions/patient/{patient_sin_ci.id}")
+    assert resp_historial.status_code == 200, resp_historial.text
+    assert resp_historial.json()[0]["patient_ci"] is None
