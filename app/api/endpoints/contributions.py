@@ -145,6 +145,88 @@ async def create_my_contribution(
     await db.refresh(new_contribution)
     return new_contribution
 
+# 1.b ADMIN: Registrar un aporte que el beneficiario pagó pero nunca declaró
+# en la app (p. ej. depósito bancario que trae como comprobante físico).
+# Queda directamente ACEPTADO porque el propio staff lo está verificando al
+# registrarlo — no pasa de nuevo por el flujo de revisión.
+@router.post(
+    "/{patient_id}",
+    response_model=schemas.ContributionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_contribution_admin(
+    patient_id: int,
+    monto: float = Form(..., gt=0),
+    periodo: str = Form(..., regex=r"^\d{4}-\d{2}$"),
+    fecha_pago: date = Form(...),
+    comprobante: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    patient = await db.get(models.Patient, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado.")
+
+    if patient.monto_aporte_comprometido is not None:
+        committed_amount = float(patient.monto_aporte_comprometido)
+        if round(monto, 2) != round(committed_amount, 2):
+            raise HTTPException(
+                status_code=400,
+                detail=f"El voucher debe coincidir con su aporte comprometido de Bs. {committed_amount:.2f}.",
+            )
+
+    existing_query = select(models.MonthlyContribution).where(
+        models.MonthlyContribution.patient_id == patient_id,
+        models.MonthlyContribution.periodo == periodo,
+    )
+    existing_contribution = (await db.execute(existing_query)).scalars().first()
+    if existing_contribution and existing_contribution.estado == "ACEPTADO":
+        raise HTTPException(status_code=400, detail=f"El aporte del periodo {periodo} ya fue validado y no se puede reemplazar.")
+
+    if comprobante.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Tipo de archivo inválido.")
+
+    content = await comprobante.read()
+    if len(content) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="El archivo excede los 2MB.")
+
+    ext = comprobante.filename.split(".")[-1]
+    unique_name = f"pacientes/{patient_id}/aportes/{periodo}/voucher_{uuid.uuid4().hex[:8]}.{ext}"
+
+    try:
+        public_url = upload_file_to_firebase(content, unique_name, comprobante.content_type)
+    except Exception as e:
+        print(f"Error Firebase: {e}")
+        raise HTTPException(status_code=500, detail="Error al subir el voucher.")
+
+    nota = f"Registrado manualmente por {current_user.email} (beneficiario no lo declaró en la app)."
+
+    if existing_contribution:
+        existing_contribution.fecha_pago = fecha_pago
+        existing_contribution.monto = monto
+        existing_contribution.url_comprobante = public_url
+        existing_contribution.estado = "ACEPTADO"
+        existing_contribution.observacion_admin = nota
+        db.add(existing_contribution)
+        await db.commit()
+        await db.refresh(existing_contribution)
+        return existing_contribution
+
+    new_contribution = models.MonthlyContribution(
+        patient_id=patient_id,
+        periodo=periodo,
+        fecha_pago=fecha_pago,
+        monto=monto,
+        url_comprobante=public_url,
+        estado="ACEPTADO",
+        observacion_admin=nota,
+    )
+    db.add(new_contribution)
+    await db.commit()
+    await db.refresh(new_contribution)
+    return new_contribution
+
+
 # 2. VER HISTORIAL
 @router.get("/me", response_model=List[schemas.ContributionResponse])
 async def read_my_contributions(

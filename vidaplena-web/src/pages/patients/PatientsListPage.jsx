@@ -219,6 +219,17 @@ export default function PatientsListPage() {
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <div className="flex items-center justify-end gap-1">
 
+                                                {/* BOTÓN REVISAR DOCUMENTOS (Aún no enviado a revisión) */}
+                                                {patient.estado === 'PENDIENTE_DOC' && (
+                                                    <button
+                                                        onClick={() => navigate(`/dashboard/pacientes/${patient.id}/review`)}
+                                                        className="p-1.5 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-300 hover:text-gray-700 transition-colors"
+                                                        title="Revisar qué documentos subió el beneficiario (aún no envió su carpeta a revisión)"
+                                                    >
+                                                        <FileCheck size={16} />
+                                                    </button>
+                                                )}
+
                                                 {/* BOTÓN REVISAR DOCUMENTOS (Solo si está HABILITADO) */}
                                                 {patient.estado === 'HABILITADO' && (
                                                     <button
