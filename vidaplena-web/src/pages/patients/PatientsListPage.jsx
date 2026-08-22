@@ -106,23 +106,13 @@ export default function PatientsListPage() {
             'PENDIENTE_DOC': 'bg-orange-100 text-orange-700 border-orange-200', // Le faltan papeles
             'PENDIENTE_APORTE': 'bg-yellow-100 text-yellow-800 border-yellow-200', // Alerta de pago ⚠️
             'INACTIVO': 'bg-red-100 text-red-600 border-red-200',
-            'NO_REGISTRADO': 'bg-gray-100 text-gray-600 border-gray-200', // PENDIENTE_DOC sin CI ni dirección cargados
+            'NO_REGISTRADO': 'bg-gray-100 text-gray-600 border-gray-200', // Ni CI ni dirección cargados
         };
         return (
             <span className={`px-3 py-1 rounded-full text-xs font-bold border ${styles[status] || 'bg-gray-100 text-gray-600'}`}>
                 {status || 'DESCONOCIDO'}
             </span>
         );
-    };
-
-    // Dentro de PENDIENTE_DOC, separa visualmente a quienes ni siquiera
-    // cargaron CI o dirección ("no se molestaron en registrarse") de quienes
-    // ya avanzaron algo de su carpeta pero les falta subir documentos.
-    const getDisplayEstado = (patient) => {
-        if (patient.estado === 'PENDIENTE_DOC' && !patient.ci && !patient.direccion) {
-            return 'NO_REGISTRADO';
-        }
-        return patient.estado;
     };
 
     return (
@@ -226,13 +216,13 @@ export default function PatientsListPage() {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-center">
-                                            {getStatusBadge(getDisplayEstado(patient))}
+                                            {getStatusBadge(patient.estado)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <div className="flex items-center justify-end gap-1">
 
                                                 {/* BOTÓN REVISAR DOCUMENTOS (Aún no enviado a revisión) */}
-                                                {patient.estado === 'PENDIENTE_DOC' && (
+                                                {(patient.estado === 'PENDIENTE_DOC' || patient.estado === 'NO_REGISTRADO') && (
                                                     <button
                                                         onClick={() => navigate(`/dashboard/pacientes/${patient.id}/review`)}
                                                         className="p-1.5 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-300 hover:text-gray-700 transition-colors"

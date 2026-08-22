@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import or_, and_, delete, func
+from sqlalchemy import or_, delete, func
 from sqlalchemy.exc import IntegrityError
 
 # ReportLab para PDFs
@@ -55,6 +55,16 @@ DOCUMENT_STRUCTURE_MAP = {
 def calculate_age(born: date):
     today = date.today()
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+def _estado_inicial_patient(ci: Optional[str], direccion: Optional[str]) -> str:
+    """
+    Estado con el que arranca un paciente nuevo: NO_REGISTRADO si no cargó ni
+    CI ni dirección (solo nombres/apellidos/depto, típicamente precargado
+    desde el padrón), o PENDIENTE_DOC si ya avanzó algo de su carpeta.
+    """
+    if not (ci or "").strip() and not (direccion or "").strip():
+        return "NO_REGISTRADO"
+    return "PENDIENTE_DOC"
 
 async def _collect_patient_document_urls(db: AsyncSession, patient: models.Patient) -> List[str]:
     """
@@ -233,7 +243,7 @@ async def create_patient(
         # 2. Crear Objeto Paciente (Sin relaciones anidadas)
         # Excluimos todo lo que sean objetos relacionados para insertarlos manualmente
         patient_data = patient_in.model_dump(exclude={'tutor', 'medical', 'treatments', 'complications'})
-        patient_data['estado'] = "PENDIENTE_DOC" 
+        patient_data['estado'] = _estado_inicial_patient(patient_data.get('ci'), patient_data.get('direccion'))
         
         db_patient = models.Patient(**patient_data)
         db.add(db_patient)
@@ -686,7 +696,7 @@ async def self_register_patient(
 
         # 5. Crear Paciente (misma lógica anidada que create_patient)
         patient_data = patient_in.model_dump(exclude={"tutor", "medical", "treatments", "complications", "password"})
-        patient_data["estado"] = "PENDIENTE_DOC"
+        patient_data["estado"] = _estado_inicial_patient(patient_data.get("ci"), patient_data.get("direccion"))
         patient_data["user_id"] = db_user.id
 
         db_patient = models.Patient(**patient_data)
@@ -1022,18 +1032,7 @@ async def read_paginated_patients(
             )
         )
 
-    # "NO_REGISTRADO" no es un estado real de la columna estado: es la mitad
-    # de PENDIENTE_DOC que ni siquiera cargó CI ni dirección (solo tienen
-    # nombres/apellidos/depto, típicamente cargados por el registrador desde
-    # el padrón pero sin que el beneficiario avanzara nada de su carpeta). La
-    # otra mitad de PENDIENTE_DOC (con CI o dirección ya cargados) sigue
-    # mostrándose como "Pendiente Documentos".
-    sin_datos_basicos = and_(models.Patient.ci.is_(None), models.Patient.direccion.is_(None))
-    if estado == "NO_REGISTRADO":
-        base_query = base_query.where(models.Patient.estado == "PENDIENTE_DOC", sin_datos_basicos)
-    elif estado == "PENDIENTE_DOC":
-        base_query = base_query.where(models.Patient.estado == "PENDIENTE_DOC", ~sin_datos_basicos)
-    elif estado:
+    if estado:
         base_query = base_query.where(models.Patient.estado == estado)
 
     # Count total
@@ -1215,6 +1214,11 @@ async def update_patient(
 
     for field, value in update_data.items():
         setattr(db_patient, field, value)
+
+    # Si estaba "Sin Registrar" (sin CI ni dirección) y con esta edición ya
+    # cargó alguno de los dos, pasa automáticamente a Pendiente Documentos.
+    if db_patient.estado == "NO_REGISTRADO" and (db_patient.ci or db_patient.direccion):
+        db_patient.estado = "PENDIENTE_DOC"
 
     # Actualizar Tutor (Permitido para ambos)
     if patient_in.tutor:
@@ -2094,7 +2098,7 @@ async def change_patient_status(
 
     # 2. Intentar actualizar
 
-    allowed_states = ["ACTIVO", "INACTIVO", "PENDIENTE_DOC", "PENDIENTE_APORTE", "HABILITADO"]
+    allowed_states = ["ACTIVO", "INACTIVO", "PENDIENTE_DOC", "PENDIENTE_APORTE", "HABILITADO", "NO_REGISTRADO"]
     
     if status_data.estado not in allowed_states:
          raise HTTPException(

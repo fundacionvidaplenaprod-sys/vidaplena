@@ -86,72 +86,61 @@ async def test_paginated_patients_combina_estado_y_busqueda(client, db_session, 
     assert all(item["id"] != patient.id for item in resp_no_match.json()["items"])
 
 
-async def _crear_pendiente_doc(db_session, *, ci=None, direccion=None) -> models.Patient:
-    """PENDIENTE_DOC con control explícito de CI/dirección, para probar la
-    subclasificación NO_REGISTRADO (ver `_crear_patient_con_estado`, que
-    siempre pone un CI)."""
-    suffix = uuid.uuid4().hex[:8]
-    user = models.User(
-        email=f"lista_{suffix}@test.com", password_hash="fakehash", role="PACIENTE", estado="ACTIVO",
-    )
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
+@pytest.mark.asyncio
+async def test_paginated_patients_no_registrado_es_estado_real(client, db_session, superuser_token):
+    """
+    NO_REGISTRADO es un valor real de `patients.estado` (columna con FK a
+    patient_states), no algo derivado en tiempo de lectura: se filtra igual
+    que cualquier otro estado.
+    """
+    no_registrado = await _crear_patient_con_estado(db_session, "NO_REGISTRADO")
+    pendiente = await _crear_patient_con_estado(db_session, "PENDIENTE_DOC")
 
-    patient = models.Patient(
-        user_id=user.id,
-        nombres=f"Lista{suffix}",
-        ap_paterno="Prueba",
-        ci=ci,
-        direccion=direccion,
-        fecha_nac=date(1990, 1, 1),
-        estado="PENDIENTE_DOC",
-    )
-    db_session.add(patient)
-    await db_session.commit()
-    await db_session.refresh(patient)
-    return patient
+    resp = await client.get("/patients/paginated", params={"estado": "NO_REGISTRADO", "limit": 200})
+    assert resp.status_code == 200
+    ids = {item["id"] for item in resp.json()["items"]}
+    assert no_registrado.id in ids
+    assert pendiente.id not in ids
 
 
 @pytest.mark.asyncio
-async def test_paginated_patients_no_registrado_solo_sin_ci_ni_direccion(client, db_session, superuser_token):
+async def test_create_patient_sin_ci_ni_direccion_queda_no_registrado(client, db_session, superuser_token):
     """
-    `?estado=NO_REGISTRADO` es la mitad de PENDIENTE_DOC que ni siquiera
-    cargó CI ni dirección — no un estado real de la columna `estado`.
+    POST /patients/ sin CI ni dirección (solo nombres/apellidos/depto, como
+    cuando el registrador precarga desde el padrón) arranca en NO_REGISTRADO.
     """
-    sin_datos = await _crear_pendiente_doc(db_session, ci=None, direccion=None)
-    con_ci = await _crear_pendiente_doc(db_session, ci=f"CI-{uuid.uuid4().hex[:8]}", direccion=None)
-    con_direccion = await _crear_pendiente_doc(db_session, ci=None, direccion="Av. Siempre Viva 123")
-
-    resp = await client.get("/patients/paginated", params={"estado": "NO_REGISTRADO", "limit": 500})
-    assert resp.status_code == 200
-    ids = {item["id"] for item in resp.json()["items"]}
-
-    assert sin_datos.id in ids
-    assert con_ci.id not in ids
-    assert con_direccion.id not in ids
-
-    item = next(item for item in resp.json()["items"] if item["id"] == sin_datos.id)
-    # El valor real de la columna `estado` sigue siendo PENDIENTE_DOC: la
-    # fila es un paciente real de verdad, con botones de revisar/editar/ver
-    # funcionando igual que cualquier otro PENDIENTE_DOC.
-    assert item["estado"] == "PENDIENTE_DOC"
-    assert item["ci"] is None
-    assert item["direccion"] is None
+    resp = await client.post(
+        "/patients/",
+        json={"nombres": "SinDatos", "ap_paterno": "Prueba", "fecha_nac": "1990-01-01", "depto": "Cochabamba"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["estado"] == "NO_REGISTRADO"
 
 
 @pytest.mark.asyncio
-async def test_paginated_patients_pendiente_doc_excluye_sin_ci_ni_direccion(client, db_session, superuser_token):
-    """`?estado=PENDIENTE_DOC` ahora es la otra mitad: ya cargaron CI o dirección."""
-    sin_datos = await _crear_pendiente_doc(db_session, ci=None, direccion=None)
-    con_ci = await _crear_pendiente_doc(db_session, ci=f"CI-{uuid.uuid4().hex[:8]}", direccion=None)
+async def test_create_patient_con_ci_queda_pendiente_doc(client, db_session, superuser_token):
+    """POST /patients/ con CI (o dirección) ya cargado arranca en PENDIENTE_DOC, como antes."""
+    resp = await client.post(
+        "/patients/",
+        json={
+            "nombres": "ConCI", "ap_paterno": "Prueba", "fecha_nac": "1990-01-01",
+            "ci": f"CI-{uuid.uuid4().hex[:8]}",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["estado"] == "PENDIENTE_DOC"
 
-    resp = await client.get("/patients/paginated", params={"estado": "PENDIENTE_DOC", "limit": 500})
-    assert resp.status_code == 200
-    ids = {item["id"] for item in resp.json()["items"]}
 
-    assert con_ci.id in ids
-    assert sin_datos.id not in ids
+@pytest.mark.asyncio
+async def test_update_patient_no_registrado_pasa_a_pendiente_doc_al_cargar_ci(client, db_session, superuser_token):
+    """Editar un NO_REGISTRADO y cargarle CI lo promueve automáticamente a PENDIENTE_DOC."""
+    patient = await _crear_patient_con_estado(db_session, "NO_REGISTRADO")
+    patient.ci = None
+    await db_session.commit()
+
+    resp = await client.put(f"/patients/{patient.id}", json={"ci": f"CI-{uuid.uuid4().hex[:8]}"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["estado"] == "PENDIENTE_DOC"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

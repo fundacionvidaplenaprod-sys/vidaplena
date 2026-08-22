@@ -50,6 +50,7 @@ const ALL_COLUMNS = [
 ];
 
 const DEFAULT_COLUMNS = ['nombres', 'ap_paterno', 'ci', 'edad', 'tipo_diabetes', 'celular', 'aporte_estado'];
+const PAGE_SIZE = 50;
 
 export default function DynamicBeneficiaryReport() {
   const [patients, setPatients] = useState([]);
@@ -58,7 +59,8 @@ export default function DynamicBeneficiaryReport() {
   // States for filters
   const [searchTerm, setSearchTerm] = useState('');
   const [filterEstado, setFilterEstado] = useState('');
-  
+  const [page, setPage] = useState(1);
+
   // Columns
   const [selectedColumnIds, setSelectedColumnIds] = useState(DEFAULT_COLUMNS);
   const [showColumnSelector, setShowColumnSelector] = useState(false);
@@ -104,11 +106,6 @@ export default function DynamicBeneficiaryReport() {
       const enriched = (patientsData || []).map(p => ({
         ...p,
         _aporteEstado: estadoByPatientId.get(p.id) || 'NO REALIZADO',
-        // Dentro de PENDIENTE_DOC, separa a quienes ni siquiera cargaron CI
-        // ni dirección (misma regla que la lista de Beneficiarios).
-        _estadoBeneficiario: p.estado === 'PENDIENTE_DOC' && !p.ci && !p.direccion
-          ? 'NO_REGISTRADO'
-          : p.estado,
       }));
       setPatients(enriched);
     } catch (error) {
@@ -124,11 +121,24 @@ export default function DynamicBeneficiaryReport() {
       const matchSearch = searchTerm === '' || 
         `${p.nombres || ""} ${p.ap_paterno || ""} ${p.ap_materno || ""} ${p.ci || ""}`.toLowerCase().includes(searchTerm.toLowerCase());
       
-      const matchEstado = filterEstado === '' || p._estadoBeneficiario === filterEstado;
+      const matchEstado = filterEstado === '' || p.estado === filterEstado;
 
       return matchSearch && matchEstado;
     });
   }, [patients, searchTerm, filterEstado]);
+
+  // Vuelve a la página 1 cuando cambian los filtros/búsqueda (evita quedar
+  // en una página que ya no existe para el nuevo resultado filtrado).
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, filterEstado]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredPatients.length / PAGE_SIZE));
+
+  const paginatedPatients = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredPatients.slice(start, start + PAGE_SIZE);
+  }, [filteredPatients, page]);
 
   // Columnas activas
   const activeColumns = useMemo(() => {
@@ -328,8 +338,8 @@ export default function DynamicBeneficiaryReport() {
                   </div>
                 </td>
               </tr>
-            ) : filteredPatients.length > 0 ? (
-              filteredPatients.map((patient) => (
+            ) : paginatedPatients.length > 0 ? (
+              paginatedPatients.map((patient) => (
                 <tr key={patient.id} className="hover:bg-gray-50/50 transition-colors">
                   {activeColumns.map(col => (
                     <td key={`${patient.id}-${col.id}`} className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
@@ -348,8 +358,34 @@ export default function DynamicBeneficiaryReport() {
           </tbody>
         </table>
       </div>
-      <div className="mt-4 text-xs text-gray-400 text-right">
-        Mostrando {filteredPatients.length} de {patients.length} registros
+      {/* PAGINACIÓN */}
+      <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="text-xs text-gray-400">
+          Mostrando {paginatedPatients.length} de {filteredPatients.length} registros filtrados
+          {filteredPatients.length !== patients.length && ` (${patients.length} en total)`}
+        </div>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Anterior
+            </button>
+            <span className="text-sm text-gray-500">
+              Página <span className="font-medium text-gray-900">{page}</span> de{' '}
+              <span className="font-medium text-gray-900">{totalPages}</span>
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Siguiente
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
