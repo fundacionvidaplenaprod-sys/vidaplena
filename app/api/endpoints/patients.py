@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import or_, delete, func
+from sqlalchemy import or_, and_, delete, func
 from sqlalchemy.exc import IntegrityError
 
 # ReportLab para PDFs
@@ -1009,56 +1009,6 @@ async def read_paginated_patients(
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_staff_user),
 ):
-    # "NO_REGISTRADO" no es un estado real de la tabla patients: son personas
-    # que la Fundación ya conoce (padrón precargado de pacientes.csv, con
-    # nombre/apellidos/depto) pero que nunca completaron el autoregistro, por
-    # lo que no tienen fila en patients. Se listan aparte, desde el padrón.
-    if estado == "NO_REGISTRADO":
-        base_query = select(models.PreregisteredBeneficiary).where(
-            models.PreregisteredBeneficiary.matched_patient_id.is_(None)
-        )
-
-        if search:
-            search_term = f"%{search}%"
-            base_query = base_query.where(
-                or_(
-                    models.PreregisteredBeneficiary.nombres.ilike(search_term),
-                    models.PreregisteredBeneficiary.ap_paterno.ilike(search_term),
-                    models.PreregisteredBeneficiary.ap_materno.ilike(search_term),
-                    models.PreregisteredBeneficiary.depto.ilike(search_term),
-                )
-            )
-
-        count_query = select(func.count()).select_from(base_query.subquery())
-        total_result = await db.execute(count_query)
-        total = total_result.scalar_one()
-
-        items_query = (
-            base_query
-            .order_by(models.PreregisteredBeneficiary.nombres, models.PreregisteredBeneficiary.ap_paterno)
-            .offset(skip)
-            .limit(limit)
-        )
-        items_result = await db.execute(items_query)
-        beneficiaries = items_result.scalars().all()
-
-        items = [
-            {
-                "id": b.id,
-                "tipo": "NO_REGISTRADO",
-                "user_id": None,
-                "nombres": b.nombres,
-                "ap_paterno": b.ap_paterno,
-                "ap_materno": b.ap_materno,
-                "depto": b.depto,
-                "estado": "NO_REGISTRADO",
-                "created_at": b.created_at,
-                "updated_at": b.created_at,
-            }
-            for b in beneficiaries
-        ]
-        return {"total": total, "items": items}
-
     base_query = select(models.Patient)
 
     if search:
@@ -1072,7 +1022,18 @@ async def read_paginated_patients(
             )
         )
 
-    if estado:
+    # "NO_REGISTRADO" no es un estado real de la columna estado: es la mitad
+    # de PENDIENTE_DOC que ni siquiera cargó CI ni dirección (solo tienen
+    # nombres/apellidos/depto, típicamente cargados por el registrador desde
+    # el padrón pero sin que el beneficiario avanzara nada de su carpeta). La
+    # otra mitad de PENDIENTE_DOC (con CI o dirección ya cargados) sigue
+    # mostrándose como "Pendiente Documentos".
+    sin_datos_basicos = and_(models.Patient.ci.is_(None), models.Patient.direccion.is_(None))
+    if estado == "NO_REGISTRADO":
+        base_query = base_query.where(models.Patient.estado == "PENDIENTE_DOC", sin_datos_basicos)
+    elif estado == "PENDIENTE_DOC":
+        base_query = base_query.where(models.Patient.estado == "PENDIENTE_DOC", ~sin_datos_basicos)
+    elif estado:
         base_query = base_query.where(models.Patient.estado == estado)
 
     # Count total
