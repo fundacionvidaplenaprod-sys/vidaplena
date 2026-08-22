@@ -241,6 +241,11 @@ class PatientResponse(PatientBase):
     user_id: Optional[int]
     edad_calc: Optional[int] = None
     estado: str
+    # Distingue un paciente real (con carpeta abierta) de una entrada
+    # sintética del padrón precargado que aún no se autoregistró (ver
+    # PreregisteredBeneficiary / estado sintético "NO_REGISTRADO" en
+    # GET /patients/paginated).
+    tipo: Literal["PACIENTE", "NO_REGISTRADO"] = "PACIENTE"
     estado_beneficio: str = "ACTIVO"
     evaluacion_bloqueada_hasta: Optional[date] = None
     exonerado_aporte: bool = False

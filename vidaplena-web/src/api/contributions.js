@@ -6,6 +6,12 @@ export const getMyContributions = async () => {
   return response.data;
 };
 
+export const getContributionsReview = async (estado) => {
+  const params = estado ? { estado } : {};
+  const response = await client.get('/contributions/review', { params });
+  return response.data;
+};
+
 export const previewContributionOcr = async (file) => {
   const formData = new FormData();
   formData.append('comprobante', file);

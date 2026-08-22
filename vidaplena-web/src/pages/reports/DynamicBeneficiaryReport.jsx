@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getPatients } from '../../api/patients';
+import { getContributionsReview } from '../../api/contributions';
 import { Download, Filter, Search, Columns, RefreshCcw } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
@@ -45,9 +46,10 @@ const ALL_COLUMNS = [
   { id: 'tipo_diabetes', label: 'Tipo Diabetes', getValue: p => p.medical?.tipo_diabetes || '-' },
   { id: 'tutor_nombres', label: 'Tutor', getValue: p => p.tutor ? `${p.tutor.nombres} ${p.tutor.apellidos}` : '-' },
   { id: 'estado', label: 'Estado', getValue: p => p.estado || '-' },
+  { id: 'aporte_estado', label: 'Estado Aporte', getValue: p => p._aporteEstado || 'NO REALIZADO' },
 ];
 
-const DEFAULT_COLUMNS = ['nombres', 'ap_paterno', 'ci', 'edad', 'tipo_diabetes', 'celular'];
+const DEFAULT_COLUMNS = ['nombres', 'ap_paterno', 'ci', 'edad', 'tipo_diabetes', 'celular', 'aporte_estado'];
 
 export default function DynamicBeneficiaryReport() {
   const [patients, setPatients] = useState([]);
@@ -87,8 +89,23 @@ export default function DynamicBeneficiaryReport() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const data = await getPatients();
-      setPatients(data || []);
+      const [patientsData, contributionsData] = await Promise.all([
+        getPatients(),
+        getContributionsReview().catch(() => []),
+      ]);
+
+      // Estado del aporte del periodo actual (mes en curso) por beneficiario.
+      const currentPeriod = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+      const estadoByPatientId = new Map();
+      (contributionsData || [])
+        .filter(c => c.periodo === currentPeriod)
+        .forEach(c => estadoByPatientId.set(c.patient_id, c.estado));
+
+      const enriched = (patientsData || []).map(p => ({
+        ...p,
+        _aporteEstado: estadoByPatientId.get(p.id) || 'NO REALIZADO',
+      }));
+      setPatients(enriched);
     } catch (error) {
       toast.error('Error al cargar beneficiarios');
     } finally {

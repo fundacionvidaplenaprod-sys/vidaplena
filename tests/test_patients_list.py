@@ -86,6 +86,76 @@ async def test_paginated_patients_combina_estado_y_busqueda(client, db_session, 
     assert all(item["id"] != patient.id for item in resp_no_match.json()["items"])
 
 
+@pytest.mark.asyncio
+async def test_paginated_patients_no_registrado_lista_padron_no_autoregistrado(client, db_session, superuser_token):
+    """
+    `?estado=NO_REGISTRADO` no filtra la tabla patients (no existe ese estado
+    ahí): lista, en su lugar, el padrón precargado (PreregisteredBeneficiary)
+    cuyo `matched_patient_id` sigue nulo, es decir, gente que la Fundación ya
+    conoce pero que nunca completó el autoregistro.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    no_registrado = models.PreregisteredBeneficiary(
+        nombres=f"Padron{suffix}", ap_paterno="Nunca", ap_materno="Registrado", depto="Cochabamba",
+    )
+    db_session.add(no_registrado)
+    await db_session.commit()
+    await db_session.refresh(no_registrado)
+
+    # Un paciente real (con carpeta abierta) NO debe aparecer en este filtro.
+    activo = await _crear_patient_con_estado(db_session, "ACTIVO")
+
+    resp = await client.get(
+        "/patients/paginated",
+        params={"estado": "NO_REGISTRADO", "search": no_registrado.nombres, "limit": 200},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    ids = {item["id"] for item in data["items"]}
+    assert no_registrado.id in ids
+    assert activo.id not in ids
+
+    item = next(item for item in data["items"] if item["id"] == no_registrado.id)
+    assert item["tipo"] == "NO_REGISTRADO"
+    assert item["estado"] == "NO_REGISTRADO"
+    assert item["nombres"] == no_registrado.nombres
+    assert item["depto"] == "Cochabamba"
+    assert item["ci"] is None
+
+
+@pytest.mark.asyncio
+async def test_paginated_patients_no_registrado_excluye_ya_autoregistrados(client, db_session, superuser_token):
+    """Si el padrón ya tiene `matched_patient_id` (se autoregistró), no cuenta como NO_REGISTRADO."""
+    suffix = uuid.uuid4().hex[:8]
+    patient = await _crear_patient_con_estado(db_session, "PENDIENTE_DOC")
+
+    ya_registrado = models.PreregisteredBeneficiary(
+        nombres=f"YaRegistrado{suffix}", ap_paterno="X", matched_patient_id=patient.id,
+    )
+    db_session.add(ya_registrado)
+    await db_session.commit()
+    await db_session.refresh(ya_registrado)
+
+    resp = await client.get(
+        "/patients/paginated",
+        params={"estado": "NO_REGISTRADO", "search": ya_registrado.nombres, "limit": 200},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_paginated_patients_reales_traen_tipo_paciente_por_defecto(client, db_session, superuser_token):
+    """Los pacientes reales siguen trayendo `tipo: PACIENTE` (valor por defecto del nuevo campo)."""
+    activo = await _crear_patient_con_estado(db_session, "ACTIVO")
+
+    resp = await client.get("/patients/paginated", params={"estado": "ACTIVO", "limit": 200})
+    assert resp.status_code == 200
+    item = next(item for item in resp.json()["items"] if item["id"] == activo.id)
+    assert item["tipo"] == "PACIENTE"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Regresión: estos endpoints de datos de pacientes (lectura y escritura)
 #  no exigían ningún login. Se restringieron a personal autorizado

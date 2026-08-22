@@ -1009,6 +1009,56 @@ async def read_paginated_patients(
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_staff_user),
 ):
+    # "NO_REGISTRADO" no es un estado real de la tabla patients: son personas
+    # que la Fundación ya conoce (padrón precargado de pacientes.csv, con
+    # nombre/apellidos/depto) pero que nunca completaron el autoregistro, por
+    # lo que no tienen fila en patients. Se listan aparte, desde el padrón.
+    if estado == "NO_REGISTRADO":
+        base_query = select(models.PreregisteredBeneficiary).where(
+            models.PreregisteredBeneficiary.matched_patient_id.is_(None)
+        )
+
+        if search:
+            search_term = f"%{search}%"
+            base_query = base_query.where(
+                or_(
+                    models.PreregisteredBeneficiary.nombres.ilike(search_term),
+                    models.PreregisteredBeneficiary.ap_paterno.ilike(search_term),
+                    models.PreregisteredBeneficiary.ap_materno.ilike(search_term),
+                    models.PreregisteredBeneficiary.depto.ilike(search_term),
+                )
+            )
+
+        count_query = select(func.count()).select_from(base_query.subquery())
+        total_result = await db.execute(count_query)
+        total = total_result.scalar_one()
+
+        items_query = (
+            base_query
+            .order_by(models.PreregisteredBeneficiary.nombres, models.PreregisteredBeneficiary.ap_paterno)
+            .offset(skip)
+            .limit(limit)
+        )
+        items_result = await db.execute(items_query)
+        beneficiaries = items_result.scalars().all()
+
+        items = [
+            {
+                "id": b.id,
+                "tipo": "NO_REGISTRADO",
+                "user_id": None,
+                "nombres": b.nombres,
+                "ap_paterno": b.ap_paterno,
+                "ap_materno": b.ap_materno,
+                "depto": b.depto,
+                "estado": "NO_REGISTRADO",
+                "created_at": b.created_at,
+                "updated_at": b.created_at,
+            }
+            for b in beneficiaries
+        ]
+        return {"total": total, "items": items}
+
     base_query = select(models.Patient)
 
     if search:

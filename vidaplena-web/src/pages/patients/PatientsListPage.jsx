@@ -106,6 +106,7 @@ export default function PatientsListPage() {
             'PENDIENTE_DOC': 'bg-orange-100 text-orange-700 border-orange-200', // Le faltan papeles
             'PENDIENTE_APORTE': 'bg-yellow-100 text-yellow-800 border-yellow-200', // Alerta de pago ⚠️
             'INACTIVO': 'bg-red-100 text-red-600 border-red-200',
+            'NO_REGISTRADO': 'bg-gray-100 text-gray-600 border-gray-200', // Conocido por la Fundación, nunca se autoregistró
         };
         return (
             <span className={`px-3 py-1 rounded-full text-xs font-bold border ${styles[status] || 'bg-gray-100 text-gray-600'}`}>
@@ -172,6 +173,7 @@ export default function PatientsListPage() {
                     <option value="ACTIVO">Activo</option>
                     <option value="PENDIENTE_APORTE">Pendiente Aporte</option>
                     <option value="INACTIVO">Inactivo</option>
+                    <option value="NO_REGISTRADO">No Registrado</option>
                 </select>
             </div>
 
@@ -219,6 +221,22 @@ export default function PatientsListPage() {
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <div className="flex items-center justify-end gap-1">
 
+                                                {/* NO_REGISTRADO: no es un paciente real, no tiene expediente que editar/ver/eliminar */}
+                                                {patient.tipo === 'NO_REGISTRADO' ? (
+                                                    isSuperAdmin ? (
+                                                        <Link to="/dashboard/corregir-beneficiarios">
+                                                            <button
+                                                                className="p-1.5 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                                                title="Corregir datos en el padrón"
+                                                            >
+                                                                <Edit2 size={16} />
+                                                            </button>
+                                                        </Link>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-400 italic">Aún no se autoregistró</span>
+                                                    )
+                                                ) : (
+                                                <>
                                                 {/* BOTÓN REVISAR DOCUMENTOS (Aún no enviado a revisión) */}
                                                 {patient.estado === 'PENDIENTE_DOC' && (
                                                     <button
@@ -298,6 +316,8 @@ export default function PatientsListPage() {
                                                     >
                                                         <Trash2 size={16} />
                                                     </button>
+                                                )}
+                                                </>
                                                 )}
 
                                             </div>
