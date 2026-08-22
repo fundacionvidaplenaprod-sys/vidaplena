@@ -58,7 +58,6 @@ export default function DynamicBeneficiaryReport() {
   // States for filters
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDiabetes, setFilterDiabetes] = useState('');
-  const [filterAporte, setFilterAporte] = useState('');
   
   // Columns
   const [selectedColumnIds, setSelectedColumnIds] = useState(DEFAULT_COLUMNS);
@@ -123,11 +122,9 @@ export default function DynamicBeneficiaryReport() {
       const matchDiabetes = filterDiabetes === '' ||
         (p.medical?.tipo_diabetes && p.medical.tipo_diabetes.toUpperCase().includes(filterDiabetes.toUpperCase()));
 
-      const matchAporte = filterAporte === '' || p._aporteEstado === filterAporte;
-
-      return matchSearch && matchDiabetes && matchAporte;
+      return matchSearch && matchDiabetes;
     });
-  }, [patients, searchTerm, filterDiabetes, filterAporte]);
+  }, [patients, searchTerm, filterDiabetes]);
 
   // Columnas activas
   const activeColumns = useMemo(() => {
@@ -180,7 +177,7 @@ export default function DynamicBeneficiaryReport() {
       doc.setFont("helvetica", "normal");
       doc.text(`Fecha de generación: ${new Date().toLocaleDateString('es-BO')} ${new Date().toLocaleTimeString('es-BO')}`, margin + 30, 27);
       
-      const filterText = `Total Registros: ${filteredPatients.length} ${filterDiabetes ? `| Filtro Diabetes: ${filterDiabetes}` : ''} ${filterAporte ? `| Filtro Aporte: ${filterAporte}` : ''}`;
+      const filterText = `Total Registros: ${filteredPatients.length} ${filterDiabetes ? `| Filtro Diabetes: ${filterDiabetes}` : ''}`;
       doc.text(filterText, margin + 30, 32);
     };
 
@@ -253,22 +250,6 @@ export default function DynamicBeneficiaryReport() {
               <option value="TIPO 2">Tipo 2</option>
               <option value="GESTACIONAL">Gestacional</option>
               <option value="OTRA">Otra</option>
-            </select>
-          </div>
-
-          {/* Filtro Estado Aporte */}
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <select
-              value={filterAporte}
-              onChange={(e) => setFilterAporte(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-vida-main w-full md:w-48 appearance-none bg-white"
-            >
-              <option value="">Todos los aportes</option>
-              <option value="DECLARADO">Declarado</option>
-              <option value="OBSERVADO">Observado</option>
-              <option value="ACEPTADO">Aceptado</option>
-              <option value="NO REALIZADO">No realizado</option>
             </select>
           </div>
 
