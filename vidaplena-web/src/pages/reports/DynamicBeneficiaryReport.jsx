@@ -57,7 +57,7 @@ export default function DynamicBeneficiaryReport() {
   
   // States for filters
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterAporte, setFilterAporte] = useState('');
+  const [filterEstado, setFilterEstado] = useState('');
   
   // Columns
   const [selectedColumnIds, setSelectedColumnIds] = useState(DEFAULT_COLUMNS);
@@ -104,6 +104,11 @@ export default function DynamicBeneficiaryReport() {
       const enriched = (patientsData || []).map(p => ({
         ...p,
         _aporteEstado: estadoByPatientId.get(p.id) || 'NO REALIZADO',
+        // Dentro de PENDIENTE_DOC, separa a quienes ni siquiera cargaron CI
+        // ni dirección (misma regla que la lista de Beneficiarios).
+        _estadoBeneficiario: p.estado === 'PENDIENTE_DOC' && !p.ci && !p.direccion
+          ? 'NO_REGISTRADO'
+          : p.estado,
       }));
       setPatients(enriched);
     } catch (error) {
@@ -119,11 +124,11 @@ export default function DynamicBeneficiaryReport() {
       const matchSearch = searchTerm === '' || 
         `${p.nombres || ""} ${p.ap_paterno || ""} ${p.ap_materno || ""} ${p.ci || ""}`.toLowerCase().includes(searchTerm.toLowerCase());
       
-      const matchAporte = filterAporte === '' || p._aporteEstado === filterAporte;
+      const matchEstado = filterEstado === '' || p._estadoBeneficiario === filterEstado;
 
-      return matchSearch && matchAporte;
+      return matchSearch && matchEstado;
     });
-  }, [patients, searchTerm, filterAporte]);
+  }, [patients, searchTerm, filterEstado]);
 
   // Columnas activas
   const activeColumns = useMemo(() => {
@@ -176,7 +181,7 @@ export default function DynamicBeneficiaryReport() {
       doc.setFont("helvetica", "normal");
       doc.text(`Fecha de generación: ${new Date().toLocaleDateString('es-BO')} ${new Date().toLocaleTimeString('es-BO')}`, margin + 30, 27);
       
-      const filterText = `Total Registros: ${filteredPatients.length} ${filterAporte ? `| Filtro Aporte: ${filterAporte}` : ''}`;
+      const filterText = `Total Registros: ${filteredPatients.length} ${filterEstado ? `| Filtro Estado: ${filterEstado}` : ''}`;
       doc.text(filterText, margin + 30, 32);
     };
 
@@ -236,19 +241,19 @@ export default function DynamicBeneficiaryReport() {
             />
           </div>
 
-          {/* Filtro Estado Aporte */}
+          {/* Filtro Estado del Beneficiario */}
           <div className="relative">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <select
-              value={filterAporte}
-              onChange={(e) => setFilterAporte(e.target.value)}
+              value={filterEstado}
+              onChange={(e) => setFilterEstado(e.target.value)}
               className="pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-vida-main w-full md:w-48 appearance-none bg-white"
             >
-              <option value="">Todos los aportes</option>
-              <option value="DECLARADO">Declarado</option>
-              <option value="OBSERVADO">Observado</option>
-              <option value="ACEPTADO">Aceptado</option>
-              <option value="NO REALIZADO">No realizado</option>
+              <option value="">Todos los estados</option>
+              <option value="ACTIVO">Activo</option>
+              <option value="HABILITADO">Habilitado</option>
+              <option value="PENDIENTE_DOC">Pendiente Documentos</option>
+              <option value="NO_REGISTRADO">No Registrado</option>
             </select>
           </div>
 
