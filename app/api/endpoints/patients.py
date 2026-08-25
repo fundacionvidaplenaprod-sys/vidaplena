@@ -1893,7 +1893,7 @@ async def download_commitment_template(
 
 
     # TÍTULO
-    story.append(Paragraph("DECLARACIÓN JURADA DE APORTE VOLUNTARIO Y COMPROMISO INSTITUCIONAL", style_title))
+    story.append(Paragraph("APORTE VOLUNTARIO Y COMPROMISO INSTITUCIONAL", style_title))
     # CÓDIGO DE SEGURIDAD
     story.append(Paragraph(f"CÓDIGO: {security_code}", style_code))
     story.append(Paragraph("(Válido únicamente si el código es legible y no presenta alteraciones)", style_warning))

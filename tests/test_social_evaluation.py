@@ -918,6 +918,27 @@ async def test_registrar_entrevista_guarda_notas_y_fecha(client, superuser_token
 
 
 @pytest.mark.asyncio
+async def test_registrar_entrevista_admite_notas_largas(client, superuser_token, db_session):
+    """
+    Regresión: `notas` tenía un tope de 2000 caracteres que rechazaba (422)
+    apreciaciones detalladas del evaluador social — la columna en BD es
+    Text (sin límite práctico), así que el tope debe ser generoso.
+    """
+    patient = await _crear_patient(db_session)
+    await client.post("/social-evaluations/", json=_payload_base(patient.id))
+
+    notas_largas = "Apreciación detallada del evaluador social. " * 100  # ~4600 caracteres
+    assert len(notas_largas) > 2000
+
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/interview",
+        json={"notas": notas_largas},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["entrevista_notas"] == notas_largas
+
+
+@pytest.mark.asyncio
 async def test_entrevista_habilita_el_veredicto(client, superuser_token, db_session):
     """Tras registrar la entrevista, el review ya no retorna 422."""
     patient = await _crear_patient(db_session)

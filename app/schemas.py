@@ -894,7 +894,7 @@ class SocialEvaluationInterviewUpdate(BaseModel):
     virtual (por medios externos al sistema) con el beneficiario. Requisito
     obligatorio antes de poder avalar o rechazar la evaluación.
     """
-    notas: Optional[str] = Field(None, max_length=2000)
+    notas: Optional[str] = Field(None, max_length=10000)
 
 
 class SocialEvaluationResponse(BaseModel):

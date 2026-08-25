@@ -204,7 +204,12 @@ export default function SocialEvaluationsReviewPage() {
     } catch (error) {
       console.error(error);
       const detail = error?.response?.data?.detail;
-      toast.error(typeof detail === 'string' ? detail : 'No se pudo registrar la entrevista.');
+      const message = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+        ? `Error: ${detail[0].msg} en ${detail[0].loc.join(' -> ')}`
+        : 'No se pudo registrar la entrevista.';
+      toast.error(message);
     } finally {
       setInterviewSubmittingId(null);
     }
