@@ -208,7 +208,7 @@ export default function ContributionsReviewPage() {
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-800">Revision de vouchers de aporte</h1>
-                    <p className="text-sm text-gray-500">Aprobar u observar comprobantes de aportes voluntarios.</p>
+                    <p className="text-sm text-gray-500">Aprobar u observar comprobantes de aportes solidarios.</p>
                 </div>
                 <div className="flex items-center gap-2">
                     <select

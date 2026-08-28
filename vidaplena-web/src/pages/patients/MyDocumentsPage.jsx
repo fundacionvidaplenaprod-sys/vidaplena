@@ -137,8 +137,13 @@ export default function MyDocumentsPage() {
                 // pero con el monto completo normal (es pudiente, no se
                 // exonera), igual que un beneficiario sin evaluación.
                 const evaluacionSinExoneracionTotal = evaluation?.estado_revision === 'APROBADO' && evaluation?.categoria_final !== 'ALTA';
+                // La Cédula del beneficiario se omite si nunca la registró
+                // (menor sin CI: es opcional en su registro, así que no se le
+                // puede exigir que suba un documento que no tiene).
                 const baseDocs = [
-                    { id: 'ci', label: 'Cédula de Identidad (Paciente)', url: getDocUrl('ci', 'url_ci_paciente'), icon: 'file' },
+                    ...(data.ci ? [
+                        { id: 'ci', label: 'Cédula de Identidad (Paciente)', url: getDocUrl('ci', 'url_ci_paciente'), icon: 'file' },
+                    ] : []),
                     { id: 'medico', label: 'Certificado Médico', url: getDocUrl('medico', 'url_certificado_medico'), icon: 'file' },
                     { id: 'foto', label: 'Foto Actual (Paciente)', url: getDocUrl('foto', 'url_foto_paciente'), icon: 'camera' },
                     ...(!evaluation || evaluacionSinExoneracionTotal ? [
@@ -462,7 +467,7 @@ export default function MyDocumentsPage() {
                                 onClick={() => setShowContributionModal(true)}
                                 className="w-auto px-5 mb-6 inline-flex items-center gap-2"
                             >
-                                <HandCoins size={18} /> Registrar Aporte Voluntario
+                                <HandCoins size={18} /> Registrar Aporte Solidario
                             </Button>
 
                             <h3 className="font-bold text-gray-800 mb-3">Historial de aportes</h3>
@@ -534,7 +539,7 @@ export default function MyDocumentsPage() {
                         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 mb-6">
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Mi tratamiento y seguimiento</h2>
                             <p className="text-gray-500 mb-6">
-                                Revise su información registrada y mantenga su aporte voluntario al día para no afectar su dotación.
+                                Revise su información registrada y mantenga su aporte solidario al día para no afectar su dotación.
                             </p>
 
                             <div className="space-y-3 mb-6">
@@ -576,7 +581,7 @@ export default function MyDocumentsPage() {
                         {socialEvaluationSection}
 
                         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
-                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Aporte voluntario mensual</h2>
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Aporte solidario mensual</h2>
                             <p className="text-gray-500 mb-6">
                                 Registre su aporte para validacion. Sin aporte aceptado del periodo, la distribucion puede bloquearse.
                             </p>
@@ -586,7 +591,7 @@ export default function MyDocumentsPage() {
                                 onClick={() => setShowContributionModal(true)}
                                 className="w-auto px-5 mb-6 inline-flex items-center gap-2"
                             >
-                                <HandCoins size={18} /> Registrar Aporte Voluntario
+                                <HandCoins size={18} /> Registrar Aporte Solidario
                             </Button>
 
                             <h3 className="font-bold text-gray-800 mb-3">Historial de aportes</h3>
@@ -644,7 +649,7 @@ export default function MyDocumentsPage() {
                         {!isReadOnly && (!socialEvaluation || sinExoneracionAprobada) && (
                             <div className="bg-gradient-to-r from-vida-main to-vida-primary rounded-2xl shadow-lg p-6 mb-8 text-white">
                                 <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
-                                    <FileText /> Paso 1: Generar Compromiso de Aporte Voluntario
+                                    <FileText /> Paso 1: Generar Compromiso de Aporte Solidario
                                 </h3>
                                 <p className="text-sm text-white/80 mb-4">
                                     {hasCommittedAmount
@@ -652,8 +657,8 @@ export default function MyDocumentsPage() {
                                             ? `Su evaluación socioeconómica fijó un aporte mensual reducido de Bs. ${committedAmount}. Descargue, imprima y firme su compromiso con ese monto.`
                                             : `Su aporte mensual ya está fijado en Bs. ${committedAmount}. Descargue, imprima y firme su compromiso.`
                                         : bajaAprobada
-                                            ? 'Su evaluación socioeconómica determinó que no corresponde exoneración. Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su compromiso.'
-                                            : 'Defina su aporte voluntario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su compromiso.'}
+                                            ? 'Su evaluación socioeconómica determinó que no corresponde exoneración. Defina su aporte solidario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su compromiso.'
+                                            : 'Defina su aporte solidario mensual (Mínimo 100 Bs) para descargar, imprimir y firmar su compromiso.'}
                                 </p>
 
                                 <div className="flex flex-col sm:flex-row items-end gap-4">

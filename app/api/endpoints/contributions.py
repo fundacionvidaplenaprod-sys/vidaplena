@@ -47,9 +47,9 @@ async def preview_contribution_ocr(
 ):
     """
     Extrae monto/fecha/hora del comprobante con el mismo motor OCR usado para
-    las citas médicas, para precargar el formulario de aporte voluntario. A
+    las citas médicas, para precargar el registro de aporte solidario. A
     diferencia de las citas, el monto no se valida contra ningún valor fijo:
-    el aporte es voluntario y el paciente confirma/edita el monto detectado.
+    el paciente confirma/edita el monto detectado.
     """
     if comprobante.content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="Tipo de archivo inválido.")

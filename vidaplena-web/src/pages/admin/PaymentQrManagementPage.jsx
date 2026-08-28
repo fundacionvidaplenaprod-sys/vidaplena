@@ -13,8 +13,8 @@ const SLOTS = [
   },
   {
     key: 'qr_compromisos',
-    title: 'QR de Compromisos (Aporte Voluntario)',
-    description: 'Se muestra al registrar un aporte voluntario mensual. El monto es variable, mínimo Bs. 100.',
+    title: 'QR de Compromisos (Aporte Solidario)',
+    description: 'Se muestra al registrar un aporte solidario mensual. El monto es variable, mínimo Bs. 100.',
   },
   {
     key: 'qr_consultas',

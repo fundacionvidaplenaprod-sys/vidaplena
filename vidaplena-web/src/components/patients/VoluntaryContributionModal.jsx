@@ -130,14 +130,14 @@ export function VoluntaryContributionModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Registrar Aporte Voluntario">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Registrar Aporte Solidario">
       <div className="space-y-4">
         {qrCompromisos && (
           <div className="flex flex-col items-center gap-2 bg-vida-bg/50 rounded-xl p-3">
             <p className="text-xs text-gray-600 flex items-center gap-1">
               <QrCode size={14} /> Escanea para realizar tu aporte
             </p>
-            <img src={qrCompromisos} alt="QR Aporte Voluntario" className="w-32 h-32 border p-1 bg-white rounded-lg" />
+            <img src={qrCompromisos} alt="QR Aporte Solidario" className="w-32 h-32 border p-1 bg-white rounded-lg" />
           </div>
         )}
 

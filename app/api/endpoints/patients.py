@@ -1791,7 +1791,7 @@ async def get_patient_warnings(
     # 4. CONSTRUIR RESPUESTA
     global_block_message = None
     if has_docs_warning:
-        global_block_message = "Mientras no cargue todos los documentos obligatorios y el formulario de aporte voluntario firmado, no será sujeto a ningún beneficio de la fundación."
+        global_block_message = "Mientras no cargue todos los documentos obligatorios y el compromiso de aporte solidario firmado, no será sujeto a ningún beneficio de la fundación."
 
     return {
         "status_global": "INACTIVO" if (has_docs_warning or has_payment_warning) else "ACTIVO",
@@ -1893,7 +1893,7 @@ async def download_commitment_template(
 
 
     # TÍTULO
-    story.append(Paragraph("APORTE VOLUNTARIO Y COMPROMISO INSTITUCIONAL", style_title))
+    story.append(Paragraph("COMPROMISO DE APORTE SOLIDARIO", style_title))
     # CÓDIGO DE SEGURIDAD
     story.append(Paragraph(f"CÓDIGO: {security_code}", style_code))
     story.append(Paragraph("(Válido únicamente si el código es legible y no presenta alteraciones)", style_warning))

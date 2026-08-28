@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button'; // Ajusta la ruta a tu comp
 import { toast } from 'react-hot-toast';
 import client from '../../api/axios'; // Ajusta la ruta a tu cliente axios
 import { uploadPatientDocumentAdmin } from '../../api/patients';
+import { getSocialEvaluation } from '../../api/evaluations';
 
 const APORTE_ESTADO_STYLES = {
     ACEPTADO: 'bg-green-100 text-green-700 border-green-200',
@@ -34,6 +35,7 @@ export default function PatientReviewPage() {
     const [uploadingDoc, setUploadingDoc] = useState(null);
     const [contributions, setContributions] = useState([]);
     const [loadingContributions, setLoadingContributions] = useState(true);
+    const [socialEvaluation, setSocialEvaluation] = useState(null);
 
     // 1. Cargar datos del paciente
     useEffect(() => {
@@ -67,6 +69,24 @@ export default function PatientReviewPage() {
             }
         };
         fetchContributions();
+    }, [id]);
+
+    // 1.c Cargar la evaluación socioeconómica (si existe), para saber si el
+    // beneficiario tiene exoneración total (categoría ALTA) y por lo tanto
+    // no debe pedírsele el "Compromiso Firmado".
+    useEffect(() => {
+        const fetchEvaluation = async () => {
+            try {
+                const data = await getSocialEvaluation(id);
+                setSocialEvaluation(data);
+            } catch (error) {
+                if (error?.response?.status !== 404) {
+                    console.error("Error cargando evaluación socioeconómica:", error);
+                }
+                setSocialEvaluation(null);
+            }
+        };
+        fetchEvaluation();
     }, [id]);
 
     // 2. Función para cambiar estado (Aprobar/Rechazar)
@@ -139,11 +159,16 @@ export default function PatientReviewPage() {
     if (loading) return <div className="p-10 text-center">Cargando expediente...</div>;
     if (!patient) return <div className="p-10 text-center text-red-500">Paciente no encontrado</div>;
 
+    // Igual criterio que el checklist del propio beneficiario (MyDocumentsPage):
+    // sin CI registrada (menor sin carnet) no se exige subir su Cédula; con
+    // evaluación aprobada en categoría ALTA (exoneración total) no se exige
+    // el Compromiso Firmado.
+    const exoneracionTotalAprobada = socialEvaluation?.estado_revision === 'APROBADO' && socialEvaluation?.categoria_final === 'ALTA';
     const documentsCatalog = [
-        { key: 'ci', label: 'Cédula de Identidad', url: patient.url_ci_paciente },
+        ...(patient.ci ? [{ key: 'ci', label: 'Cédula de Identidad', url: patient.url_ci_paciente }] : []),
         { key: 'medico', label: 'Certificado Médico', url: patient.url_certificado_medico },
         { key: 'foto', label: 'Foto Tipo Carnet', url: patient.url_foto_paciente },
-        { key: 'compromiso', label: 'Compromiso Firmado', url: patient.url_declaracion_aporte },
+        ...(exoneracionTotalAprobada ? [] : [{ key: 'compromiso', label: 'Compromiso Firmado', url: patient.url_declaracion_aporte }]),
     ];
     if (patient.tutor) {
         documentsCatalog.push(
@@ -284,10 +309,19 @@ export default function PatientReviewPage() {
                         <h3 className="font-bold text-gray-700 flex items-center gap-2">
                             <FileText size={18} /> Documentación del Paciente
                         </h3>
-                        <DocumentCard title="Cédula de Identidad" url={patient.url_ci_paciente} icon={FileText} docKey="ci" />
+                        {patient.ci && (
+                            <DocumentCard title="Cédula de Identidad" url={patient.url_ci_paciente} icon={FileText} docKey="ci" />
+                        )}
                         <DocumentCard title="Certificado Médico" url={patient.url_certificado_medico} icon={FileText} docKey="medico" />
                         <DocumentCard title="Foto Tipo Carnet" url={patient.url_foto_paciente} icon={User} docKey="foto" />
-                        <DocumentCard title="Compromiso Firmado" url={patient.url_declaracion_aporte} icon={FileText} docKey="compromiso" />
+                        {!exoneracionTotalAprobada && (
+                            <DocumentCard title="Compromiso Firmado" url={patient.url_declaracion_aporte} icon={FileText} docKey="compromiso" />
+                        )}
+                        {exoneracionTotalAprobada && (
+                            <div className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg p-3">
+                                Exonerado del aporte solidario (evaluación socioeconómica aprobada, categoría ALTA) — no se exige Compromiso Firmado.
+                            </div>
+                        )}
                     </div>
 
                     {/* Columna Derecha: Documentos del Tutor (Si existen) */}
