@@ -369,7 +369,8 @@ class ContributionBase(BaseModel):
     periodo: str = Field(..., pattern=r"^\d{4}-\d{2}$", description="Formato YYYY-MM")
     fecha_pago: date
     monto: float
-    url_comprobante: str
+    url_comprobante: Optional[str] = None
+    metodo_pago: Literal["VOUCHER", "EFECTIVO"] = "VOUCHER"
 
 class ContributionCreate(ContributionBase):
     pass 
@@ -389,7 +390,7 @@ class ContributionResponse(ContributionBase):
     
     # 1. OCULTAMOS LA URL (Seguridad)
     # Aunque hereda de Base, aquí la sobrescribimos para excluirla del JSON
-    url_comprobante: str = Field(exclude=True) 
+    url_comprobante: Optional[str] = Field(default=None, exclude=True)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -413,8 +414,9 @@ class ContributionReviewResponse(BaseModel):
     fecha_pago: date
     monto: float
     estado: Literal["DECLARADO", "OBSERVADO", "ACEPTADO"]
+    metodo_pago: Literal["VOUCHER", "EFECTIVO"] = "VOUCHER"
     observacion_admin: Optional[str] = None
-    url_comprobante: str
+    url_comprobante: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

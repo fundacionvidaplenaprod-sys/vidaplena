@@ -226,7 +226,9 @@ class MonthlyContribution(Base):
     periodo = Column(String(7), nullable=False)
     fecha_pago = Column(Date, nullable=False)
     monto = Column(Numeric(12, 2), nullable=False)
-    url_comprobante = Column(Text, nullable=False)
+    # NULL cuando metodo_pago == "EFECTIVO" (pago en campo, sin voucher/QR digital).
+    url_comprobante = Column(Text, nullable=True)
+    metodo_pago = Column(String(20), nullable=False, server_default="VOUCHER")
     estado = Column(String(20), nullable=False)
     observacion_admin = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -235,6 +237,8 @@ class MonthlyContribution(Base):
     __table_args__ = (
         UniqueConstraint("patient_id", "periodo", name="uq_contrib_patient_periodo"),
         CheckConstraint("estado IN ('DECLARADO','OBSERVADO','ACEPTADO')", name="ck_contrib_estado"),
+        CheckConstraint("metodo_pago IN ('VOUCHER','EFECTIVO')", name="ck_contrib_metodo_pago"),
+        CheckConstraint("metodo_pago = 'EFECTIVO' OR url_comprobante IS NOT NULL", name="ck_contrib_efectivo_sin_comprobante"),
     )
 
     patient = relationship("Patient", back_populates="contributions")

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, FileDown, FilePlus, RefreshCcw, Search } from 'lucide-react';
+import { ExternalLink, FileDown, FilePlus, RefreshCcw, Search, Banknote, QrCode } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import client from '../../api/axios';
 import { Button } from '../../components/ui/Button';
@@ -25,6 +25,7 @@ export default function ContributionsReviewPage() {
     const [searchingPatients, setSearchingPatients] = useState(false);
     const [selectedPatient, setSelectedPatient] = useState(null);
     const [registerForm, setRegisterForm] = useState(emptyRegisterForm);
+    const [metodoPago, setMetodoPago] = useState('VOUCHER');
     const [comprobanteFile, setComprobanteFile] = useState(null);
     const [registering, setRegistering] = useState(false);
 
@@ -146,6 +147,7 @@ export default function ContributionsReviewPage() {
         setPatientResults([]);
         setSelectedPatient(null);
         setRegisterForm(emptyRegisterForm);
+        setMetodoPago('VOUCHER');
         setComprobanteFile(null);
     };
 
@@ -155,6 +157,7 @@ export default function ContributionsReviewPage() {
         setPatientResults([]);
         setSelectedPatient(null);
         setRegisterForm(emptyRegisterForm);
+        setMetodoPago('VOUCHER');
         setComprobanteFile(null);
     };
 
@@ -175,7 +178,7 @@ export default function ContributionsReviewPage() {
             toast.error('Indique la fecha de pago.');
             return;
         }
-        if (!comprobanteFile) {
+        if (metodoPago === 'VOUCHER' && !comprobanteFile) {
             toast.error('Suba una foto o escaneo del comprobante.');
             return;
         }
@@ -185,7 +188,8 @@ export default function ContributionsReviewPage() {
                 monto: Number(registerForm.monto),
                 periodo: registerForm.periodo,
                 fechaPago: registerForm.fechaPago,
-                comprobante: comprobanteFile,
+                metodoPago,
+                comprobante: metodoPago === 'VOUCHER' ? comprobanteFile : null,
             });
             toast.success('Aporte registrado y aceptado.');
             closeRegisterModal();
@@ -273,14 +277,20 @@ export default function ContributionsReviewPage() {
                                         </p>
                                     )}
                                     <div className="flex items-center gap-3 mt-3">
-                                        <a
-                                            href={item.url_comprobante}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-sm text-blue-600 hover:text-blue-700 underline inline-flex items-center gap-1"
-                                        >
-                                            Ver voucher <ExternalLink size={14} />
-                                        </a>
+                                        {item.metodo_pago === 'EFECTIVO' ? (
+                                            <span className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1 inline-flex items-center gap-1 font-semibold">
+                                                <Banknote size={14} /> Efectivo (sin comprobante)
+                                            </span>
+                                        ) : (
+                                            <a
+                                                href={item.url_comprobante}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="text-sm text-blue-600 hover:text-blue-700 underline inline-flex items-center gap-1"
+                                            >
+                                                Ver voucher <ExternalLink size={14} />
+                                            </a>
+                                        )}
                                         <Link
                                             to={`/dashboard/pacientes/${item.patient_id}`}
                                             className="text-sm text-vida-primary hover:underline"
@@ -363,8 +373,9 @@ export default function ContributionsReviewPage() {
                     <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 my-8">
                         <h3 className="text-lg font-bold text-gray-800 mb-2">Registrar aporte</h3>
                         <p className="text-sm text-gray-500 mb-4">
-                            Para cuando el beneficiario pagó (p. ej. depósito bancario) pero nunca declaró su
-                            voucher en la app. Queda registrado como <span className="font-semibold">ACEPTADO</span> de
+                            Para cuando el beneficiario pagó (por QR/depósito sin declararlo en la app, o en{' '}
+                            <span className="font-semibold">efectivo</span> directamente en campo) pero no queda
+                            registrado por su cuenta. Queda como <span className="font-semibold">ACEPTADO</span> de
                             inmediato, ya que usted mismo lo está verificando al registrarlo.
                         </p>
 
@@ -424,6 +435,39 @@ export default function ContributionsReviewPage() {
                                     </button>
                                 </div>
 
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Método de pago *</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setMetodoPago('VOUCHER')}
+                                            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                                                metodoPago === 'VOUCHER'
+                                                    ? 'bg-vida-main text-white border-vida-main'
+                                                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <QrCode size={16} /> Voucher / QR
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setMetodoPago('EFECTIVO')}
+                                            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                                                metodoPago === 'EFECTIVO'
+                                                    ? 'bg-vida-main text-white border-vida-main'
+                                                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <Banknote size={16} /> Efectivo
+                                        </button>
+                                    </div>
+                                    {metodoPago === 'EFECTIVO' && (
+                                        <p className="text-xs text-gray-500 mt-1.5">
+                                            Para pagos en efectivo recibidos en campo (p. ej. por la doctora), sin comprobante digital.
+                                        </p>
+                                    )}
+                                </div>
+
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-700 mb-1">Periodo (AAAA-MM) *</label>
@@ -455,17 +499,19 @@ export default function ContributionsReviewPage() {
                                         className="w-full border rounded-lg px-3 py-2 text-sm"
                                     />
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                        Comprobante (foto/escaneo del depósito) *
-                                    </label>
-                                    <input
-                                        type="file"
-                                        accept="application/pdf,image/jpeg,image/png,image/jpg"
-                                        onChange={(event) => setComprobanteFile(event.target.files?.[0] || null)}
-                                        className="w-full text-sm"
-                                    />
-                                </div>
+                                {metodoPago === 'VOUCHER' && (
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                            Comprobante (foto/escaneo del depósito) *
+                                        </label>
+                                        <input
+                                            type="file"
+                                            accept="application/pdf,image/jpeg,image/png,image/jpg"
+                                            onChange={(event) => setComprobanteFile(event.target.files?.[0] || null)}
+                                            className="w-full text-sm"
+                                        />
+                                    </div>
+                                )}
                             </div>
                         )}
 

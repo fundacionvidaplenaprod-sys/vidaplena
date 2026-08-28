@@ -146,9 +146,13 @@ async def create_my_contribution(
     return new_contribution
 
 # 1.b ADMIN: Registrar un aporte que el beneficiario pagó pero nunca declaró
-# en la app (p. ej. depósito bancario que trae como comprobante físico).
-# Queda directamente ACEPTADO porque el propio staff lo está verificando al
-# registrarlo — no pasa de nuevo por el flujo de revisión.
+# en la app. Dos casos:
+#   - VOUCHER: pagó por QR/transferencia y trae un comprobante físico/digital
+#     que el staff sube en su nombre.
+#   - EFECTIVO: gente del área rural que paga en efectivo directamente a la
+#     doctora en campo — no existe ningún voucher que subir.
+# Queda directamente ACEPTADO porque el propio SUPER_ADMIN lo está
+# verificando al registrarlo — no pasa de nuevo por el flujo de revisión.
 @router.post(
     "/{patient_id}",
     response_model=schemas.ContributionResponse,
@@ -159,13 +163,17 @@ async def create_contribution_admin(
     monto: float = Form(..., gt=0),
     periodo: str = Form(..., regex=r"^\d{4}-\d{2}$"),
     fecha_pago: date = Form(...),
-    comprobante: UploadFile = File(...),
+    metodo_pago: Literal["VOUCHER", "EFECTIVO"] = Form("VOUCHER"),
+    comprobante: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_super_user),
 ):
     patient = await db.get(models.Patient, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Paciente no encontrado.")
+
+    if metodo_pago == "VOUCHER" and comprobante is None:
+        raise HTTPException(status_code=400, detail="Debe adjuntar el comprobante para un aporte por voucher/QR.")
 
     if patient.monto_aporte_comprometido is not None:
         committed_amount = float(patient.monto_aporte_comprometido)
@@ -183,28 +191,36 @@ async def create_contribution_admin(
     if existing_contribution and existing_contribution.estado == "ACEPTADO":
         raise HTTPException(status_code=400, detail=f"El aporte del periodo {periodo} ya fue validado y no se puede reemplazar.")
 
-    if comprobante.content_type not in ALLOWED_TYPES:
-        raise HTTPException(status_code=400, detail="Tipo de archivo inválido.")
+    public_url = None
+    if metodo_pago == "VOUCHER":
+        if comprobante.content_type not in ALLOWED_TYPES:
+            raise HTTPException(status_code=400, detail="Tipo de archivo inválido.")
 
-    content = await comprobante.read()
-    if len(content) > MAX_FILE_SIZE_BYTES:
-        raise HTTPException(status_code=400, detail="El archivo excede los 2MB.")
+        content = await comprobante.read()
+        if len(content) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(status_code=400, detail="El archivo excede los 2MB.")
 
-    ext = comprobante.filename.split(".")[-1]
-    unique_name = f"pacientes/{patient_id}/aportes/{periodo}/voucher_{uuid.uuid4().hex[:8]}.{ext}"
+        ext = comprobante.filename.split(".")[-1]
+        unique_name = f"pacientes/{patient_id}/aportes/{periodo}/voucher_{uuid.uuid4().hex[:8]}.{ext}"
 
-    try:
-        public_url = upload_file_to_firebase(content, unique_name, comprobante.content_type)
-    except Exception as e:
-        print(f"Error Firebase: {e}")
-        raise HTTPException(status_code=500, detail="Error al subir el voucher.")
+        try:
+            public_url = upload_file_to_firebase(content, unique_name, comprobante.content_type)
+        except Exception as e:
+            print(f"Error Firebase: {e}")
+            raise HTTPException(status_code=500, detail="Error al subir el voucher.")
 
-    nota = f"Registrado manualmente por {current_user.email} (beneficiario no lo declaró en la app)."
+    nota = (
+        f"Aporte en efectivo registrado manualmente por {current_user.email} "
+        "(pagado en campo, sin comprobante digital)."
+        if metodo_pago == "EFECTIVO"
+        else f"Registrado manualmente por {current_user.email} (beneficiario no lo declaró en la app)."
+    )
 
     if existing_contribution:
         existing_contribution.fecha_pago = fecha_pago
         existing_contribution.monto = monto
         existing_contribution.url_comprobante = public_url
+        existing_contribution.metodo_pago = metodo_pago
         existing_contribution.estado = "ACEPTADO"
         existing_contribution.observacion_admin = nota
         db.add(existing_contribution)
@@ -218,6 +234,7 @@ async def create_contribution_admin(
         fecha_pago=fecha_pago,
         monto=monto,
         url_comprobante=public_url,
+        metodo_pago=metodo_pago,
         estado="ACEPTADO",
         observacion_admin=nota,
     )
@@ -273,6 +290,7 @@ async def _fetch_contributions_for_review(
             fecha_pago=contrib.fecha_pago,
             monto=float(contrib.monto),
             estado=contrib.estado,
+            metodo_pago=contrib.metodo_pago,
             observacion_admin=contrib.observacion_admin,
             url_comprobante=contrib.url_comprobante,
             created_at=contrib.created_at,
@@ -372,7 +390,8 @@ async def export_contributions_report_pdf(
     estado_label = ESTADO_LABELS.get(estado, "Todos los estados")
     generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    table_data = [["Nombre del beneficiario", "C.I.", "Periodo", "Fecha de pago", "Monto (Bs.)", "Estado"]]
+    METODO_LABELS = {"VOUCHER": "Voucher/QR", "EFECTIVO": "Efectivo"}
+    table_data = [["Nombre del beneficiario", "C.I.", "Periodo", "Fecha de pago", "Monto (Bs.)", "Método", "Estado"]]
     for item in items:
         table_data.append([
             Paragraph(item.patient_nombre, styles["Normal"]),
@@ -380,12 +399,13 @@ async def export_contributions_report_pdf(
             item.periodo,
             item.fecha_pago.strftime("%d/%m/%Y"),
             f"{item.monto:.2f}",
+            METODO_LABELS.get(item.metodo_pago, item.metodo_pago),
             ESTADO_LABELS.get(item.estado, item.estado),
         ])
 
     report_table = Table(
         table_data,
-        colWidths=[150, 65, 55, 75, 65, 75],
+        colWidths=[130, 60, 50, 70, 55, 60, 55],
         repeatRows=1,
     )
     report_table.setStyle(TableStyle([

@@ -92,6 +92,56 @@ async def test_super_admin_registra_aporte_queda_aceptado(client, superuser_toke
 
 
 @pytest.mark.asyncio
+async def test_super_admin_registra_aporte_en_efectivo_sin_comprobante(client, superuser_token, db_session):
+    """
+    Beneficiarios del área rural pagan en efectivo directamente a la doctora
+    en campo, sin ningún voucher/QR digital. El SUPER_ADMIN debe poder
+    registrar ese pago sin adjuntar ningún archivo.
+    """
+    patient = await _crear_patient(db_session)
+
+    resp = await client.post(
+        f"/contributions/{patient.id}",
+        data={"monto": "100.00", "periodo": "2026-08", "fecha_pago": "2026-08-05", "metodo_pago": "EFECTIVO"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["estado"] == "ACEPTADO"
+    assert body["metodo_pago"] == "EFECTIVO"
+    assert "efectivo" in body["observacion_admin"].lower()
+    assert body["tiene_comprobante"] is False
+
+
+@pytest.mark.asyncio
+async def test_registrar_aporte_voucher_sin_comprobante_es_400(client, superuser_token, db_session):
+    """Si el método declarado es VOUCHER, el comprobante sigue siendo obligatorio."""
+    patient = await _crear_patient(db_session)
+
+    resp = await client.post(
+        f"/contributions/{patient.id}",
+        data={"monto": "100.00", "periodo": "2026-08", "fecha_pago": "2026-08-05", "metodo_pago": "VOUCHER"},
+    )
+    assert resp.status_code == 400
+    assert "comprobante" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_aporte_en_efectivo_aparece_en_revision_con_metodo_pago(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session)
+    resp = await client.post(
+        f"/contributions/{patient.id}",
+        data={"monto": "100.00", "periodo": "2026-08", "fecha_pago": "2026-08-05", "metodo_pago": "EFECTIVO"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    review_resp = await client.get("/contributions/review", params={"estado": "ACEPTADO"})
+    assert review_resp.status_code == 200, review_resp.text
+    item = next(i for i in review_resp.json() if i["patient_id"] == patient.id)
+    assert item["metodo_pago"] == "EFECTIVO"
+    assert item["url_comprobante"] is None
+
+
+@pytest.mark.asyncio
 async def test_registrar_aporte_requiere_super_admin(client, patient_token, db_session):
     patient = await _crear_patient(db_session)
 

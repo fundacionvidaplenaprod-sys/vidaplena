@@ -33,14 +33,16 @@ export const createMyContribution = async ({ monto, periodo, fechaPago, comproba
   return response.data;
 };
 
-// SUPER_ADMIN registra un aporte que el beneficiario pagó (p. ej. depósito
-// bancario) pero nunca declaró por su cuenta en la app. Queda ACEPTADO.
-export const createContributionAdmin = async (patientId, { monto, periodo, fechaPago, comprobante }) => {
+// SUPER_ADMIN registra un aporte que el beneficiario pagó (por voucher/QR
+// que nunca declaró en la app, o en EFECTIVO directamente en campo, sin
+// ningún comprobante digital). Queda ACEPTADO de inmediato.
+export const createContributionAdmin = async (patientId, { monto, periodo, fechaPago, metodoPago = 'VOUCHER', comprobante }) => {
   const formData = new FormData();
   formData.append('monto', String(monto));
   formData.append('periodo', periodo);
   formData.append('fecha_pago', fechaPago);
-  formData.append('comprobante', comprobante);
+  formData.append('metodo_pago', metodoPago);
+  if (comprobante) formData.append('comprobante', comprobante);
   const response = await client.post(`/contributions/${patientId}`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
