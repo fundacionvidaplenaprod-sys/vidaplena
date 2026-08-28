@@ -1218,6 +1218,26 @@ async def test_rechazo_estandar_aplica_cooldown_6_meses(client, superuser_token,
 
 
 @pytest.mark.asyncio
+async def test_aprobacion_tambien_aplica_cooldown_6_meses(client, superuser_token, db_session):
+    """Una aprobación (APROBADO) también bloquea el reenvío por 6 meses desde el veredicto."""
+    patient = await _crear_patient(db_session)
+    resp = await client.post("/social-evaluations/", json=_payload_base(patient.id))
+    assert resp.status_code == 201
+    await client.put(f"/social-evaluations/{patient.id}/interview", json={"notas": "Entrevista."})
+    resp = await client.put(
+        f"/social-evaluations/{patient.id}/review",
+        json={"decision": "APROBADO", "categoria_final": "ALTA"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    await db_session.refresh(patient)
+    assert patient.estado_beneficio == "ACTIVO"
+    assert patient.evaluacion_bloqueada_hasta is not None
+    delta_dias = (patient.evaluacion_bloqueada_hasta - date.today()).days
+    assert 175 <= delta_dias <= 186
+
+
+@pytest.mark.asyncio
 async def test_rechazo_por_falsedad_suspende_permanentemente(client, superuser_token, db_session):
     """RECHAZADO_FRAUDE (Nivel 2) suspende al paciente y no aplica cooldown temporal."""
     patient = await _crear_patient(db_session)
@@ -1251,7 +1271,7 @@ async def test_reenvio_bloqueado_durante_cooldown(client, patient_token, own_pat
     await db_session.commit()
     resp = await client.post("/social-evaluations/me", json=_self_payload_base())
     assert resp.status_code == 403
-    assert "someterse a evaluación" in resp.json()["detail"]
+    assert "volver a solicitar" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

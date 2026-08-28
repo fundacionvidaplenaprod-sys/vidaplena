@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { LogOut, UploadCloud, CheckCircle, FileText, Lock, Clock, Camera, Users, Download, AlertTriangle, Pill, Wallet, CalendarDays, HandCoins } from 'lucide-react';
+import { LogOut, UploadCloud, CheckCircle, FileText, Lock, Clock, Camera, Users, Download, AlertTriangle, Pill, Wallet, CalendarDays, HandCoins, ClipboardList } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/ui/Button';
 import { toast } from 'react-hot-toast';
 import { uploadDocument } from '../../api/patients';
-import { getMySocialEvaluation } from '../../api/evaluations';
+import { getMySocialEvaluation, getMyEvaluationEligibility } from '../../api/evaluations';
 import { getMyDeliveryReceipt, listMyInsulinDeliveries } from '../../api/donations';
 import { VoluntaryContributionModal } from '../../components/patients/VoluntaryContributionModal';
 import client from '../../api/axios';
@@ -26,6 +26,7 @@ export default function MyDocumentsPage() {
     const [insulinDeliveries, setInsulinDeliveries] = useState([]);
     const [downloadingDeliveryId, setDownloadingDeliveryId] = useState(null);
     const [socialEvaluation, setSocialEvaluation] = useState(null);
+    const [evaluationEligibility, setEvaluationEligibility] = useState(null);
 
     const normalizeObservations = (items) => {
         if (!Array.isArray(items)) return [];
@@ -108,6 +109,14 @@ export default function MyDocumentsPage() {
 
                 const evaluation = await getMySocialEvaluation();
                 setSocialEvaluation(evaluation);
+
+                try {
+                    const elig = await getMyEvaluationEligibility();
+                    setEvaluationEligibility(elig);
+                } catch (error) {
+                    console.error('Error verificando elegibilidad de evaluación:', error);
+                    setEvaluationEligibility({ puede_evaluar: true });
+                }
 
                 const getDocUrl = (shortKey, urlKey) => {
                     const urlValue = data?.[urlKey];
@@ -325,6 +334,49 @@ export default function MyDocumentsPage() {
         </div>
     );
 
+    const canRequestEvaluation = evaluationEligibility?.puede_evaluar !== false;
+    const socialEvaluationSection = (
+        <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 mb-6">
+            <div className="flex items-center justify-between gap-4 mb-2 flex-wrap">
+                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <ClipboardList size={22} /> Evaluación Socioeconómica
+                </h2>
+                {socialEvaluation && (
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                        socialEvaluation.estado_revision === 'APROBADO'
+                            ? 'bg-green-100 text-green-700 border-green-200'
+                            : socialEvaluation.estado_revision === 'RECHAZADO' || socialEvaluation.estado_revision === 'RECHAZADO_FRAUDE'
+                                ? 'bg-red-100 text-red-700 border-red-200'
+                                : 'bg-blue-100 text-blue-700 border-blue-200'
+                    }`}>
+                        {socialEvaluation.estado_revision}
+                    </span>
+                )}
+            </div>
+            <p className="text-gray-500 mb-6">
+                Solicite la evaluación de su situación socioeconómica para conocer si aplica a una exoneración o reducción de su aporte mensual.
+            </p>
+
+            <Button
+                type="button"
+                onClick={() => navigate('/mi-evaluacion-social')}
+                disabled={!canRequestEvaluation}
+                className={`w-auto px-5 inline-flex items-center gap-2 ${
+                    !canRequestEvaluation ? 'opacity-50 cursor-not-allowed hover:bg-vida-main' : ''
+                }`}
+            >
+                <ClipboardList size={18} />
+                {socialEvaluation ? 'Ver / Actualizar Evaluación Socioeconómica' : 'Realizar Evaluación Socioeconómica'}
+            </Button>
+
+            {!canRequestEvaluation && evaluationEligibility?.motivo && (
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+                    {evaluationEligibility.motivo}
+                </p>
+            )}
+        </div>
+    );
+
     return (
         <div className="min-h-screen bg-gray-50 font-sans">
             <nav className="bg-vida-primary text-white p-4 shadow-md flex justify-between items-center">
@@ -396,6 +448,8 @@ export default function MyDocumentsPage() {
                         </div>
 
                         {insulinDeliveriesSection}
+
+                        {socialEvaluationSection}
 
                         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Aporte de donación</h2>
@@ -518,6 +572,8 @@ export default function MyDocumentsPage() {
                         </div>
 
                         {insulinDeliveriesSection}
+
+                        {socialEvaluationSection}
 
                         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">Aporte voluntario mensual</h2>

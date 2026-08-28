@@ -269,16 +269,19 @@ def _validar_consentimientos(evaluation_in) -> None:
 
 
 # ==============================================================================
-# BLOQUEO EN DOS NIVELES TRAS UN RECHAZO
+# BLOQUEO TRAS UN VEREDICTO
 #
-#   Nivel 1 (RECHAZADO, estándar): cooldown temporal de N meses
-#     (patient.evaluacion_bloqueada_hasta).
-#   Nivel 2 (RECHAZADO_FRAUDE, falsedad/depuración): suspensión permanente
+#   RECHAZADO (estándar): cooldown temporal de N meses (patient.evaluacion_bloqueada_hasta).
+#   RECHAZADO_FRAUDE (falsedad/depuración): suspensión permanente
 #     (patient.estado_beneficio = "SUSPENDIDO") — solo un SUPER_ADMIN puede
 #     reactivar (ver PUT /{patient_id}/reactivate).
+#   APROBADO: también aplica un cooldown de N meses — un beneficiario que ya
+#     realizó su evaluación (sea cual sea el resultado) no puede volver a
+#     solicitar una nueva hasta que este plazo se cumpla desde el veredicto.
 # ==============================================================================
 
 RECHAZO_ESTANDAR_COOLDOWN_MESES = 6
+REEVALUACION_COOLDOWN_MESES = 6
 
 
 def _agregar_meses(fecha: date, meses: int) -> date:
@@ -305,7 +308,7 @@ def _evaluar_elegibilidad(patient: models.Patient) -> schemas.SocialEvaluationEl
         return schemas.SocialEvaluationEligibility(
             puede_evaluar=False,
             bloqueado_hasta=patient.evaluacion_bloqueada_hasta,
-            motivo=f"Su solicitud fue denegada. Podrá volver a someterse a evaluación a partir del {fecha_texto}.",
+            motivo=f"Ya cuenta con una evaluación socioeconómica registrada. Podrá volver a solicitar una nueva a partir del {fecha_texto}.",
         )
     return schemas.SocialEvaluationEligibility(puede_evaluar=True)
 
@@ -925,8 +928,8 @@ async def review_social_evaluation(
     elif review_in.decision == "RECHAZADO_FRAUDE":
         patient.estado_beneficio = "SUSPENDIDO"
         patient.evaluacion_bloqueada_hasta = None
-    else:  # APROBADO
-        patient.evaluacion_bloqueada_hasta = None
+    else:  # APROBADO — cooldown antes de poder solicitar una reevaluación
+        patient.evaluacion_bloqueada_hasta = _agregar_meses(date.today(), REEVALUACION_COOLDOWN_MESES)
 
     await _archivar_veredicto(db, evaluation, patient, current_user.id, review_in.decision)
 
