@@ -64,7 +64,10 @@ export default function RegisterPatientPage() {
       departamento: 'La Paz', municipio: '', zona: '', direccion: '',
       email: '', tel_contacto: '', tel_referencia: '',
 
-      // 3.3 Tutor (Solo menores)
+      // Discapacidad/limitación con tutor legal (habilita el bloque de Tutor también para mayores de edad)
+      tiene_discapacidad_tutor: false,
+
+      // 3.3 Tutor (Menores, o mayores con discapacidad y tutor legal)
       tutor: { nombres: '', apellidos: '', ci: '', direccion: '', telefonos: '', email: '' },
 
       // 3.2 Información Médica
@@ -83,6 +86,8 @@ export default function RegisterPatientPage() {
 
   // VIGILANTES (Watches)
   const fechaNacimiento = watch('fecha_nac');
+  const tieneDiscapacidadTutor = watch('tiene_discapacidad_tutor');
+  const requiereTutor = isMinor || tieneDiscapacidadTutor;
   const selectedComplications = watch('complications_selected');
   const currentTreatments = watch('treatments') || [];
   const tiempoEnfAnios = watch('medical.tiempo_enfermedad_anios');
@@ -157,6 +162,7 @@ export default function RegisterPatientPage() {
 
         // Datos del Tutor (si existen)
         tutor: data.tutor || { nombres: '', apellidos: '', ci: '', direccion: '', telefonos: '', email: '' },
+        tiene_discapacidad_tutor: !!(data.tutor && (data.tutor.nombres || data.tutor.ci)),
 
         // Datos Médicos
         medical: {
@@ -219,7 +225,7 @@ export default function RegisterPatientPage() {
       ];
       // CI es obligatorio solo para mayores de edad
       if (!isMinor) fields.push('ci');
-      if (isMinor) fields.push('tutor.nombres', 'tutor.apellidos', 'tutor.ci', 'tutor.direccion', 'tutor.telefonos');
+      if (requiereTutor) fields.push('tutor.nombres', 'tutor.apellidos', 'tutor.ci', 'tutor.direccion', 'tutor.telefonos');
       isValid = await trigger(fields);
     } else if (step === 2) {
       const fields = ['medical.tipo_diabetes', 'medical.tiempo_enfermedad'];
@@ -311,7 +317,7 @@ export default function RegisterPatientPage() {
           ].filter(Boolean).join(' ') || null,
         },
         medical_info: data.medical,
-        tutor: isMinor ? {
+        tutor: requiereTutor ? {
           ...data.tutor,
           nombres: capitalizeWords(data.tutor?.nombres),
           apellidos: capitalizeWords(data.tutor?.apellidos),
@@ -423,6 +429,18 @@ export default function RegisterPatientPage() {
                 <Input type="number" step="0.01" label={<LabelRequired text="Altura (m)" />} {...register('altura', { required: "Requerido" })} error={errors.altura} />
                 <Input type="number" step="0.01" label="IMC" {...register('imc')} />
               </div>
+              <div className="mt-4">
+                <label className="flex items-start sm:items-center gap-3 cursor-pointer p-3 bg-orange-50 border border-orange-200 rounded-xl select-none">
+                  <input
+                    type="checkbox"
+                    {...register('tiene_discapacidad_tutor')}
+                    className="w-5 h-5 mt-0.5 sm:mt-0 text-vida-main rounded focus:ring-vida-main accent-vida-main flex-shrink-0"
+                  />
+                  <span className="text-sm text-gray-700">
+                    Si la persona registrada tiene una discapacidad o limitación y cuenta con un tutor/a legal marque aquí.
+                  </span>
+                </label>
+              </div>
             </section>
 
             <section className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
@@ -449,11 +467,11 @@ export default function RegisterPatientPage() {
               </div>
             </section>
 
-            {isMinor && (
+            {requiereTutor && (
               <section className="bg-orange-50 p-6 rounded-2xl border border-orange-200 animate-slideDown">
                 <div className="flex items-center gap-2 text-orange-800 font-bold mb-4 border-b border-orange-200 pb-2">
                   <AlertTriangle className="h-5 w-5" />
-                  <span>3.3 Tutor Legal (Obligatorio)</span>
+                  <span>3.3 Tutor Legal (Obligatorio){!isMinor && ' — Discapacidad/Limitación'}</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   <Input label={<LabelRequired text="Nombre Tutor" />} {...register('tutor.nombres', { required: "Requerido" })} error={errors.tutor?.nombres} />

@@ -1,10 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getPatientById, activatePatient, updatePatient, changePatientStatus } from '../../api/patients';
+import { getSocialEvaluation } from '../../api/evaluations';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, CheckCircle, User, Activity, Edit2, AlertTriangle, Pill, Copy, Key, Mail } from 'lucide-react';
+import { ArrowLeft, CheckCircle, User, Activity, Edit2, AlertTriangle, Pill, Copy, Key, Mail, ClipboardCheck } from 'lucide-react';
+
+const EVALUACION_ESTADO_STYLES = {
+    PENDIENTE: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    APROBADO: 'bg-green-100 text-green-700 border-green-200',
+    RECHAZADO: 'bg-red-100 text-red-700 border-red-200',
+    RECHAZADO_FRAUDE: 'bg-red-200 text-red-900 border-red-400',
+};
+
+const EVALUACION_ESTADO_LABELS = {
+    PENDIENTE: 'Pendiente de veredicto',
+    APROBADO: 'Aprobado',
+    RECHAZADO: 'Rechazado (estándar)',
+    RECHAZADO_FRAUDE: 'Rechazado por falsedad',
+};
 
 export default function PatientDetailsPage() {
     const { id } = useParams();
@@ -15,6 +30,7 @@ export default function PatientDetailsPage() {
     const [isChangingStatus, setIsChangingStatus] = useState(false);
     const [credentials, setCredentials] = useState(null); // { username, password }
     const [showCredsModal, setShowCredsModal] = useState(false);
+    const [socialEvaluation, setSocialEvaluation] = useState(null);
 
     useEffect(() => {
         loadData();
@@ -28,8 +44,18 @@ export default function PatientDetailsPage() {
             console.error(error);
             alert("Error cargando ficha del paciente");
             navigate('/dashboard');
+            return;
         } finally {
             setLoading(false);
+        }
+
+        try {
+            const evaluation = await getSocialEvaluation(id);
+            setSocialEvaluation(evaluation);
+        } catch (error) {
+            // 404 = el beneficiario todavía no envió su evaluación socioeconómica.
+            if (error?.response?.status !== 404) console.error(error);
+            setSocialEvaluation(null);
         }
     };
 
@@ -296,6 +322,58 @@ export default function PatientDetailsPage() {
                             )}
                         </div>
                     </div>
+
+                    {/* 4. EVALUACIÓN SOCIOECONÓMICA (informe del evaluador social) */}
+                    {socialEvaluation && (
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2">
+                                <ClipboardCheck size={18} className="text-vida-main" /> Evaluación Socioeconómica
+                            </h3>
+
+                            <div className="flex flex-wrap items-center gap-3 mb-4">
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${EVALUACION_ESTADO_STYLES[socialEvaluation.estado_revision] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                                    {EVALUACION_ESTADO_LABELS[socialEvaluation.estado_revision] || socialEvaluation.estado_revision}
+                                </span>
+                                {socialEvaluation.categoria_final && (
+                                    <span className="px-3 py-1 rounded-full text-xs font-bold border bg-blue-50 text-blue-700 border-blue-200">
+                                        Categoría final: {socialEvaluation.categoria_final}
+                                    </span>
+                                )}
+                                <span className="text-xs text-gray-400">
+                                    Enviada el {formatDate(socialEvaluation.created_at)}
+                                    {socialEvaluation.revisado_at && ` · Revisada el ${formatDate(socialEvaluation.revisado_at)}`}
+                                </span>
+                            </div>
+
+                            {socialEvaluation.entrevista_realizada && (
+                                <div className="mb-4">
+                                    <span className="block text-gray-400 text-xs uppercase font-bold mb-1">
+                                        Apreciaciones del evaluador (entrevista{socialEvaluation.entrevista_fecha ? ` del ${formatDate(socialEvaluation.entrevista_fecha)}` : ''})
+                                    </span>
+                                    <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 border border-gray-100 rounded-xl p-3">
+                                        {socialEvaluation.entrevista_notas || 'Sin notas registradas.'}
+                                    </p>
+                                </div>
+                            )}
+
+                            {(socialEvaluation.estado_revision === 'RECHAZADO' || socialEvaluation.estado_revision === 'RECHAZADO_FRAUDE') && socialEvaluation.motivo_rechazo && (
+                                <div className="mb-2">
+                                    <span className="block text-gray-400 text-xs uppercase font-bold mb-1">Motivo del rechazo</span>
+                                    <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl p-3">
+                                        {socialEvaluation.motivo_rechazo}
+                                    </p>
+                                </div>
+                            )}
+
+                            {patient.exonerado_aporte ? (
+                                <p className="text-sm text-green-700 font-medium mt-2">Beneficiario exonerado del aporte mensual.</p>
+                            ) : patient.monto_aporte_comprometido != null && (
+                                <p className="text-sm text-gray-700 font-medium mt-2">
+                                    Aporte mensual comprometido: <span className="font-bold">Bs. {patient.monto_aporte_comprometido}</span>
+                                </p>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
 

@@ -594,7 +594,10 @@ async def upload_my_evaluation_document(
 async def get_social_evaluation(
     patient_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(get_evaluator_or_admin),
+    # A diferencia de crear/revisar (solo evaluador/admin), la LECTURA se
+    # abre a todo el staff — el expediente del beneficiario (visible para
+    # REGISTRADOR también) muestra el informe del evaluador social.
+    current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     """
     Retorna la evaluación socioeconómica más reciente del paciente indicado.

@@ -598,6 +598,70 @@ async def test_evaluador_social_puede_consultar_evaluacion(client, evaluador_tok
 
 
 @pytest.mark.asyncio
+async def test_registrador_puede_consultar_evaluacion(client, db_session):
+    """
+    REGISTRADOR puede LEER la evaluación de un paciente — el expediente del
+    beneficiario (visible para todo el staff) muestra el informe del
+    evaluador social, aunque REGISTRADOR no pueda crear/revisar evaluaciones.
+    """
+    from app.main import app as the_app
+    from app.api import deps
+
+    registrador = models.User(
+        email=f"registrador_{uuid.uuid4().hex[:8]}@test.com",
+        password_hash="fakehash",
+        role="REGISTRADOR",
+        estado="ACTIVO",
+    )
+    db_session.add(registrador)
+    await db_session.commit()
+    await db_session.refresh(registrador)
+
+    async def override():
+        return registrador
+
+    the_app.dependency_overrides[deps.get_current_active_user] = override
+    the_app.dependency_overrides[deps.get_current_user] = override
+
+    try:
+        patient = await _crear_patient(db_session)
+
+        # Crear la evaluación como SUPER_ADMIN (REGISTRADOR no puede crearla).
+        the_app.dependency_overrides.pop(deps.get_current_active_user, None)
+        the_app.dependency_overrides.pop(deps.get_current_user, None)
+        admin = models.User(
+            email=f"admin_{uuid.uuid4().hex[:8]}@test.com",
+            password_hash="fakehash", role="SUPER_ADMIN", estado="ACTIVO",
+        )
+        db_session.add(admin)
+        await db_session.commit()
+        await db_session.refresh(admin)
+
+        async def override_admin():
+            return admin
+
+        from app.api.endpoints.evaluations import get_evaluator_or_admin
+        the_app.dependency_overrides[get_evaluator_or_admin] = override_admin
+        the_app.dependency_overrides[deps.get_current_active_user] = override_admin
+        the_app.dependency_overrides[deps.get_current_user] = override_admin
+        await client.post("/social-evaluations/", json=_payload_base(patient.id))
+        the_app.dependency_overrides.pop(get_evaluator_or_admin, None)
+
+        # REGISTRADOR consulta (solo lectura) esa misma evaluación.
+        the_app.dependency_overrides[deps.get_current_active_user] = override
+        the_app.dependency_overrides[deps.get_current_user] = override
+        resp = await client.get(f"/social-evaluations/{patient.id}")
+        assert resp.status_code == 200, resp.text
+
+        # Pero no puede crear/revisar (queda restringido a evaluador/admin).
+        resp_forbidden = await client.post("/social-evaluations/", json=_payload_base(patient.id))
+        assert resp_forbidden.status_code == 403
+    finally:
+        the_app.dependency_overrides.pop(deps.get_current_active_user, None)
+        the_app.dependency_overrides.pop(deps.get_current_user, None)
+
+
+@pytest.mark.asyncio
 async def test_paciente_no_puede_acceder_al_modulo(client, patient_token, db_session):
     """
     El rol PACIENTE no debe tener acceso al módulo de evaluación.
