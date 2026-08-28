@@ -33,14 +33,22 @@ class User(Base):
     id = Column(BigInteger, primary_key=True)
     email = Column(postgresql.CITEXT(), unique=True, nullable=False)
     password_hash = Column(Text, nullable=False)
-    role = Column(String(20), nullable=False)
+    role = Column(String(40), nullable=False)
     estado = Column(String(20), nullable=False, default="ACTIVO")
+    # Solo aplica (y se exige) para RESPONSABLE_DEPARTAMENTAL: departamento al
+    # que queda acotada su visibilidad. Texto libre, igual que Patient.depto,
+    # pero validado contra core.departamentos.DEPARTAMENTOS en la capa de API.
+    depto_asignado = Column(String(80), nullable=True)
     last_login = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        CheckConstraint("role IN ('SUPER_ADMIN','REGISTRADOR','PACIENTE','EVALUADOR_SOCIAL')", name="ck_users_role"),
+        CheckConstraint(
+            "role IN ('SUPER_ADMIN','REGISTRADOR','PACIENTE','EVALUADOR_SOCIAL',"
+            "'RESPONSABLE_DEPARTAMENTAL','COORDINADOR_NACIONAL')",
+            name="ck_users_role",
+        ),
     )
 
     patient = relationship("Patient", back_populates="user", uselist=False)
@@ -361,6 +369,32 @@ class DirectorInsulinDelivery(Base):
     recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    recorded_by = relationship("User")
+
+
+class DepartmentalInsulinDelivery(Base):
+    """
+    Log de control de entregas de insulina hecho por un RESPONSABLE_DEPARTAMENTAL
+    (o SUPER_ADMIN) en campo. NO afecta el stock de almacén/donaciones — es
+    solo un registro de auditoría. A diferencia de DirectorInsulinDelivery
+    (flujo aislado de "la Directora", sin patient_id), esta tabla queda
+    ligada al beneficiario real para poder acotar la visibilidad por
+    departamento.
+    """
+    __tablename__ = "departmental_insulin_deliveries"
+
+    id = Column(BigInteger, primary_key=True)
+    patient_id = Column(BigInteger, ForeignKey("patients.id", ondelete="CASCADE"), nullable=False)
+    # Snapshot del departamento del paciente al momento de la entrega (no se
+    # recalcula si el paciente se muda de depto después).
+    depto = Column(String(80), nullable=False)
+    insulin_type = Column(Text, nullable=False)
+    quantity = Column(Text, nullable=False)
+    delivery_date = Column(Date, nullable=False, default=func.current_date())
+    recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    patient = relationship("Patient")
     recorded_by = relationship("User")
 
 

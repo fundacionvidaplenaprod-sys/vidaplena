@@ -11,9 +11,9 @@ import {
   HeartPulse, Activity, AlertTriangle, Plus, Trash2, CheckCircle, Lock, Unlock
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { DEPARTAMENTOS } from '../../constants/departamentos';
 
 // --- OPCIONES FIJAS ---
-const DEPARTAMENTOS = ["La Paz", "Cochabamba", "Santa Cruz", "Oruro", "Potosí", "Chuquisaca", "Tarija", "Beni", "Pando"];
 const TIPOS_SANGRE = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"];
 const COMPLICATION_OPTIONS = [
   { code: 'RETINOPATIA', label: 'Retinopatía' },

@@ -7,9 +7,26 @@ from sqlalchemy import or_
 from app.db import get_db
 from app import models, schemas
 from app.core.security import hash_password
+from app.core.departamentos import DEPARTAMENTOS
 from app.api import deps
 
 router = APIRouter()
+
+
+def _validar_depto_asignado(role: str, depto_asignado: Optional[str]) -> Optional[str]:
+    """
+    RESPONSABLE_DEPARTAMENTAL exige un depto_asignado válido; cualquier otro
+    rol lo ignora (siempre queda en None), para que nunca quede un valor
+    obsoleto colgando si el usuario cambia de rol después.
+    """
+    if role != "RESPONSABLE_DEPARTAMENTAL":
+        return None
+    if not depto_asignado or depto_asignado not in DEPARTAMENTOS:
+        raise HTTPException(
+            status_code=400,
+            detail="Debe indicar un departamento válido para un usuario RESPONSABLE_DEPARTAMENTAL.",
+        )
+    return depto_asignado
 
 # =============================================================================
 # 1. 🥇 OBTENER MI PERFIL (El endpoint que te falta)
@@ -70,11 +87,13 @@ async def create_user(
         raise HTTPException(status_code=400, detail="El email ya está registrado")
 
     hashed_pwd = hash_password(user.password)
-    
+    depto_asignado = _validar_depto_asignado(user.role, user.depto_asignado)
+
     new_user = models.User(
         email=user.email,
         password_hash=hashed_pwd,
         role=user.role,
+        depto_asignado=depto_asignado,
         estado="ACTIVO"
     )
     
@@ -107,6 +126,10 @@ async def update_user(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     update_data = user_in.model_dump(exclude_unset=True)
+
+    effective_role = update_data.get("role", db_user.role)
+    effective_depto = update_data.get("depto_asignado", db_user.depto_asignado)
+    update_data["depto_asignado"] = _validar_depto_asignado(effective_role, effective_depto)
 
     if 'password' in update_data and update_data['password']:
         hashed_pwd = hash_password(update_data['password'])

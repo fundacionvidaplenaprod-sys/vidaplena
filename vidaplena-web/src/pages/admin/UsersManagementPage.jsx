@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { 
-    Users, Search, UserPlus, Edit2, Trash2, 
-    Shield, Mail, Lock, Power, RefreshCw, X
+import {
+    Users, Search, UserPlus, Edit2, Trash2,
+    Shield, Mail, Lock, Power, RefreshCw, X, MapPin
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { toast } from 'react-hot-toast';
 import client from '../../api/axios';
+import { DEPARTAMENTOS } from '../../constants/departamentos';
 
 export default function UsersManagementPage() {
     const [users, setUsers] = useState([]);
@@ -14,7 +15,7 @@ export default function UsersManagementPage() {
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState(null); // null = Modo Crear
-    const [formData, setFormData] = useState({ email: '', password: '', role: 'REGISTRADOR' });
+    const [formData, setFormData] = useState({ email: '', password: '', role: 'REGISTRADOR', depto_asignado: '' });
     const [processing, setProcessing] = useState(false);
 
     // PIN MODAL
@@ -67,15 +68,16 @@ export default function UsersManagementPage() {
         if (user) {
             // MODO EDITAR
             setEditingUser(user);
-            setFormData({ 
-                email: user.email, 
+            setFormData({
+                email: user.email,
                 password: '', // Password vacío por seguridad (si escribe, se cambia)
-                role: user.role 
+                role: user.role,
+                depto_asignado: user.depto_asignado || '',
             });
         } else {
             // MODO CREAR
             setEditingUser(null);
-            setFormData({ email: '', password: '', role: 'REGISTRADOR' });
+            setFormData({ email: '', password: '', role: 'REGISTRADOR', depto_asignado: '' });
         }
         setIsModalOpen(true);
     };
@@ -83,16 +85,30 @@ export default function UsersManagementPage() {
     // 3. GUARDAR (Create / Update)
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        if (formData.role === 'RESPONSABLE_DEPARTAMENTAL' && !formData.depto_asignado) {
+            toast.error("Seleccione el departamento asignado.");
+            return;
+        }
+
         setProcessing(true);
+
+        // El depto solo tiene sentido para RESPONSABLE_DEPARTAMENTAL; si el
+        // rol es otro, lo mandamos en null explícitamente (por si se cambió
+        // de rol y quedó un valor viejo en el formulario).
+        const payload = {
+            ...formData,
+            depto_asignado: formData.role === 'RESPONSABLE_DEPARTAMENTAL' ? formData.depto_asignado : null,
+        };
 
         try {
             if (editingUser) {
                 // UPDATE
-                await client.put(`/users/${editingUser.id}`, formData);
+                await client.put(`/users/${editingUser.id}`, payload);
                 toast.success("Usuario actualizado correctamente");
             } else {
                 // CREATE
-                await client.post('/users/', formData);
+                await client.post('/users/', payload);
                 toast.success("Usuario creado exitosamente");
             }
             setIsModalOpen(false);
@@ -207,10 +223,19 @@ export default function UsersManagementPage() {
                                                     ? 'bg-purple-100 text-purple-700 border-purple-200'
                                                     : user.role === 'EVALUADOR_SOCIAL'
                                                         ? 'bg-teal-100 text-teal-700 border-teal-200'
-                                                        : 'bg-blue-100 text-blue-700 border-blue-200'
+                                                        : user.role === 'RESPONSABLE_DEPARTAMENTAL'
+                                                            ? 'bg-orange-100 text-orange-700 border-orange-200'
+                                                            : user.role === 'COORDINADOR_NACIONAL'
+                                                                ? 'bg-indigo-100 text-indigo-700 border-indigo-200'
+                                                                : 'bg-blue-100 text-blue-700 border-blue-200'
                                             }`}>
-                                                {user.role.replace('_', ' ')}
+                                                {user.role.replace(/_/g, ' ')}
                                             </span>
+                                            {user.depto_asignado && (
+                                                <span className="ml-2 text-xs text-gray-500 inline-flex items-center gap-1">
+                                                    <MapPin size={12} /> {user.depto_asignado}
+                                                </span>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-center">
                                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${
@@ -323,11 +348,31 @@ export default function UsersManagementPage() {
                                     >
                                         <option value="REGISTRADOR">REGISTRADOR (Operativo)</option>
                                         <option value="EVALUADOR_SOCIAL">EVALUADOR SOCIAL</option>
+                                        <option value="RESPONSABLE_DEPARTAMENTAL">RESPONSABLE DEPARTAMENTAL</option>
+                                        <option value="COORDINADOR_NACIONAL">COORDINADOR NACIONAL</option>
                                         <option value="SUPER_ADMIN">SUPER ADMIN (Total)</option>
                                         {/* No permitimos crear pacientes aquí, eso es otro flujo */}
                                     </select>
                                 </div>
                             </div>
+
+                            {formData.role === 'RESPONSABLE_DEPARTAMENTAL' && (
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Departamento asignado</label>
+                                    <div className="relative">
+                                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                        <select
+                                            required
+                                            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-vida-primary outline-none bg-white"
+                                            value={formData.depto_asignado}
+                                            onChange={(e) => setFormData({...formData, depto_asignado: e.target.value})}
+                                        >
+                                            <option value="">-- Seleccionar --</option>
+                                            {DEPARTAMENTOS.map((d) => <option key={d} value={d}>{d}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="pt-4 flex gap-3">
                                 <Button 

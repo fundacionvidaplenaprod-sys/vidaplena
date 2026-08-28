@@ -31,6 +31,9 @@ export default function DashboardHome() {
             } else if (user.role === 'PACIENTE') {
                 // Paciente -> Su Portal
                 navigate('/mi-portal', { replace: true });
+            } else if (['RESPONSABLE_DEPARTAMENTAL', 'COORDINADOR_NACIONAL'].includes(user.role)) {
+                // Responsable/Coordinador -> Panel Departamental
+                navigate('/dashboard/panel-departamental', { replace: true });
             } else {
                 // Rol raro -> Login
                 navigate('/login');

@@ -81,3 +81,38 @@ def get_current_staff_user(
             status_code=403, detail="El usuario no tiene suficientes privilegios para acceder a esta sección"
         )
     return current_user
+
+
+def get_current_departmental_viewer(
+    current_user: models.User = Depends(get_current_active_user),
+) -> models.User:
+    """
+    Lectura de beneficiarios/aportes/entregas del módulo departamental:
+    - RESPONSABLE_DEPARTAMENTAL: acotado a su propio departamento (depto_asignado).
+    - COORDINADOR_NACIONAL: todos los departamentos, solo lectura.
+    - SUPER_ADMIN: acceso total, consistente con el resto de gates del sistema.
+    """
+    if current_user.role not in ["RESPONSABLE_DEPARTAMENTAL", "COORDINADOR_NACIONAL", "SUPER_ADMIN"]:
+        raise HTTPException(
+            status_code=403, detail="El usuario no tiene permisos para acceder a esta sección"
+        )
+    if current_user.role == "RESPONSABLE_DEPARTAMENTAL" and not current_user.depto_asignado:
+        raise HTTPException(status_code=400, detail="Su usuario no tiene un departamento asignado")
+    return current_user
+
+
+def get_current_departmental_delivery_writer(
+    current_user: models.User = Depends(get_current_active_user),
+) -> models.User:
+    """
+    Registrar entregas de insulina (log de control, no afecta stock):
+    solo RESPONSABLE_DEPARTAMENTAL y SUPER_ADMIN. COORDINADOR_NACIONAL es
+    estrictamente de solo lectura y nunca debe pasar este gate.
+    """
+    if current_user.role not in ["RESPONSABLE_DEPARTAMENTAL", "SUPER_ADMIN"]:
+        raise HTTPException(
+            status_code=403, detail="No tiene permisos para registrar entregas de insulina"
+        )
+    if current_user.role == "RESPONSABLE_DEPARTAMENTAL" and not current_user.depto_asignado:
+        raise HTTPException(status_code=400, detail="Su usuario no tiene un departamento asignado")
+    return current_user

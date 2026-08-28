@@ -14,7 +14,8 @@ import {
   Images,
   QrCode,
   Phone,
-  ClipboardCheck
+  ClipboardCheck,
+  MapPin
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -26,6 +27,8 @@ export default function Sidebar({ isOpen, onClose }) {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
   const isEvaluador = user.role === 'EVALUADOR_SOCIAL';
+  const isResponsableDepartamental = user.role === 'RESPONSABLE_DEPARTAMENTAL';
+  const isCoordinadorNacional = user.role === 'COORDINADOR_NACIONAL';
 
   const { logout } = useAuth();
  
@@ -37,14 +40,26 @@ export default function Sidebar({ isOpen, onClose }) {
   };
 
   // 2. CONSTRUIR MENÚ DINÁMICO
-  const menuItems = [
-    // Acceso a beneficiarios para todo el personal del sistema
-    { 
+  const menuItems = [];
+
+  // Lista general de beneficiarios: personal "de oficina". Los roles
+  // departamentales tienen su propio panel acotado más abajo — no deben
+  // ver esta lista (el backend tampoco se las deja consultar).
+  if (isSuperAdmin || isEvaluador || ['REGISTRADOR'].includes(user.role)) {
+    menuItems.push({
       path: '/dashboard/lista-pacientes',
-      label: 'Beneficiarios', 
-      icon: <Users size={20} /> 
-    },
-  ];
+      label: 'Beneficiarios',
+      icon: <Users size={20} />
+    });
+  }
+
+  if (isResponsableDepartamental || isCoordinadorNacional) {
+    menuItems.push({
+      path: '/dashboard/panel-departamental',
+      label: isCoordinadorNacional ? 'Panel Nacional' : 'Mi Departamento',
+      icon: <MapPin size={20} />
+    });
+  }
 
   // Solo Admin y Registrador ven Reportes y Revisión de Aportes
   if (isSuperAdmin || user.role === 'REGISTRADOR') {

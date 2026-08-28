@@ -1,0 +1,345 @@
+import { useEffect, useState } from 'react';
+import { MapPin, Search, CheckCircle, AlertTriangle, Syringe, Phone, X } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import { Button } from '../../components/ui/Button';
+import { DEPARTAMENTOS } from '../../constants/departamentos';
+import { INSULIN_OPTIONS } from '../../constants/insulins';
+import {
+    getActiveDepartmentalBeneficiaries,
+    getPendingDocDepartmentalBeneficiaries,
+    getDepartmentalInsulinDeliveries,
+    createDepartmentalInsulinDelivery,
+} from '../../api/departmental';
+
+const LIMIT = 20;
+const TABS = [
+    { key: 'activos', label: 'Beneficiarios Activos' },
+    { key: 'pendientes', label: 'Documentos Pendientes' },
+    { key: 'historial', label: 'Historial de Entregas' },
+];
+
+export default function DepartmentalDashboardPage() {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const isCoordinadorNacional = user.role === 'COORDINADOR_NACIONAL';
+    const puedeRegistrarEntrega = user.role === 'RESPONSABLE_DEPARTAMENTAL' || user.role === 'SUPER_ADMIN';
+
+    const [tab, setTab] = useState('activos');
+    const [depto, setDepto] = useState(''); // Solo aplica para Coordinador Nacional ("" = todos)
+    const [search, setSearch] = useState('');
+    const [page, setPage] = useState(1);
+    const [loading, setLoading] = useState(true);
+    const [items, setItems] = useState([]);
+    const [total, setTotal] = useState(0);
+
+    const [deliveryModal, setDeliveryModal] = useState({ open: false, patient: null });
+    const [deliveryForm, setDeliveryForm] = useState({ insulinType: INSULIN_OPTIONS[0]?.value || '', quantity: '', deliveryDate: '' });
+    const [submittingDelivery, setSubmittingDelivery] = useState(false);
+
+    const totalPages = Math.ceil(total / LIMIT) || 1;
+
+    const load = async () => {
+        try {
+            setLoading(true);
+            const params = { skip: (page - 1) * LIMIT, limit: LIMIT, search, depto };
+            let data;
+            if (tab === 'activos') {
+                data = await getActiveDepartmentalBeneficiaries(params);
+            } else if (tab === 'pendientes') {
+                data = await getPendingDocDepartmentalBeneficiaries(params);
+            } else {
+                data = await getDepartmentalInsulinDeliveries({ skip: params.skip, limit: params.limit, depto });
+            }
+            setItems(data.items || []);
+            setTotal(data.total || 0);
+        } catch (error) {
+            console.error(error);
+            toast.error('No se pudo cargar la información.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tab, depto, page]);
+
+    const handleTabChange = (key) => {
+        setTab(key);
+        setPage(1);
+        setSearch('');
+    };
+
+    const handleSearchSubmit = (e) => {
+        e.preventDefault();
+        setPage(1);
+        load();
+    };
+
+    const openDeliveryModal = (patient) => {
+        setDeliveryForm({ insulinType: INSULIN_OPTIONS[0]?.value || '', quantity: '', deliveryDate: new Date().toISOString().slice(0, 10) });
+        setDeliveryModal({ open: true, patient });
+    };
+
+    const closeDeliveryModal = () => setDeliveryModal({ open: false, patient: null });
+
+    const submitDelivery = async () => {
+        if (!deliveryForm.insulinType || !deliveryForm.quantity.trim()) {
+            toast.error('Indique el tipo de insulina y la cantidad entregada.');
+            return;
+        }
+        try {
+            setSubmittingDelivery(true);
+            await createDepartmentalInsulinDelivery({
+                patientId: deliveryModal.patient.id,
+                insulinType: deliveryForm.insulinType,
+                quantity: deliveryForm.quantity.trim(),
+                deliveryDate: deliveryForm.deliveryDate,
+            });
+            toast.success('Entrega registrada.');
+            closeDeliveryModal();
+            if (tab === 'historial') load();
+        } catch (error) {
+            console.error(error);
+            const detail = error?.response?.data?.detail;
+            toast.error(typeof detail === 'string' ? detail : 'No se pudo registrar la entrega.');
+        } finally {
+            setSubmittingDelivery(false);
+        }
+    };
+
+    return (
+        <div className="max-w-6xl mx-auto">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
+                <div>
+                    <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                        <MapPin size={24} className="text-vida-main" />
+                        {isCoordinadorNacional ? 'Panel Nacional' : `Mi Departamento — ${user.depto_asignado || ''}`}
+                    </h1>
+                    <p className="text-sm text-gray-500">
+                        {isCoordinadorNacional
+                            ? 'Seguimiento y control a nivel nacional (solo lectura).'
+                            : 'Beneficiarios de su departamento asignado.'}
+                    </p>
+                </div>
+                {isCoordinadorNacional && (
+                    <select
+                        value={depto}
+                        onChange={(e) => { setDepto(e.target.value); setPage(1); }}
+                        className="border rounded-lg px-3 py-2 text-sm bg-white"
+                    >
+                        <option value="">Todos los departamentos</option>
+                        {DEPARTAMENTOS.map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                )}
+            </div>
+
+            {/* TABS */}
+            <div className="flex gap-2 border-b border-gray-200 mb-6 overflow-x-auto">
+                {TABS.map((t) => (
+                    <button
+                        key={t.key}
+                        onClick={() => handleTabChange(t.key)}
+                        className={`px-4 py-2 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors ${
+                            tab === t.key
+                                ? 'border-vida-main text-vida-main'
+                                : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                    >
+                        {t.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* BUSCADOR (no aplica al historial) */}
+            {tab !== 'historial' && (
+                <form onSubmit={handleSearchSubmit} className="flex gap-2 mb-4">
+                    <div className="relative flex-1 max-w-md">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Buscar por nombre o CI..."
+                            className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
+                        />
+                    </div>
+                    <Button type="submit" variant="secondary" className="border border-gray-200 text-gray-700 w-auto px-4">
+                        Buscar
+                    </Button>
+                </form>
+            )}
+
+            {loading ? (
+                <div className="p-10 text-center text-gray-500 font-semibold">Cargando...</div>
+            ) : items.length === 0 ? (
+                <div className="bg-white border border-gray-100 rounded-xl p-6 text-sm text-gray-500">
+                    No hay resultados.
+                </div>
+            ) : tab === 'activos' ? (
+                <div className="space-y-3">
+                    {items.map((p) => (
+                        <div key={p.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div>
+                                <p className="font-semibold text-gray-800">
+                                    {p.nombres} {p.ap_paterno} {p.ap_materno || ''} — CI {p.ci || 'Sin CI'}
+                                </p>
+                                <p className="text-sm text-gray-500 mt-1 flex items-center gap-3 flex-wrap">
+                                    {isCoordinadorNacional && <span className="inline-flex items-center gap-1"><MapPin size={12} /> {p.depto || 'Sin depto'}</span>}
+                                    {p.tel_contacto && <span className="inline-flex items-center gap-1"><Phone size={12} /> {p.tel_contacto}</span>}
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className={`text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 ${
+                                    p.al_dia_aporte
+                                        ? 'bg-green-100 text-green-700 border-green-200'
+                                        : 'bg-red-100 text-red-700 border-red-200'
+                                }`}>
+                                    {p.al_dia_aporte ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+                                    {p.al_dia_aporte ? `Al día (${p.periodo_actual})` : `Sin aporte (${p.periodo_actual})`}
+                                </span>
+                                {puedeRegistrarEntrega && (
+                                    <button
+                                        type="button"
+                                        onClick={() => openDeliveryModal(p)}
+                                        className="px-3 py-2 rounded-xl font-bold text-sm bg-vida-main hover:bg-vida-hover text-white inline-flex items-center gap-1"
+                                    >
+                                        <Syringe size={16} /> Registrar entrega
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : tab === 'pendientes' ? (
+                <div className="space-y-3">
+                    {items.map((p) => (
+                        <div key={p.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+                            <p className="font-semibold text-gray-800">
+                                {p.nombres} {p.ap_paterno} {p.ap_materno || ''} — CI {p.ci || 'Sin CI'}
+                            </p>
+                            <p className="text-sm text-gray-500 mt-1 flex items-center gap-3 flex-wrap">
+                                {isCoordinadorNacional && <span className="inline-flex items-center gap-1"><MapPin size={12} /> {p.depto || 'Sin depto'}</span>}
+                                {p.tel_contacto && <span className="inline-flex items-center gap-1"><Phone size={12} /> {p.tel_contacto}</span>}
+                                <span className="text-xs font-bold px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 border border-yellow-200">
+                                    {p.estado}
+                                </span>
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {items.map((d) => (
+                        <div key={d.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                            <div>
+                                <p className="font-semibold text-gray-800">{d.patient_nombre}</p>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    {d.insulin_type} — {d.quantity} | Entrega: {d.delivery_date}
+                                    {isCoordinadorNacional && ` | ${d.depto}`}
+                                </p>
+                            </div>
+                            <p className="text-xs text-gray-400">Registrado por {d.recorded_by_email || 'desconocido'}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {!loading && totalPages > 1 && (
+                <div className="flex items-center justify-between px-2 py-4">
+                    <div className="text-sm text-gray-500">
+                        Página <span className="font-medium text-gray-900">{page}</span> de <span className="font-medium text-gray-900">{totalPages}</span>
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                            className="px-4 py-2 border border-gray-200 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Anterior
+                        </button>
+                        <button
+                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                            className="px-4 py-2 border border-gray-200 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Siguiente
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {deliveryModal.open && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-gray-800">Registrar entrega de insulina</h3>
+                            <button onClick={closeDeliveryModal} className="text-gray-400 hover:text-gray-600">
+                                <X size={22} />
+                            </button>
+                        </div>
+                        <p className="text-sm text-gray-500 mb-4">
+                            Beneficiario: <span className="font-semibold text-gray-800">
+                                {deliveryModal.patient?.nombres} {deliveryModal.patient?.ap_paterno} {deliveryModal.patient?.ap_materno || ''}
+                            </span>
+                            <br />
+                            Este registro es solo un control interno (fecha/cantidad/tipo) — no afecta el stock de almacén.
+                        </p>
+
+                        <div className="space-y-3">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Tipo de insulina *</label>
+                                <select
+                                    value={deliveryForm.insulinType}
+                                    onChange={(e) => setDeliveryForm((prev) => ({ ...prev, insulinType: e.target.value }))}
+                                    className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                                >
+                                    {INSULIN_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Cantidad entregada *</label>
+                                <input
+                                    type="text"
+                                    value={deliveryForm.quantity}
+                                    onChange={(e) => setDeliveryForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                                    placeholder="Ej: 2 frascos"
+                                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Fecha de entrega *</label>
+                                <input
+                                    type="date"
+                                    value={deliveryForm.deliveryDate}
+                                    onChange={(e) => setDeliveryForm((prev) => ({ ...prev, deliveryDate: e.target.value }))}
+                                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={closeDeliveryModal}
+                                className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitDelivery}
+                                disabled={submittingDelivery}
+                                className="px-4 py-2 rounded-lg bg-vida-main hover:bg-vida-hover text-white font-bold disabled:opacity-50"
+                            >
+                                {submittingDelivery ? 'Registrando...' : 'Registrar entrega'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}

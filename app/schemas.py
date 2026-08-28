@@ -9,7 +9,13 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, mod
 
 class UserBase(BaseModel):
     email: EmailStr
-    role: Literal["SUPER_ADMIN", "REGISTRADOR", "PACIENTE", "EVALUADOR_SOCIAL"]
+    role: Literal[
+        "SUPER_ADMIN", "REGISTRADOR", "PACIENTE", "EVALUADOR_SOCIAL",
+        "RESPONSABLE_DEPARTAMENTAL", "COORDINADOR_NACIONAL",
+    ]
+    # Solo aplica a RESPONSABLE_DEPARTAMENTAL (validado en el endpoint contra
+    # app.core.departamentos.DEPARTAMENTOS, no aquí).
+    depto_asignado: Optional[str] = Field(None, max_length=80)
 
 class UserCreate(UserBase):
     password: str
@@ -17,7 +23,11 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = Field(None)
     password: Optional[str] = Field(None)
-    role: Optional[Literal["SUPER_ADMIN", "REGISTRADOR", "PACIENTE", "EVALUADOR_SOCIAL"]] = Field(None)
+    role: Optional[Literal[
+        "SUPER_ADMIN", "REGISTRADOR", "PACIENTE", "EVALUADOR_SOCIAL",
+        "RESPONSABLE_DEPARTAMENTAL", "COORDINADOR_NACIONAL",
+    ]] = Field(None)
+    depto_asignado: Optional[str] = Field(None, max_length=80)
     estado: Optional[str] = Field(None)
 
 class UserResponse(UserBase):
@@ -567,6 +577,65 @@ class DirectorPinUpdate(BaseModel):
 class PaginatedPatientResponse(BaseModel):
     total: int
     items: List[PatientResponse]
+
+# ==========================================
+#   9.5 MÓDULO DEPARTAMENTAL (Responsable Departamental / Coordinador Nacional)
+# ==========================================
+
+class DepartmentalBeneficiaryItem(BaseModel):
+    id: int
+    nombres: str
+    ap_paterno: Optional[str] = None
+    ap_materno: Optional[str] = None
+    ci: Optional[str] = None
+    depto: Optional[str] = None
+    tel_contacto: Optional[str] = None
+    estado: str
+    al_dia_aporte: bool
+    periodo_actual: str
+
+class PaginatedDepartmentalBeneficiaryResponse(BaseModel):
+    total: int
+    items: List[DepartmentalBeneficiaryItem]
+
+class DepartmentalPendingDocItem(BaseModel):
+    id: int
+    nombres: str
+    ap_paterno: Optional[str] = None
+    ap_materno: Optional[str] = None
+    ci: Optional[str] = None
+    depto: Optional[str] = None
+    tel_contacto: Optional[str] = None
+    estado: str
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class PaginatedDepartmentalPendingDocResponse(BaseModel):
+    total: int
+    items: List[DepartmentalPendingDocItem]
+
+class DepartmentalInsulinDeliveryCreate(BaseModel):
+    patient_id: int = Field(..., gt=0)
+    insulin_type: str = Field(..., min_length=1, max_length=200)
+    quantity: str = Field(..., min_length=1, max_length=100)
+    delivery_date: Optional[date] = None
+
+class DepartmentalInsulinDeliveryResponse(BaseModel):
+    id: int
+    patient_id: int
+    patient_nombre: str
+    depto: str
+    insulin_type: str
+    quantity: str
+    delivery_date: date
+    recorded_by_id: Optional[int] = None
+    recorded_by_email: Optional[str] = None
+    created_at: datetime
+
+class PaginatedDepartmentalDeliveryResponse(BaseModel):
+    total: int
+    items: List[DepartmentalInsulinDeliveryResponse]
 
 # ==========================================
 #   10. SCHEMAS SAPAM (AGENDAMIENTO DE CITAS)

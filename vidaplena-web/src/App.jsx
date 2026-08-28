@@ -24,6 +24,7 @@ import PaymentQrManagementPage from './pages/admin/PaymentQrManagementPage';
 import ContactInfoManagementPage from './pages/admin/ContactInfoManagementPage';
 import SocialEvaluationsReviewPage from './pages/admin/SocialEvaluationsReviewPage';
 import SocialEvaluationSelfPage from './pages/patients/SocialEvaluationSelfPage';
+import DepartmentalDashboardPage from './pages/departmental/DepartmentalDashboardPage';
 
 function App() {
   return (
@@ -55,6 +56,7 @@ function App() {
           <Route path="qr-pagos" element={<PaymentQrManagementPage />} />
           <Route path="contacto" element={<ContactInfoManagementPage />} />
           <Route path="evaluacion-social" element={<SocialEvaluationsReviewPage />} />
+          <Route path="panel-departamental" element={<DepartmentalDashboardPage />} />
         </Route>
 
         {/* 3. ZONA PACIENTE (Totalmente separada) */}

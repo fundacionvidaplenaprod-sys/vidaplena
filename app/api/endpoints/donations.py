@@ -19,6 +19,7 @@ from app import models, schemas
 from app.db import get_db
 from app.api import deps
 from app.core.firebase import upload_file_to_firebase
+from app.core.contributions import current_periodo, is_patient_current_on_contribution
 import math
 
 router = APIRouter()
@@ -748,8 +749,7 @@ async def calculate_distribution(
     requerimientos_validos = []
     
     # Definir Periodo Actual (YYYY-MM)
-    today = date.today()
-    periodo_actual = f"{today.year}-{today.month:02d}" # Ej: "2026-01"
+    periodo_actual = current_periodo() # Ej: "2026-01"
 
     canonical_product_name = _normalize_insulin_name(product.nombre_generico)
     if not canonical_product_name:
@@ -762,14 +762,8 @@ async def calculate_distribution(
     for patient in candidates:
         
         # --- 🛡️ FILTRO ANTI-MOROSOS ---
-        es_aportante = False
-        if patient.contributions:
-            for aporte in patient.contributions:
-                # Usamos TU campo 'periodo' y verificamos que esté aceptado
-                if aporte.periodo == periodo_actual and aporte.estado == 'ACEPTADO':
-                    es_aportante = True
-                    break
-        
+        es_aportante = is_patient_current_on_contribution(patient, periodo_actual)
+
         if not es_aportante:
             excluded_list.append({
                 "patient_id": patient.id,
