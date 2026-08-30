@@ -7,7 +7,7 @@ from sqlalchemy import or_
 from app.db import get_db
 from app import models, schemas
 from app.core.security import hash_password
-from app.core.departamentos import DEPARTAMENTOS
+from app.core.departamentos import DEPARTAMENTOS_RESPONSABLE
 from app.api import deps
 
 router = APIRouter()
@@ -21,7 +21,7 @@ def _validar_depto_asignado(role: str, depto_asignado: Optional[str]) -> Optiona
     """
     if role != "RESPONSABLE_DEPARTAMENTAL":
         return None
-    if not depto_asignado or depto_asignado not in DEPARTAMENTOS:
+    if not depto_asignado or depto_asignado not in DEPARTAMENTOS_RESPONSABLE:
         raise HTTPException(
             status_code=400,
             detail="Debe indicar un departamento válido para un usuario RESPONSABLE_DEPARTAMENTAL.",

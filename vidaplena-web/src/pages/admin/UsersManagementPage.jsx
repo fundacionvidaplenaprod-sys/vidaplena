@@ -6,7 +6,7 @@ import {
 import { Button } from '../../components/ui/Button';
 import { toast } from 'react-hot-toast';
 import client from '../../api/axios';
-import { DEPARTAMENTOS } from '../../constants/departamentos';
+import { DEPARTAMENTOS_RESPONSABLE } from '../../constants/departamentos';
 
 export default function UsersManagementPage() {
     const [users, setUsers] = useState([]);
@@ -368,7 +368,7 @@ export default function UsersManagementPage() {
                                             onChange={(e) => setFormData({...formData, depto_asignado: e.target.value})}
                                         >
                                             <option value="">-- Seleccionar --</option>
-                                            {DEPARTAMENTOS.map((d) => <option key={d} value={d}>{d}</option>)}
+                                            {DEPARTAMENTOS_RESPONSABLE.map((d) => <option key={d} value={d}>{d}</option>)}
                                         </select>
                                     </div>
                                 </div>
