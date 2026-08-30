@@ -15,9 +15,16 @@ import {
 } from '../../api/departmental';
 
 const LIMIT = 20;
-const TABS = [
+
+// El RESPONSABLE_DEPARTAMENTAL solo ve beneficiarios activos y pendientes de
+// documentos de SU departamento; el historial de entregas y los envíos a
+// responsables son solo para Coordinador Nacional / Super Admin.
+const TABS_RESPONSABLE = [
     { key: 'activos', label: 'Beneficiarios Activos' },
     { key: 'pendientes', label: 'Documentos Pendientes' },
+];
+const TABS_NACIONAL = [
+    ...TABS_RESPONSABLE,
     { key: 'historial', label: 'Historial de Entregas' },
     { key: 'envios', label: 'Envíos a Responsables' },
 ];
@@ -25,8 +32,10 @@ const TABS = [
 export default function DepartmentalDashboardPage() {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const isCoordinadorNacional = user.role === 'COORDINADOR_NACIONAL';
+    const esResponsableDepartamental = user.role === 'RESPONSABLE_DEPARTAMENTAL';
     const puedeRegistrarEntrega = user.role === 'RESPONSABLE_DEPARTAMENTAL' || user.role === 'SUPER_ADMIN';
     const puedeEnviarInsulina = user.role === 'COORDINADOR_NACIONAL' || user.role === 'SUPER_ADMIN';
+    const TABS = esResponsableDepartamental ? TABS_RESPONSABLE : TABS_NACIONAL;
 
     const [tab, setTab] = useState('activos');
     const [depto, setDepto] = useState(''); // Solo aplica para Coordinador Nacional ("" = todos)
