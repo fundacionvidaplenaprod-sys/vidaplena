@@ -6,9 +6,10 @@
 #
 # DESTRUCTIVO: borra y recrea la base local antes de restaurar.
 #
-# Variables (con sus valores por defecto para este proyecto):
-#   PGHOST=localhost  PGPORT=5432  PGUSER=postgres  PGPASSWORD=Bisa.2025
-#   LOCAL_DB=vidaplena
+# La conexión sale de la variable DATABASE_URL (del entorno o del archivo
+# .env, que NO está versionado). No hay credenciales en este script.
+# Formato esperado:
+#   postgresql+asyncpg://usuario:clave@host:puerto/basededatos
 #
 set -euo pipefail
 
@@ -18,15 +19,36 @@ if [ -z "$DUMP" ] || [ ! -f "$DUMP" ]; then
     exit 1
 fi
 
-export PGHOST="${PGHOST:-localhost}"
-export PGPORT="${PGPORT:-5432}"
-export PGUSER="${PGUSER:-postgres}"
-export PGPASSWORD="${PGPASSWORD:-Bisa.2025}"
-LOCAL_DB="${LOCAL_DB:-vidaplena}"
-
 command -v psql >/dev/null 2>&1 || { echo "ERROR: falta 'psql' en el PATH." >&2; exit 1; }
 
-echo ">> Esto ELIMINA la base local '${LOCAL_DB}' en ${PGHOST}:${PGPORT} y la reemplaza."
+# --- Obtener DATABASE_URL (entorno tiene prioridad; si no, del .env) ---
+if [ -z "${DATABASE_URL:-}" ] && [ -f .env ]; then
+    DATABASE_URL="$(grep -E '^\s*DATABASE_URL=' .env | tail -n1 | cut -d= -f2- | tr -d '"'"'"'')"
+fi
+if [ -z "${DATABASE_URL:-}" ]; then
+    echo "ERROR: no encuentro DATABASE_URL (ni en el entorno ni en .env)." >&2
+    exit 1
+fi
+
+# --- Parsear la URL: //usuario:clave@host:puerto/base ---
+URL_NOSCHEME="${DATABASE_URL#*://}"
+CREDS="${URL_NOSCHEME%%@*}"          # usuario:clave
+HOSTPART="${URL_NOSCHEME#*@}"        # host:puerto/base
+export PGUSER="${CREDS%%:*}"
+export PGPASSWORD="${CREDS#*:}"
+export PGHOST="$(printf '%s' "${HOSTPART%%/*}" | cut -d: -f1)"
+export PGPORT="$(printf '%s' "${HOSTPART%%/*}" | cut -d: -f2)"
+LOCAL_DB="${HOSTPART#*/}"
+LOCAL_DB="${LOCAL_DB%%\?*}"          # descarta ?params si los hubiera
+[ -n "$PGPORT" ] && [ "$PGPORT" != "$PGHOST" ] || PGPORT=5432
+
+if [ "$PGHOST" != "localhost" ] && [ "$PGHOST" != "127.0.0.1" ]; then
+    echo "ERROR: DATABASE_URL apunta a '$PGHOST', no a localhost. Abortando por seguridad." >&2
+    exit 1
+fi
+
+echo ">> Destino: ${PGUSER}@${PGHOST}:${PGPORT}/${LOCAL_DB}"
+echo ">> Esto ELIMINA la base local '${LOCAL_DB}' y la reemplaza con ${DUMP}."
 printf ">> Escribe 'si' para continuar: "
 read -r CONFIRM
 [ "$CONFIRM" = "si" ] || { echo "Cancelado."; exit 1; }
