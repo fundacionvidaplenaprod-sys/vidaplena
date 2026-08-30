@@ -101,6 +101,21 @@ def get_current_departmental_viewer(
     return current_user
 
 
+def get_current_shipment_writer(
+    current_user: models.User = Depends(get_current_active_user),
+) -> models.User:
+    """
+    Registrar envíos de insulina del coordinador nacional a un responsable
+    de departamento: solo COORDINADOR_NACIONAL y SUPER_ADMIN. El
+    RESPONSABLE_DEPARTAMENTAL solo recibe/lee, nunca origina un envío.
+    """
+    if current_user.role not in ["COORDINADOR_NACIONAL", "SUPER_ADMIN"]:
+        raise HTTPException(
+            status_code=403, detail="No tiene permisos para registrar envíos de insulina"
+        )
+    return current_user
+
+
 def get_current_departmental_delivery_writer(
     current_user: models.User = Depends(get_current_active_user),
 ) -> models.User:

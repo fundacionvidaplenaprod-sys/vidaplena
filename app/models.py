@@ -398,6 +398,30 @@ class DepartmentalInsulinDelivery(Base):
     recorded_by = relationship("User")
 
 
+class InsulinShipment(Base):
+    """
+    Log de envíos de insulina del COORDINADOR_NACIONAL a un
+    RESPONSABLE_DEPARTAMENTAL. Es control/auditoría, igual que
+    DepartmentalInsulinDelivery — NO descuenta stock de almacén.
+    Etapa 1 del flujo (coordinador -> responsable); la etapa 2
+    (responsable -> beneficiario) es DepartmentalInsulinDelivery.
+    """
+    __tablename__ = "insulin_shipments"
+
+    id = Column(BigInteger, primary_key=True)
+    recipient_user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Snapshot del depto_asignado del destinatario al momento del envío.
+    depto = Column(String(80), nullable=False)
+    insulin_type = Column(Text, nullable=False)
+    quantity = Column(Text, nullable=False)
+    shipment_date = Column(Date, nullable=False, default=func.current_date())
+    recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    recipient = relationship("User", foreign_keys=[recipient_user_id])
+    recorded_by = relationship("User", foreign_keys=[recorded_by_id])
+
+
 class DoctorBlockedDay(Base):
     """Días en los que la doctora no puede atender (bloqueados manualmente)."""
     __tablename__ = "doctor_blocked_days"

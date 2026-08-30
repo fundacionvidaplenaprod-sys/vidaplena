@@ -637,6 +637,35 @@ class PaginatedDepartmentalDeliveryResponse(BaseModel):
     total: int
     items: List[DepartmentalInsulinDeliveryResponse]
 
+class DepartmentalResponsableItem(BaseModel):
+    id: int
+    email: str
+    depto_asignado: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class InsulinShipmentCreate(BaseModel):
+    recipient_user_id: int = Field(..., gt=0)
+    insulin_type: str = Field(..., min_length=1, max_length=200)
+    quantity: str = Field(..., min_length=1, max_length=100)
+    shipment_date: Optional[date] = None
+
+class InsulinShipmentResponse(BaseModel):
+    id: int
+    recipient_user_id: int
+    recipient_email: str
+    depto: str
+    insulin_type: str
+    quantity: str
+    shipment_date: date
+    recorded_by_id: Optional[int] = None
+    recorded_by_email: Optional[str] = None
+    created_at: datetime
+
+class PaginatedInsulinShipmentResponse(BaseModel):
+    total: int
+    items: List[InsulinShipmentResponse]
+
 # ==========================================
 #   10. SCHEMAS SAPAM (AGENDAMIENTO DE CITAS)
 # ==========================================

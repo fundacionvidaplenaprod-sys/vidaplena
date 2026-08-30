@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MapPin, Search, CheckCircle, AlertTriangle, Syringe, Phone, X } from 'lucide-react';
+import { MapPin, Search, CheckCircle, AlertTriangle, Syringe, Phone, X, Send } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import { DEPARTAMENTOS } from '../../constants/departamentos';
@@ -9,6 +9,9 @@ import {
     getPendingDocDepartmentalBeneficiaries,
     getDepartmentalInsulinDeliveries,
     createDepartmentalInsulinDelivery,
+    getDepartmentalResponsables,
+    createInsulinShipment,
+    getInsulinShipments,
 } from '../../api/departmental';
 
 const LIMIT = 20;
@@ -16,12 +19,14 @@ const TABS = [
     { key: 'activos', label: 'Beneficiarios Activos' },
     { key: 'pendientes', label: 'Documentos Pendientes' },
     { key: 'historial', label: 'Historial de Entregas' },
+    { key: 'envios', label: 'Envíos a Responsables' },
 ];
 
 export default function DepartmentalDashboardPage() {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const isCoordinadorNacional = user.role === 'COORDINADOR_NACIONAL';
     const puedeRegistrarEntrega = user.role === 'RESPONSABLE_DEPARTAMENTAL' || user.role === 'SUPER_ADMIN';
+    const puedeEnviarInsulina = user.role === 'COORDINADOR_NACIONAL' || user.role === 'SUPER_ADMIN';
 
     const [tab, setTab] = useState('activos');
     const [depto, setDepto] = useState(''); // Solo aplica para Coordinador Nacional ("" = todos)
@@ -35,6 +40,16 @@ export default function DepartmentalDashboardPage() {
     const [deliveryForm, setDeliveryForm] = useState({ insulinType: INSULIN_OPTIONS[0]?.value || '', quantity: '', deliveryDate: '' });
     const [submittingDelivery, setSubmittingDelivery] = useState(false);
 
+    const [responsables, setResponsables] = useState([]);
+    const [shipmentModalOpen, setShipmentModalOpen] = useState(false);
+    const [shipmentForm, setShipmentForm] = useState({
+        recipientUserId: '',
+        insulinType: INSULIN_OPTIONS[0]?.value || '',
+        quantity: '',
+        shipmentDate: '',
+    });
+    const [submittingShipment, setSubmittingShipment] = useState(false);
+
     const totalPages = Math.ceil(total / LIMIT) || 1;
 
     const load = async () => {
@@ -46,6 +61,8 @@ export default function DepartmentalDashboardPage() {
                 data = await getActiveDepartmentalBeneficiaries(params);
             } else if (tab === 'pendientes') {
                 data = await getPendingDocDepartmentalBeneficiaries(params);
+            } else if (tab === 'envios') {
+                data = await getInsulinShipments({ skip: params.skip, limit: params.limit, depto });
             } else {
                 data = await getDepartmentalInsulinDeliveries({ skip: params.skip, limit: params.limit, depto });
             }
@@ -108,6 +125,54 @@ export default function DepartmentalDashboardPage() {
         }
     };
 
+    const openShipmentModal = async () => {
+        setShipmentForm({
+            recipientUserId: '',
+            insulinType: INSULIN_OPTIONS[0]?.value || '',
+            quantity: '',
+            shipmentDate: new Date().toISOString().slice(0, 10),
+        });
+        setShipmentModalOpen(true);
+        try {
+            const data = await getDepartmentalResponsables();
+            setResponsables(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error(error);
+            toast.error('No se pudo cargar la lista de responsables de departamento.');
+        }
+    };
+
+    const closeShipmentModal = () => setShipmentModalOpen(false);
+
+    const submitShipment = async () => {
+        if (!shipmentForm.recipientUserId) {
+            toast.error('Seleccione al responsable de departamento destinatario.');
+            return;
+        }
+        if (!shipmentForm.insulinType || !shipmentForm.quantity.trim()) {
+            toast.error('Indique el tipo de insulina y la cantidad enviada.');
+            return;
+        }
+        try {
+            setSubmittingShipment(true);
+            await createInsulinShipment({
+                recipientUserId: Number(shipmentForm.recipientUserId),
+                insulinType: shipmentForm.insulinType,
+                quantity: shipmentForm.quantity.trim(),
+                shipmentDate: shipmentForm.shipmentDate,
+            });
+            toast.success('Envío registrado.');
+            closeShipmentModal();
+            if (tab === 'envios') load();
+        } catch (error) {
+            console.error(error);
+            const detail = error?.response?.data?.detail;
+            toast.error(typeof detail === 'string' ? detail : 'No se pudo registrar el envío.');
+        } finally {
+            setSubmittingShipment(false);
+        }
+    };
+
     return (
         <div className="max-w-6xl mx-auto">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
@@ -122,16 +187,28 @@ export default function DepartmentalDashboardPage() {
                             : 'Beneficiarios de su departamento asignado.'}
                     </p>
                 </div>
-                {isCoordinadorNacional && (
-                    <select
-                        value={depto}
-                        onChange={(e) => { setDepto(e.target.value); setPage(1); }}
-                        className="border rounded-lg px-3 py-2 text-sm bg-white"
-                    >
-                        <option value="">Todos los departamentos</option>
-                        {DEPARTAMENTOS.map((d) => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                )}
+                <div className="flex items-center gap-2">
+                    {isCoordinadorNacional && (
+                        <select
+                            value={depto}
+                            onChange={(e) => { setDepto(e.target.value); setPage(1); }}
+                            className="border rounded-lg px-3 py-2 text-sm bg-white"
+                        >
+                            <option value="">Todos los departamentos</option>
+                            {DEPARTAMENTOS.map((d) => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                    )}
+                    {tab === 'envios' && puedeEnviarInsulina && (
+                        <Button
+                            type="button"
+                            className="bg-vida-main hover:bg-vida-hover text-white w-auto px-4"
+                            onClick={openShipmentModal}
+                        >
+                            <Send size={16} className="mr-2" />
+                            Registrar envío
+                        </Button>
+                    )}
+                </div>
             </div>
 
             {/* TABS */}
@@ -151,8 +228,8 @@ export default function DepartmentalDashboardPage() {
                 ))}
             </div>
 
-            {/* BUSCADOR (no aplica al historial) */}
-            {tab !== 'historial' && (
+            {/* BUSCADOR (no aplica al historial ni a envíos) */}
+            {tab !== 'historial' && tab !== 'envios' && (
                 <form onSubmit={handleSearchSubmit} className="flex gap-2 mb-4">
                     <div className="relative flex-1 max-w-md">
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -228,7 +305,7 @@ export default function DepartmentalDashboardPage() {
                         </div>
                     ))}
                 </div>
-            ) : (
+            ) : tab === 'historial' ? (
                 <div className="space-y-3">
                     {items.map((d) => (
                         <div key={d.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
@@ -240,6 +317,22 @@ export default function DepartmentalDashboardPage() {
                                 </p>
                             </div>
                             <p className="text-xs text-gray-400">Registrado por {d.recorded_by_email || 'desconocido'}</p>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {items.map((s) => (
+                        <div key={s.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                            <div>
+                                <p className="font-semibold text-gray-800">
+                                    {s.recipient_email} <span className="text-gray-400 font-normal">— {s.depto}</span>
+                                </p>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    {s.insulin_type} — {s.quantity} | Envío: {s.shipment_date}
+                                </p>
+                            </div>
+                            <p className="text-xs text-gray-400">Registrado por {s.recorded_by_email || 'desconocido'}</p>
                         </div>
                     ))}
                 </div>
@@ -335,6 +428,91 @@ export default function DepartmentalDashboardPage() {
                                 className="px-4 py-2 rounded-lg bg-vida-main hover:bg-vida-hover text-white font-bold disabled:opacity-50"
                             >
                                 {submittingDelivery ? 'Registrando...' : 'Registrar entrega'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {shipmentModalOpen && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-gray-800">Registrar envío de insulina</h3>
+                            <button onClick={closeShipmentModal} className="text-gray-400 hover:text-gray-600">
+                                <X size={22} />
+                            </button>
+                        </div>
+                        <p className="text-sm text-gray-500 mb-4">
+                            Registra la insulina que usted (Coordinador Nacional) envió a un responsable de
+                            departamento para su distribución. Es solo un control interno — no afecta el
+                            stock de almacén.
+                        </p>
+
+                        <div className="space-y-3">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Responsable de departamento *</label>
+                                <select
+                                    value={shipmentForm.recipientUserId}
+                                    onChange={(e) => setShipmentForm((prev) => ({ ...prev, recipientUserId: e.target.value }))}
+                                    className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                                >
+                                    <option value="">Seleccione...</option>
+                                    {responsables.map((r) => (
+                                        <option key={r.id} value={r.id}>
+                                            {r.email} — {r.depto_asignado || 'Sin depto'}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Tipo de insulina *</label>
+                                <select
+                                    value={shipmentForm.insulinType}
+                                    onChange={(e) => setShipmentForm((prev) => ({ ...prev, insulinType: e.target.value }))}
+                                    className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                                >
+                                    {INSULIN_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Cantidad enviada *</label>
+                                <input
+                                    type="text"
+                                    value={shipmentForm.quantity}
+                                    onChange={(e) => setShipmentForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                                    placeholder="Ej: 20 frascos"
+                                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Fecha de envío *</label>
+                                <input
+                                    type="date"
+                                    value={shipmentForm.shipmentDate}
+                                    onChange={(e) => setShipmentForm((prev) => ({ ...prev, shipmentDate: e.target.value }))}
+                                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={closeShipmentModal}
+                                className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitShipment}
+                                disabled={submittingShipment}
+                                className="px-4 py-2 rounded-lg bg-vida-main hover:bg-vida-hover text-white font-bold disabled:opacity-50"
+                            >
+                                {submittingShipment ? 'Registrando...' : 'Registrar envío'}
                             </button>
                         </div>
                     </div>

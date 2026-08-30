@@ -8,12 +8,19 @@ COORDINADOR_NACIONAL.
   usuario autenticado, nunca del cliente.
 - COORDINADOR_NACIONAL: misma visibilidad pero sin restricción de
   departamento (puede filtrar opcionalmente), estrictamente de solo lectura
-  — nunca puede pasar el gate de escritura de entregas.
+  sobre beneficiarios/entregas — nunca puede pasar el gate de escritura de
+  entregas a beneficiarios.
 - SUPER_ADMIN: acceso total, igual que en el resto del sistema.
 
-El registro de entregas de insulina es solo un log de control/auditoría:
-NO descuenta stock de almacén/donaciones (eso lo maneja el módulo separado
-en donations.py, exclusivo de SUPER_ADMIN).
+Flujo de insulina en dos etapas, cada una con su propio log de control (NO
+descuentan stock de almacén/donaciones — eso lo maneja el módulo separado
+en donations.py, exclusivo de SUPER_ADMIN):
+  1. Coordinador Nacional -> Responsable Departamental (insulin_shipments):
+     el coordinador registra qué envió a cada responsable. Solo
+     COORDINADOR_NACIONAL/SUPER_ADMIN pueden originar un envío; el
+     responsable destinatario solo lo ve en su historial.
+  2. Responsable Departamental -> Beneficiario (departmental_insulin_deliveries):
+     el responsable registra la entrega final en campo.
 """
 from datetime import date
 from typing import Optional
@@ -68,6 +75,21 @@ def _apply_search(query, search: Optional[str]):
             models.Patient.ci.ilike(term),
         ))
     return query
+
+
+def _shipment_to_response(s: "models.InsulinShipment") -> schemas.InsulinShipmentResponse:
+    return schemas.InsulinShipmentResponse(
+        id=s.id,
+        recipient_user_id=s.recipient_user_id,
+        recipient_email=s.recipient.email if s.recipient else "(usuario eliminado)",
+        depto=s.depto,
+        insulin_type=s.insulin_type,
+        quantity=s.quantity,
+        shipment_date=s.shipment_date,
+        recorded_by_id=s.recorded_by_id,
+        recorded_by_email=s.recorded_by.email if s.recorded_by else None,
+        created_at=s.created_at,
+    )
 
 
 def _delivery_to_response(d: "models.DepartmentalInsulinDelivery") -> schemas.DepartmentalInsulinDeliveryResponse:
@@ -252,3 +274,103 @@ async def list_deliveries(
     total = len(candidates)
     page = candidates[skip: skip + limit]
     return {"total": total, "items": [_delivery_to_response(d) for d in page]}
+
+
+@router.get("/responsables", response_model=list[schemas.DepartmentalResponsableItem])
+async def list_responsables(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_shipment_writer),
+):
+    """Lista de RESPONSABLE_DEPARTAMENTAL para elegir destinatario de un envío."""
+    query = (
+        select(models.User)
+        .where(models.User.role == "RESPONSABLE_DEPARTAMENTAL")
+        .order_by(models.User.email)
+    )
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.post(
+    "/envios-insulina",
+    response_model=schemas.InsulinShipmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_shipment(
+    shipment_in: schemas.InsulinShipmentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_shipment_writer),
+):
+    """
+    Registra que el coordinador nacional envió insulina a un responsable de
+    departamento. Es solo un log de control (fecha/cantidad/tipo) — NO
+    descuenta stock de almacén.
+    """
+    recipient = await db.get(models.User, shipment_in.recipient_user_id)
+    if not recipient or recipient.role != "RESPONSABLE_DEPARTAMENTAL":
+        raise HTTPException(status_code=400, detail="El destinatario debe ser un responsable de departamento válido.")
+
+    shipment = models.InsulinShipment(
+        recipient_user_id=recipient.id,
+        depto=recipient.depto_asignado or "",
+        insulin_type=shipment_in.insulin_type,
+        quantity=shipment_in.quantity,
+        shipment_date=shipment_in.shipment_date or date.today(),
+        recorded_by_id=current_user.id,
+    )
+    db.add(shipment)
+    await db.commit()
+    await db.refresh(shipment, attribute_names=["id", "created_at"])
+
+    return schemas.InsulinShipmentResponse(
+        id=shipment.id,
+        recipient_user_id=recipient.id,
+        recipient_email=recipient.email,
+        depto=shipment.depto,
+        insulin_type=shipment.insulin_type,
+        quantity=shipment.quantity,
+        shipment_date=shipment.shipment_date,
+        recorded_by_id=current_user.id,
+        recorded_by_email=current_user.email,
+        created_at=shipment.created_at,
+    )
+
+
+@router.get("/envios-insulina", response_model=schemas.PaginatedInsulinShipmentResponse)
+async def list_shipments(
+    skip: int = 0,
+    limit: int = 20,
+    depto: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_departmental_viewer),
+):
+    """
+    Historial de envíos del coordinador nacional a responsables de
+    departamento. Un RESPONSABLE_DEPARTAMENTAL solo ve los envíos dirigidos
+    a él mismo (no los de otros responsables); COORDINADOR_NACIONAL/
+    SUPER_ADMIN ven todos, con filtro opcional por depto.
+    """
+    query = (
+        select(models.InsulinShipment)
+        .options(
+            selectinload(models.InsulinShipment.recipient),
+            selectinload(models.InsulinShipment.recorded_by),
+        )
+        .order_by(
+            models.InsulinShipment.shipment_date.desc(),
+            models.InsulinShipment.id.desc(),
+        )
+    )
+    if current_user.role == "RESPONSABLE_DEPARTAMENTAL":
+        query = query.where(models.InsulinShipment.recipient_user_id == current_user.id)
+    else:
+        target_depto = _resolve_target_depto(current_user, depto)
+        if target_depto:
+            query = query.where(models.InsulinShipment.depto == target_depto)
+
+    result = await db.execute(query)
+    shipments = result.scalars().unique().all()
+
+    total = len(shipments)
+    page = shipments[skip: skip + limit]
+    return {"total": total, "items": [_shipment_to_response(s) for s in page]}
