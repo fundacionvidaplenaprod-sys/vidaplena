@@ -7,3 +7,8 @@ firebase_key.json
 firebase-adminsdk.json
 *.csv
 PROJECT_ANALYSIS.md
+
+# Respaldos de base de datos (nunca commitear datos reales)
+backup_*.sql
+backup_*.sql.gz
+*.dump
