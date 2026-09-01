@@ -615,11 +615,17 @@ class PaginatedDepartmentalPendingDocResponse(BaseModel):
     total: int
     items: List[DepartmentalPendingDocItem]
 
-class DepartmentalInsulinDeliveryCreate(BaseModel):
-    patient_id: int = Field(..., gt=0)
+class DepartmentalInsulinDeliveryItem(BaseModel):
     insulin_type: str = Field(..., min_length=1, max_length=200)
     quantity: str = Field(..., min_length=1, max_length=100)
+
+class DepartmentalInsulinDeliveryCreate(BaseModel):
+    patient_id: int = Field(..., gt=0)
     delivery_date: Optional[date] = None
+    # Un beneficiario puede necesitar más de un tipo de insulina en la misma
+    # visita — cada item queda como una fila propia en el historial, todas
+    # con la misma fecha/paciente.
+    items: List[DepartmentalInsulinDeliveryItem] = Field(..., min_length=1)
 
 class DepartmentalInsulinDeliveryResponse(BaseModel):
     id: int

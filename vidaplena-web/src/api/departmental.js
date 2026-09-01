@@ -23,13 +23,14 @@ export const getPendingDocDepartmentalBeneficiaries = async ({ skip = 0, limit =
 /**
  * Registra la entrega de insulina a un beneficiario (solo log de control,
  * no descuenta stock). Exclusivo de RESPONSABLE_DEPARTAMENTAL/SUPER_ADMIN.
+ * `items`: [{ insulinType, quantity }, ...] — un beneficiario puede
+ * necesitar más de un tipo de insulina en la misma visita.
  */
-export const createDepartmentalInsulinDelivery = async ({ patientId, insulinType, quantity, deliveryDate }) => {
+export const createDepartmentalInsulinDelivery = async ({ patientId, items, deliveryDate }) => {
   const { data } = await client.post('/departmental/entregas-insulina', {
     patient_id: patientId,
-    insulin_type: insulinType,
-    quantity,
     delivery_date: deliveryDate || undefined,
+    items: items.map(({ insulinType, quantity }) => ({ insulin_type: insulinType, quantity })),
   });
   return data;
 };

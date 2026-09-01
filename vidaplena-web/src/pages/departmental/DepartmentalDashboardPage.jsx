@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MapPin, Search, CheckCircle, AlertTriangle, Syringe, Phone, X, Send } from 'lucide-react';
+import { MapPin, Search, CheckCircle, AlertTriangle, Syringe, Phone, X, Send, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import { DEPARTAMENTOS } from '../../constants/departamentos';
@@ -46,7 +46,7 @@ export default function DepartmentalDashboardPage() {
     const [total, setTotal] = useState(0);
 
     const [deliveryModal, setDeliveryModal] = useState({ open: false, patient: null });
-    const [deliveryForm, setDeliveryForm] = useState({ insulinType: INSULIN_OPTIONS[0]?.value || '', quantity: '', deliveryDate: '' });
+    const [deliveryForm, setDeliveryForm] = useState({ items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', quantity: '' }], deliveryDate: '' });
     const [submittingDelivery, setSubmittingDelivery] = useState(false);
 
     const [responsables, setResponsables] = useState([]);
@@ -103,26 +103,57 @@ export default function DepartmentalDashboardPage() {
     };
 
     const openDeliveryModal = (patient) => {
-        setDeliveryForm({ insulinType: INSULIN_OPTIONS[0]?.value || '', quantity: '', deliveryDate: new Date().toISOString().slice(0, 10) });
+        setDeliveryForm({
+            items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', quantity: '' }],
+            deliveryDate: new Date().toISOString().slice(0, 10),
+        });
         setDeliveryModal({ open: true, patient });
     };
 
     const closeDeliveryModal = () => setDeliveryModal({ open: false, patient: null });
 
+    const addDeliveryItem = () => {
+        setDeliveryForm((prev) => {
+            const usados = new Set(prev.items.map((it) => it.insulinType));
+            const disponible = INSULIN_OPTIONS.find((opt) => !usados.has(opt.value));
+            if (!disponible) {
+                toast.error('Ya agregó todos los tipos de insulina disponibles.');
+                return prev;
+            }
+            return { ...prev, items: [...prev.items, { insulinType: disponible.value, quantity: '' }] };
+        });
+    };
+
+    const removeDeliveryItem = (index) => {
+        setDeliveryForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
+    };
+
+    const updateDeliveryItem = (index, field, value) => {
+        setDeliveryForm((prev) => ({
+            ...prev,
+            items: prev.items.map((it, i) => (i === index ? { ...it, [field]: value } : it)),
+        }));
+    };
+
     const submitDelivery = async () => {
-        if (!deliveryForm.insulinType || !deliveryForm.quantity.trim()) {
-            toast.error('Indique el tipo de insulina y la cantidad entregada.');
+        const itemIncompleto = deliveryForm.items.some((it) => !it.insulinType || !it.quantity.trim());
+        if (itemIncompleto) {
+            toast.error('Indique el tipo de insulina y la cantidad entregada en cada fila.');
+            return;
+        }
+        const tipos = deliveryForm.items.map((it) => it.insulinType);
+        if (new Set(tipos).size !== tipos.length) {
+            toast.error('No puede repetir el mismo tipo de insulina.');
             return;
         }
         try {
             setSubmittingDelivery(true);
             await createDepartmentalInsulinDelivery({
                 patientId: deliveryModal.patient.id,
-                insulinType: deliveryForm.insulinType,
-                quantity: deliveryForm.quantity.trim(),
+                items: deliveryForm.items.map((it) => ({ insulinType: it.insulinType, quantity: it.quantity.trim() })),
                 deliveryDate: deliveryForm.deliveryDate,
             });
-            toast.success('Entrega registrada.');
+            toast.success(deliveryForm.items.length > 1 ? 'Entregas registradas.' : 'Entrega registrada.');
             closeDeliveryModal();
             if (tab === 'historial') load();
         } catch (error) {
@@ -389,28 +420,49 @@ export default function DepartmentalDashboardPage() {
                         </p>
 
                         <div className="space-y-3">
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">Tipo de insulina *</label>
-                                <select
-                                    value={deliveryForm.insulinType}
-                                    onChange={(e) => setDeliveryForm((prev) => ({ ...prev, insulinType: e.target.value }))}
-                                    className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                            <div className="flex items-center justify-between">
+                                <label className="block text-xs font-semibold text-gray-700">Insulina(s) entregada(s) *</label>
+                                <button
+                                    type="button"
+                                    onClick={addDeliveryItem}
+                                    className="text-xs font-bold text-vida-main hover:text-vida-hover inline-flex items-center gap-1"
                                 >
-                                    {INSULIN_OPTIONS.map((opt) => (
-                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                    ))}
-                                </select>
+                                    <Plus size={14} /> Agregar otro tipo
+                                </button>
                             </div>
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">Cantidad entregada *</label>
-                                <input
-                                    type="text"
-                                    value={deliveryForm.quantity}
-                                    onChange={(e) => setDeliveryForm((prev) => ({ ...prev, quantity: e.target.value }))}
-                                    placeholder="Ej: 2 frascos"
-                                    className="w-full border rounded-lg px-3 py-2 text-sm"
-                                />
-                            </div>
+                            {deliveryForm.items.map((item, index) => (
+                                <div key={index} className="flex gap-2 items-start bg-gray-50 p-2 rounded-lg">
+                                    <div className="flex-1">
+                                        <select
+                                            value={item.insulinType}
+                                            onChange={(e) => updateDeliveryItem(index, 'insulinType', e.target.value)}
+                                            className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                                        >
+                                            {INSULIN_OPTIONS.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="w-32">
+                                        <input
+                                            type="text"
+                                            value={item.quantity}
+                                            onChange={(e) => updateDeliveryItem(index, 'quantity', e.target.value)}
+                                            placeholder="Cantidad"
+                                            className="w-full border rounded-lg px-3 py-2 text-sm"
+                                        />
+                                    </div>
+                                    {deliveryForm.items.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeDeliveryItem(index)}
+                                            className="text-red-400 hover:text-red-600 p-2"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
                             <div>
                                 <label className="block text-xs font-semibold text-gray-700 mb-1">Fecha de entrega *</label>
                                 <input

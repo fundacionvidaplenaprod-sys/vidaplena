@@ -23,7 +23,7 @@ en donations.py, exclusivo de SUPER_ADMIN):
      el responsable registra la entrega final en campo.
 """
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -192,7 +192,7 @@ async def list_pending_doc_beneficiaries(
 
 @router.post(
     "/entregas-insulina",
-    response_model=schemas.DepartmentalInsulinDeliveryResponse,
+    response_model=List[schemas.DepartmentalInsulinDeliveryResponse],
     status_code=status.HTTP_201_CREATED,
 )
 async def create_delivery(
@@ -201,8 +201,11 @@ async def create_delivery(
     current_user: models.User = Depends(deps.get_current_departmental_delivery_writer),
 ):
     """
-    Registra que se entregó insulina a un beneficiario. Es solo un log de
-    control (fecha/cantidad/tipo) — NO descuenta stock de almacén.
+    Registra que se entregó insulina a un beneficiario. Un beneficiario
+    puede necesitar más de un tipo de insulina en la misma visita — cada
+    item de `delivery_in.items` queda como su propia fila en el historial
+    (misma fecha/paciente). Es solo un log de control — NO descuenta stock
+    de almacén.
     """
     patient = await db.get(models.Patient, delivery_in.patient_id)
     if not patient:
@@ -213,31 +216,48 @@ async def create_delivery(
     if current_user.role == "RESPONSABLE_DEPARTAMENTAL" and not _matches_depto(patient.depto, current_user.depto_asignado):
         raise HTTPException(status_code=403, detail="El beneficiario no pertenece a su departamento asignado.")
 
-    delivery = models.DepartmentalInsulinDelivery(
-        patient_id=patient.id,
-        depto=patient.depto or current_user.depto_asignado or "",
-        insulin_type=delivery_in.insulin_type,
-        quantity=delivery_in.quantity,
-        delivery_date=delivery_in.delivery_date or date.today(),
-        recorded_by_id=current_user.id,
-    )
-    db.add(delivery)
-    await db.commit()
-    await db.refresh(delivery, attribute_names=["id", "created_at"])
+    tipos_vistos = set()
+    for item in delivery_in.items:
+        clave = normalize_name(item.insulin_type)
+        if clave in tipos_vistos:
+            raise HTTPException(status_code=400, detail=f"El tipo de insulina '{item.insulin_type}' está repetido en la entrega.")
+        tipos_vistos.add(clave)
 
+    depto_entrega = patient.depto or current_user.depto_asignado or ""
+    delivery_date = delivery_in.delivery_date or date.today()
     nombre = " ".join(filter(None, [patient.nombres, patient.ap_paterno, patient.ap_materno]))
-    return schemas.DepartmentalInsulinDeliveryResponse(
-        id=delivery.id,
-        patient_id=patient.id,
-        patient_nombre=nombre,
-        depto=delivery.depto,
-        insulin_type=delivery.insulin_type,
-        quantity=delivery.quantity,
-        delivery_date=delivery.delivery_date,
-        recorded_by_id=current_user.id,
-        recorded_by_email=current_user.email,
-        created_at=delivery.created_at,
-    )
+
+    deliveries = [
+        models.DepartmentalInsulinDelivery(
+            patient_id=patient.id,
+            depto=depto_entrega,
+            insulin_type=item.insulin_type,
+            quantity=item.quantity,
+            delivery_date=delivery_date,
+            recorded_by_id=current_user.id,
+        )
+        for item in delivery_in.items
+    ]
+    db.add_all(deliveries)
+    await db.commit()
+    for delivery in deliveries:
+        await db.refresh(delivery, attribute_names=["id", "created_at"])
+
+    return [
+        schemas.DepartmentalInsulinDeliveryResponse(
+            id=delivery.id,
+            patient_id=patient.id,
+            patient_nombre=nombre,
+            depto=delivery.depto,
+            insulin_type=delivery.insulin_type,
+            quantity=delivery.quantity,
+            delivery_date=delivery.delivery_date,
+            recorded_by_id=current_user.id,
+            recorded_by_email=current_user.email,
+            created_at=delivery.created_at,
+        )
+        for delivery in deliveries
+    ]
 
 
 @router.get("/entregas-insulina", response_model=schemas.PaginatedDepartmentalDeliveryResponse)
