@@ -660,6 +660,7 @@ class DepartmentalResponsableItem(BaseModel):
 class InsulinShipmentCreate(BaseModel):
     recipient_user_id: int = Field(..., gt=0)
     insulin_type: str = Field(..., min_length=1, max_length=200)
+    presentacion: PresentacionInsulina
     quantity: str = Field(..., min_length=1, max_length=100)
     shipment_date: Optional[date] = None
 
@@ -669,6 +670,7 @@ class InsulinShipmentResponse(BaseModel):
     recipient_email: str
     depto: str
     insulin_type: str
+    presentacion: str
     quantity: str
     shipment_date: date
     recorded_by_id: Optional[int] = None

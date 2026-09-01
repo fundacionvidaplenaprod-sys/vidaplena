@@ -68,6 +68,7 @@ async def test_coordinador_nacional_registra_envio(client, db_session):
     resp = await client.post("/departmental/envios-insulina", json={
         "recipient_user_id": responsable.id,
         "insulin_type": "Glargina",
+        "presentacion": "Cartucho 3ml",
         "quantity": "20 frascos",
         "shipment_date": fecha_pasada,
     })
@@ -75,8 +76,23 @@ async def test_coordinador_nacional_registra_envio(client, db_session):
     body = resp.json()
     assert body["recipient_user_id"] == responsable.id
     assert body["depto"] == "La Paz"
+    assert body["presentacion"] == "Cartucho 3ml"
     assert body["shipment_date"] == fecha_pasada
     assert body["recorded_by_email"] == actor.email
+
+
+@pytest.mark.asyncio
+async def test_envio_rechaza_presentacion_invalida(client, db_session):
+    responsable = await _crear_responsable(db_session, depto="La Paz")
+    await _switch_identity(db_session, "COORDINADOR_NACIONAL")
+
+    resp = await client.post("/departmental/envios-insulina", json={
+        "recipient_user_id": responsable.id,
+        "insulin_type": "Glargina",
+        "presentacion": "Ampolla 5ml",
+        "quantity": "20 frascos",
+    })
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -87,6 +103,7 @@ async def test_envio_sin_fecha_usa_hoy(client, db_session):
     resp = await client.post("/departmental/envios-insulina", json={
         "recipient_user_id": responsable.id,
         "insulin_type": "Glargina",
+        "presentacion": "Vial 10ml",
         "quantity": "5 frascos",
     })
     assert resp.status_code == 201, resp.text
@@ -101,6 +118,7 @@ async def test_responsable_departamental_no_puede_registrar_envio(client, db_ses
     resp = await client.post("/departmental/envios-insulina", json={
         "recipient_user_id": responsable.id,
         "insulin_type": "Glargina",
+        "presentacion": "Vial 10ml",
         "quantity": "5 frascos",
     })
     assert resp.status_code == 403
@@ -114,6 +132,7 @@ async def test_destinatario_debe_ser_responsable_departamental(client, db_sessio
     resp = await client.post("/departmental/envios-insulina", json={
         "recipient_user_id": otro_coordinador.id,
         "insulin_type": "Glargina",
+        "presentacion": "Vial 10ml",
         "quantity": "5 frascos",
     })
     assert resp.status_code == 400
@@ -133,6 +152,7 @@ async def test_responsable_solo_ve_sus_propios_envios(client, db_session):
         r = await client.post("/departmental/envios-insulina", json={
             "recipient_user_id": recipient.id,
             "insulin_type": "Glargina",
+            "presentacion": "Vial 10ml",
             "quantity": "1 frasco",
         })
         assert r.status_code == 201, r.text
@@ -161,6 +181,7 @@ async def test_coordinador_nacional_ve_todos_los_envios(client, db_session):
         r = await client.post("/departmental/envios-insulina", json={
             "recipient_user_id": recipient.id,
             "insulin_type": "Glargina",
+            "presentacion": "Vial 10ml",
             "quantity": "1 frasco",
         })
         assert r.status_code == 201, r.text

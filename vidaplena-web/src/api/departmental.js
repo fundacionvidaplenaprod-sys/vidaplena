@@ -57,10 +57,11 @@ export const getDepartmentalResponsables = async () => {
  * departamento (log de control, no descuenta stock). Exclusivo de
  * COORDINADOR_NACIONAL/SUPER_ADMIN.
  */
-export const createInsulinShipment = async ({ recipientUserId, insulinType, quantity, shipmentDate }) => {
+export const createInsulinShipment = async ({ recipientUserId, insulinType, presentacion, quantity, shipmentDate }) => {
   const { data } = await client.post('/departmental/envios-insulina', {
     recipient_user_id: recipientUserId,
     insulin_type: insulinType,
+    presentacion,
     quantity,
     shipment_date: shipmentDate || undefined,
   });

@@ -422,10 +422,19 @@ class InsulinShipment(Base):
     # Snapshot del depto_asignado del destinatario al momento del envío.
     depto = Column(String(80), nullable=False)
     insulin_type = Column(Text, nullable=False)
+    # Presentación física enviada: 'Vial 10ml' | 'Cartucho 3ml' | 'Pen/Penfild 3ml'.
+    presentacion = Column(String(20), nullable=False, server_default="Vial 10ml")
     quantity = Column(Text, nullable=False)
     shipment_date = Column(Date, nullable=False, default=func.current_date())
     recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "presentacion IN ('Vial 10ml','Cartucho 3ml','Pen/Penfild 3ml')",
+            name="ck_insulin_shipment_presentacion",
+        ),
+    )
 
     recipient = relationship("User", foreign_keys=[recipient_user_id])
     recorded_by = relationship("User", foreign_keys=[recorded_by_id])
