@@ -615,8 +615,14 @@ class PaginatedDepartmentalPendingDocResponse(BaseModel):
     total: int
     items: List[DepartmentalPendingDocItem]
 
+# Presentaciones físicas en las que se entrega la insulina en campo. Lista
+# fija acordada con la Fundación — si se agrega una nueva presentación hay
+# que ampliar este Literal y su espejo en vidaplena-web/src/constants/insulins.js.
+PresentacionInsulina = Literal["Vial 10ml", "Cartucho 3ml", "Pen/Penfild 3ml"]
+
 class DepartmentalInsulinDeliveryItem(BaseModel):
     insulin_type: str = Field(..., min_length=1, max_length=200)
+    presentacion: PresentacionInsulina
     quantity: str = Field(..., min_length=1, max_length=100)
 
 class DepartmentalInsulinDeliveryCreate(BaseModel):
@@ -633,6 +639,7 @@ class DepartmentalInsulinDeliveryResponse(BaseModel):
     patient_nombre: str
     depto: str
     insulin_type: str
+    presentacion: str
     quantity: str
     delivery_date: date
     recorded_by_id: Optional[int] = None

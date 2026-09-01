@@ -3,7 +3,7 @@ import { MapPin, Search, CheckCircle, AlertTriangle, Syringe, Phone, X, Send, Pl
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import { DEPARTAMENTOS } from '../../constants/departamentos';
-import { INSULIN_OPTIONS } from '../../constants/insulins';
+import { INSULIN_OPTIONS, PRESENTACION_OPTIONS } from '../../constants/insulins';
 import {
     getActiveDepartmentalBeneficiaries,
     getPendingDocDepartmentalBeneficiaries,
@@ -46,7 +46,10 @@ export default function DepartmentalDashboardPage() {
     const [total, setTotal] = useState(0);
 
     const [deliveryModal, setDeliveryModal] = useState({ open: false, patient: null });
-    const [deliveryForm, setDeliveryForm] = useState({ items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', quantity: '' }], deliveryDate: '' });
+    const [deliveryForm, setDeliveryForm] = useState({
+        items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', presentacion: PRESENTACION_OPTIONS[0]?.value || '', quantity: '' }],
+        deliveryDate: '',
+    });
     const [submittingDelivery, setSubmittingDelivery] = useState(false);
 
     const [responsables, setResponsables] = useState([]);
@@ -104,7 +107,7 @@ export default function DepartmentalDashboardPage() {
 
     const openDeliveryModal = (patient) => {
         setDeliveryForm({
-            items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', quantity: '' }],
+            items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', presentacion: PRESENTACION_OPTIONS[0]?.value || '', quantity: '' }],
             deliveryDate: new Date().toISOString().slice(0, 10),
         });
         setDeliveryModal({ open: true, patient });
@@ -120,7 +123,10 @@ export default function DepartmentalDashboardPage() {
                 toast.error('Ya agregó todos los tipos de insulina disponibles.');
                 return prev;
             }
-            return { ...prev, items: [...prev.items, { insulinType: disponible.value, quantity: '' }] };
+            return {
+                ...prev,
+                items: [...prev.items, { insulinType: disponible.value, presentacion: PRESENTACION_OPTIONS[0]?.value || '', quantity: '' }],
+            };
         });
     };
 
@@ -150,7 +156,11 @@ export default function DepartmentalDashboardPage() {
             setSubmittingDelivery(true);
             await createDepartmentalInsulinDelivery({
                 patientId: deliveryModal.patient.id,
-                items: deliveryForm.items.map((it) => ({ insulinType: it.insulinType, quantity: it.quantity.trim() })),
+                items: deliveryForm.items.map((it) => ({
+                    insulinType: it.insulinType,
+                    presentacion: it.presentacion,
+                    quantity: it.quantity.trim(),
+                })),
                 deliveryDate: deliveryForm.deliveryDate,
             });
             toast.success(deliveryForm.items.length > 1 ? 'Entregas registradas.' : 'Entrega registrada.');
@@ -352,7 +362,7 @@ export default function DepartmentalDashboardPage() {
                             <div>
                                 <p className="font-semibold text-gray-800">{d.patient_nombre}</p>
                                 <p className="text-sm text-gray-500 mt-1">
-                                    {d.insulin_type} — {d.quantity} | Entrega: {d.delivery_date}
+                                    {d.insulin_type} ({d.presentacion}) — {d.quantity} | Entrega: {d.delivery_date}
                                     {isCoordinadorNacional && ` | ${d.depto}`}
                                 </p>
                             </div>
@@ -416,7 +426,7 @@ export default function DepartmentalDashboardPage() {
                                 {deliveryModal.patient?.nombres} {deliveryModal.patient?.ap_paterno} {deliveryModal.patient?.ap_materno || ''}
                             </span>
                             <br />
-                            Este registro es solo un control interno (fecha/cantidad/tipo) — no afecta el stock de almacén.
+                            Este registro es solo un control interno (fecha/tipo/presentación/cantidad) — no afecta el stock de almacén.
                         </p>
 
                         <div className="space-y-3">
@@ -431,36 +441,45 @@ export default function DepartmentalDashboardPage() {
                                 </button>
                             </div>
                             {deliveryForm.items.map((item, index) => (
-                                <div key={index} className="flex gap-2 items-start bg-gray-50 p-2 rounded-lg">
-                                    <div className="flex-1">
+                                <div key={index} className="bg-gray-50 p-2 rounded-lg space-y-2">
+                                    <div className="flex gap-2 items-start">
                                         <select
                                             value={item.insulinType}
                                             onChange={(e) => updateDeliveryItem(index, 'insulinType', e.target.value)}
-                                            className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                                            className="flex-1 border rounded-lg px-3 py-2 text-sm bg-white"
                                         >
                                             {INSULIN_OPTIONS.map((opt) => (
                                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
                                             ))}
                                         </select>
+                                        {deliveryForm.items.length > 1 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => removeDeliveryItem(index)}
+                                                className="text-red-400 hover:text-red-600 p-2"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        )}
                                     </div>
-                                    <div className="w-32">
+                                    <div className="flex gap-2 items-start">
+                                        <select
+                                            value={item.presentacion}
+                                            onChange={(e) => updateDeliveryItem(index, 'presentacion', e.target.value)}
+                                            className="flex-1 border rounded-lg px-3 py-2 text-sm bg-white"
+                                        >
+                                            {PRESENTACION_OPTIONS.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                        </select>
                                         <input
                                             type="text"
                                             value={item.quantity}
                                             onChange={(e) => updateDeliveryItem(index, 'quantity', e.target.value)}
                                             placeholder="Cantidad"
-                                            className="w-full border rounded-lg px-3 py-2 text-sm"
+                                            className="w-28 border rounded-lg px-3 py-2 text-sm"
                                         />
                                     </div>
-                                    {deliveryForm.items.length > 1 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => removeDeliveryItem(index)}
-                                            className="text-red-400 hover:text-red-600 p-2"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
-                                    )}
                                 </div>
                             ))}
                             <div>

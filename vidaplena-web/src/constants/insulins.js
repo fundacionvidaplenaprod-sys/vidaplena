@@ -29,3 +29,12 @@ export const normalizeInsulinName = (rawName) => {
   }
   return 'Glargina';
 };
+
+// Presentaciones físicas en las que se entrega la insulina en campo (panel
+// departamental). Lista fija — debe reflejar exactamente el Literal
+// `PresentacionInsulina` en app/schemas.py.
+export const PRESENTACION_OPTIONS = [
+  { value: 'Vial 10ml', label: 'Vial 10ml' },
+  { value: 'Cartucho 3ml', label: 'Cartucho 3ml' },
+  { value: 'Pen/Penfild 3ml', label: 'Pen/Penfild 3ml' },
+];

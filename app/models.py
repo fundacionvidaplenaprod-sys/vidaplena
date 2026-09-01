@@ -389,10 +389,19 @@ class DepartmentalInsulinDelivery(Base):
     # recalcula si el paciente se muda de depto después).
     depto = Column(String(80), nullable=False)
     insulin_type = Column(Text, nullable=False)
+    # Presentación física entregada: 'Vial 10ml' | 'Cartucho 3ml' | 'Pen/Penfild 3ml'.
+    presentacion = Column(String(20), nullable=False, server_default="Vial 10ml")
     quantity = Column(Text, nullable=False)
     delivery_date = Column(Date, nullable=False, default=func.current_date())
     recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "presentacion IN ('Vial 10ml','Cartucho 3ml','Pen/Penfild 3ml')",
+            name="ck_departmental_delivery_presentacion",
+        ),
+    )
 
     patient = relationship("Patient")
     recorded_by = relationship("User")
