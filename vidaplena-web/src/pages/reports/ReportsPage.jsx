@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity } from 'lucide-react';
+import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity, Wallet } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { getAuditLogsReport, getInventoryReport, getPopulationReport } from '../../api/reports';
 import { toast } from 'react-hot-toast';
 import DynamicBeneficiaryReport from './DynamicBeneficiaryReport';
+import ContributionsHistoryReport from './ContributionsHistoryReport';
 
 export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
@@ -78,6 +79,16 @@ export default function ReportsPage() {
           }`}
         >
           <FileText size={18} /> Reporte Beneficiarios
+        </button>
+        <button
+          onClick={() => setActiveTab('aportes')}
+          className={`flex items-center gap-2 px-6 py-3 font-semibold text-sm transition-colors whitespace-nowrap border-b-2 ${
+            activeTab === 'aportes'
+              ? 'border-vida-main text-vida-main bg-vida-main/5'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <Wallet size={18} /> Historial de Aportes
         </button>
       </div>
 
@@ -303,9 +314,13 @@ export default function ReportsPage() {
         </section>
       </div>
         </div>
-      ) : (
+      ) : activeTab === 'beneficiarios' ? (
         <div className="animate-fadeIn">
           <DynamicBeneficiaryReport />
+        </div>
+      ) : (
+        <div className="animate-fadeIn">
+          <ContributionsHistoryReport />
         </div>
       )}
     </div>

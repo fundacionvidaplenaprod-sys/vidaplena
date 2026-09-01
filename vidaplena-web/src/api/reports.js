@@ -29,3 +29,19 @@ export const getAuditLogsReport = async (limit = 50) => {
     throw error.response?.data?.detail || 'Error al cargar bitácora';
   }
 };
+
+/**
+ * Historial de aportes solidarios de un periodo (mes) elegido: cuántos
+ * beneficiarios hicieron su aporte ese mes (aceptados/declarados/observados)
+ * y el listado completo.
+ * @param {string} periodo - Formato "YYYY-MM"
+ */
+export const getContributionsReport = async (periodo) => {
+  try {
+    const response = await client.get('/reports/contributions', { params: { periodo } });
+    return response.data;
+  } catch (error) {
+    console.error('Error al cargar historial de aportes:', error);
+    throw error.response?.data?.detail || 'Error al cargar historial de aportes';
+  }
+};
