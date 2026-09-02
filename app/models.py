@@ -389,8 +389,8 @@ class DepartmentalInsulinDelivery(Base):
     # recalcula si el paciente se muda de depto después).
     depto = Column(String(80), nullable=False)
     insulin_type = Column(Text, nullable=False)
-    # Presentación física entregada: 'Vial 10ml' | 'Cartucho 3ml' | 'Pen/Penfild 3ml'.
-    presentacion = Column(String(20), nullable=False, server_default="Vial 10ml")
+    # Presentación física entregada: 'Frasco 10ml' | 'Cartucho 3ml' | 'Pen 3ml'.
+    presentacion = Column(String(20), nullable=False, server_default="Frasco 10ml")
     quantity = Column(Text, nullable=False)
     delivery_date = Column(Date, nullable=False, default=func.current_date())
     recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -398,7 +398,7 @@ class DepartmentalInsulinDelivery(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "presentacion IN ('Vial 10ml','Cartucho 3ml','Pen/Penfild 3ml')",
+            "presentacion IN ('Frasco 10ml','Cartucho 3ml','Pen 3ml')",
             name="ck_departmental_delivery_presentacion",
         ),
     )
@@ -422,8 +422,8 @@ class InsulinShipment(Base):
     # Snapshot del depto_asignado del destinatario al momento del envío.
     depto = Column(String(80), nullable=False)
     insulin_type = Column(Text, nullable=False)
-    # Presentación física enviada: 'Vial 10ml' | 'Cartucho 3ml' | 'Pen/Penfild 3ml'.
-    presentacion = Column(String(20), nullable=False, server_default="Vial 10ml")
+    # Presentación física enviada: 'Frasco 10ml' | 'Cartucho 3ml' | 'Pen 3ml'.
+    presentacion = Column(String(20), nullable=False, server_default="Frasco 10ml")
     quantity = Column(Text, nullable=False)
     shipment_date = Column(Date, nullable=False, default=func.current_date())
     recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -431,7 +431,7 @@ class InsulinShipment(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "presentacion IN ('Vial 10ml','Cartucho 3ml','Pen/Penfild 3ml')",
+            "presentacion IN ('Frasco 10ml','Cartucho 3ml','Pen 3ml')",
             name="ck_insulin_shipment_presentacion",
         ),
     )

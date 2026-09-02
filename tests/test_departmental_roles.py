@@ -282,7 +282,7 @@ async def test_responsable_registra_entrega_en_su_departamento(client, db_sessio
     resp = await client.post("/departmental/entregas-insulina", json={
         "patient_id": patient.id,
         "delivery_date": str(date.today()),
-        "items": [{"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "2 frascos"}],
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "2 frascos"}],
     })
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -301,8 +301,8 @@ async def test_responsable_registra_entrega_con_varios_tipos_de_insulina(client,
     resp = await client.post("/departmental/entregas-insulina", json={
         "patient_id": patient.id,
         "items": [
-            {"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "2 frascos"},
-            {"presentacion": "Pen/Penfild 3ml", "insulin_type": "Lispro", "quantity": "1 pluma"},
+            {"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "2 frascos"},
+            {"presentacion": "Pen 3ml", "insulin_type": "Lispro", "quantity": "1 pluma"},
         ],
     })
     assert resp.status_code == 201, resp.text
@@ -312,8 +312,8 @@ async def test_responsable_registra_entrega_con_varios_tipos_de_insulina(client,
     assert tipos == {"Glargina", "Lispro"}
     assert all(item["patient_id"] == patient.id for item in body)
     presentaciones = {item["insulin_type"]: item["presentacion"] for item in body}
-    assert presentaciones["Glargina"] == "Vial 10ml"
-    assert presentaciones["Lispro"] == "Pen/Penfild 3ml"
+    assert presentaciones["Glargina"] == "Frasco 10ml"
+    assert presentaciones["Lispro"] == "Pen 3ml"
     # Cada tipo queda como su propia fila en el historial.
     ids = {item["id"] for item in body}
     assert len(ids) == 2
@@ -339,8 +339,8 @@ async def test_registrar_entrega_rechaza_tipo_de_insulina_repetido(client, db_se
     resp = await client.post("/departmental/entregas-insulina", json={
         "patient_id": patient.id,
         "items": [
-            {"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"},
-            {"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "1 frasco más"},
+            {"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"},
+            {"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco más"},
         ],
     })
     assert resp.status_code == 400
@@ -353,7 +353,7 @@ async def test_responsable_no_puede_registrar_entrega_fuera_de_su_departamento(c
 
     resp = await client.post("/departmental/entregas-insulina", json={
         "patient_id": otro_depto.id,
-        "items": [{"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
     })
     assert resp.status_code == 403
 
@@ -365,7 +365,7 @@ async def test_no_se_puede_registrar_entrega_a_paciente_no_activo(client, db_ses
 
     resp = await client.post("/departmental/entregas-insulina", json={
         "patient_id": pendiente.id,
-        "items": [{"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
     })
     assert resp.status_code == 400
 
@@ -378,7 +378,7 @@ async def test_coordinador_nacional_no_puede_registrar_entrega(client, db_sessio
 
     resp = await client.post("/departmental/entregas-insulina", json={
         "patient_id": patient.id,
-        "items": [{"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
     })
     assert resp.status_code == 403
 
@@ -388,7 +388,7 @@ async def test_super_admin_puede_registrar_entrega_en_cualquier_departamento(cli
     patient = await _crear_patient(db_session, depto="Pando")
     resp = await client.post("/departmental/entregas-insulina", json={
         "patient_id": patient.id,
-        "items": [{"presentacion": "Vial 10ml", "insulin_type": "Lispro", "quantity": "3 frascos"}],
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Lispro", "quantity": "3 frascos"}],
     })
     assert resp.status_code == 201, resp.text
 
@@ -404,10 +404,10 @@ async def test_historial_entregas_scoping_por_departamento(client, db_session):
 
     await _switch_identity(db_session, "SUPER_ADMIN")
     await client.post("/departmental/entregas-insulina", json={
-        "patient_id": la_paz.id, "items": [{"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "patient_id": la_paz.id, "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
     })
     await client.post("/departmental/entregas-insulina", json={
-        "patient_id": cocha.id, "items": [{"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "patient_id": cocha.id, "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
     })
 
     await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
@@ -425,10 +425,10 @@ async def test_coordinador_nacional_lee_historial_de_todos_los_departamentos(cli
 
     await _switch_identity(db_session, "SUPER_ADMIN")
     await client.post("/departmental/entregas-insulina", json={
-        "patient_id": la_paz.id, "items": [{"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "patient_id": la_paz.id, "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
     })
     await client.post("/departmental/entregas-insulina", json={
-        "patient_id": cocha.id, "items": [{"presentacion": "Vial 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "patient_id": cocha.id, "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
     })
 
     await _switch_identity(db_session, "COORDINADOR_NACIONAL")

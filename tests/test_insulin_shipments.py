@@ -103,7 +103,7 @@ async def test_envio_sin_fecha_usa_hoy(client, db_session):
     resp = await client.post("/departmental/envios-insulina", json={
         "recipient_user_id": responsable.id,
         "insulin_type": "Glargina",
-        "presentacion": "Vial 10ml",
+        "presentacion": "Frasco 10ml",
         "quantity": "5 frascos",
     })
     assert resp.status_code == 201, resp.text
@@ -118,7 +118,7 @@ async def test_responsable_departamental_no_puede_registrar_envio(client, db_ses
     resp = await client.post("/departmental/envios-insulina", json={
         "recipient_user_id": responsable.id,
         "insulin_type": "Glargina",
-        "presentacion": "Vial 10ml",
+        "presentacion": "Frasco 10ml",
         "quantity": "5 frascos",
     })
     assert resp.status_code == 403
@@ -132,7 +132,7 @@ async def test_destinatario_debe_ser_responsable_departamental(client, db_sessio
     resp = await client.post("/departmental/envios-insulina", json={
         "recipient_user_id": otro_coordinador.id,
         "insulin_type": "Glargina",
-        "presentacion": "Vial 10ml",
+        "presentacion": "Frasco 10ml",
         "quantity": "5 frascos",
     })
     assert resp.status_code == 400
@@ -152,7 +152,7 @@ async def test_responsable_solo_ve_sus_propios_envios(client, db_session):
         r = await client.post("/departmental/envios-insulina", json={
             "recipient_user_id": recipient.id,
             "insulin_type": "Glargina",
-            "presentacion": "Vial 10ml",
+            "presentacion": "Frasco 10ml",
             "quantity": "1 frasco",
         })
         assert r.status_code == 201, r.text
@@ -181,7 +181,7 @@ async def test_coordinador_nacional_ve_todos_los_envios(client, db_session):
         r = await client.post("/departmental/envios-insulina", json={
             "recipient_user_id": recipient.id,
             "insulin_type": "Glargina",
-            "presentacion": "Vial 10ml",
+            "presentacion": "Frasco 10ml",
             "quantity": "1 frasco",
         })
         assert r.status_code == 201, r.text
