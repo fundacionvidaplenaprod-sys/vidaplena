@@ -56,14 +56,18 @@ export const getDepartmentalResponsables = async () => {
  * Registra el envío de insulina del coordinador nacional a un responsable de
  * departamento (log de control, no descuenta stock). Exclusivo de
  * COORDINADOR_NACIONAL/SUPER_ADMIN.
+ * `items`: [{ insulinType, presentacion, quantity }, ...] — un responsable
+ * puede necesitar recibir más de un tipo de insulina en el mismo envío.
  */
-export const createInsulinShipment = async ({ recipientUserId, insulinType, presentacion, quantity, shipmentDate }) => {
+export const createInsulinShipment = async ({ recipientUserId, items, shipmentDate }) => {
   const { data } = await client.post('/departmental/envios-insulina', {
     recipient_user_id: recipientUserId,
-    insulin_type: insulinType,
-    presentacion,
-    quantity,
     shipment_date: shipmentDate || undefined,
+    items: items.map(({ insulinType, presentacion, quantity }) => ({
+      insulin_type: insulinType,
+      presentacion,
+      quantity,
+    })),
   });
   return data;
 };

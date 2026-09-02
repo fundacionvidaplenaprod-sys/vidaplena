@@ -317,7 +317,7 @@ async def list_responsables(
 
 @router.post(
     "/envios-insulina",
-    response_model=schemas.InsulinShipmentResponse,
+    response_model=List[schemas.InsulinShipmentResponse],
     status_code=status.HTTP_201_CREATED,
 )
 async def create_shipment(
@@ -327,39 +327,58 @@ async def create_shipment(
 ):
     """
     Registra que el coordinador nacional envió insulina a un responsable de
-    departamento. Es solo un log de control (fecha/cantidad/tipo) — NO
-    descuenta stock de almacén.
+    departamento. Un responsable puede necesitar recibir más de un tipo de
+    insulina en el mismo envío — cada item de `shipment_in.items` queda
+    como su propia fila en el historial (mismo destinatario/fecha). Es solo
+    un log de control — NO descuenta stock de almacén.
     """
     recipient = await db.get(models.User, shipment_in.recipient_user_id)
     if not recipient or recipient.role != "RESPONSABLE_DEPARTAMENTAL":
         raise HTTPException(status_code=400, detail="El destinatario debe ser un responsable de departamento válido.")
 
-    shipment = models.InsulinShipment(
-        recipient_user_id=recipient.id,
-        depto=recipient.depto_asignado or "",
-        insulin_type=shipment_in.insulin_type,
-        presentacion=shipment_in.presentacion,
-        quantity=shipment_in.quantity,
-        shipment_date=shipment_in.shipment_date or date.today(),
-        recorded_by_id=current_user.id,
-    )
-    db.add(shipment)
-    await db.commit()
-    await db.refresh(shipment, attribute_names=["id", "created_at"])
+    tipos_vistos = set()
+    for item in shipment_in.items:
+        clave = normalize_name(item.insulin_type)
+        if clave in tipos_vistos:
+            raise HTTPException(status_code=400, detail=f"El tipo de insulina '{item.insulin_type}' está repetido en el envío.")
+        tipos_vistos.add(clave)
 
-    return schemas.InsulinShipmentResponse(
-        id=shipment.id,
-        recipient_user_id=recipient.id,
-        recipient_email=recipient.email,
-        depto=shipment.depto,
-        insulin_type=shipment.insulin_type,
-        presentacion=shipment.presentacion,
-        quantity=shipment.quantity,
-        shipment_date=shipment.shipment_date,
-        recorded_by_id=current_user.id,
-        recorded_by_email=current_user.email,
-        created_at=shipment.created_at,
-    )
+    depto_envio = recipient.depto_asignado or ""
+    shipment_date = shipment_in.shipment_date or date.today()
+
+    shipments = [
+        models.InsulinShipment(
+            recipient_user_id=recipient.id,
+            depto=depto_envio,
+            insulin_type=item.insulin_type,
+            presentacion=item.presentacion,
+            quantity=item.quantity,
+            shipment_date=shipment_date,
+            recorded_by_id=current_user.id,
+        )
+        for item in shipment_in.items
+    ]
+    db.add_all(shipments)
+    await db.commit()
+    for shipment in shipments:
+        await db.refresh(shipment, attribute_names=["id", "created_at"])
+
+    return [
+        schemas.InsulinShipmentResponse(
+            id=shipment.id,
+            recipient_user_id=recipient.id,
+            recipient_email=recipient.email,
+            depto=shipment.depto,
+            insulin_type=shipment.insulin_type,
+            presentacion=shipment.presentacion,
+            quantity=shipment.quantity,
+            shipment_date=shipment.shipment_date,
+            recorded_by_id=current_user.id,
+            recorded_by_email=current_user.email,
+            created_at=shipment.created_at,
+        )
+        for shipment in shipments
+    ]
 
 
 @router.get("/envios-insulina", response_model=schemas.PaginatedInsulinShipmentResponse)

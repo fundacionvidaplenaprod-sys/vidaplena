@@ -56,9 +56,7 @@ export default function DepartmentalDashboardPage() {
     const [shipmentModalOpen, setShipmentModalOpen] = useState(false);
     const [shipmentForm, setShipmentForm] = useState({
         recipientUserId: '',
-        insulinType: INSULIN_OPTIONS[0]?.value || '',
-        presentacion: PRESENTACION_OPTIONS[0]?.value || '',
-        quantity: '',
+        items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', presentacion: PRESENTACION_OPTIONS[0]?.value || '', quantity: '' }],
         shipmentDate: '',
     });
     const [submittingShipment, setSubmittingShipment] = useState(false);
@@ -179,9 +177,7 @@ export default function DepartmentalDashboardPage() {
     const openShipmentModal = async () => {
         setShipmentForm({
             recipientUserId: '',
-            insulinType: INSULIN_OPTIONS[0]?.value || '',
-            presentacion: PRESENTACION_OPTIONS[0]?.value || '',
-            quantity: '',
+            items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', presentacion: PRESENTACION_OPTIONS[0]?.value || '', quantity: '' }],
             shipmentDate: new Date().toISOString().slice(0, 10),
         });
         setShipmentModalOpen(true);
@@ -196,25 +192,59 @@ export default function DepartmentalDashboardPage() {
 
     const closeShipmentModal = () => setShipmentModalOpen(false);
 
+    const addShipmentItem = () => {
+        setShipmentForm((prev) => {
+            const usados = new Set(prev.items.map((it) => it.insulinType));
+            const disponible = INSULIN_OPTIONS.find((opt) => !usados.has(opt.value));
+            if (!disponible) {
+                toast.error('Ya agregó todos los tipos de insulina disponibles.');
+                return prev;
+            }
+            return {
+                ...prev,
+                items: [...prev.items, { insulinType: disponible.value, presentacion: PRESENTACION_OPTIONS[0]?.value || '', quantity: '' }],
+            };
+        });
+    };
+
+    const removeShipmentItem = (index) => {
+        setShipmentForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
+    };
+
+    const updateShipmentItem = (index, field, value) => {
+        setShipmentForm((prev) => ({
+            ...prev,
+            items: prev.items.map((it, i) => (i === index ? { ...it, [field]: value } : it)),
+        }));
+    };
+
     const submitShipment = async () => {
         if (!shipmentForm.recipientUserId) {
             toast.error('Seleccione al responsable de departamento destinatario.');
             return;
         }
-        if (!shipmentForm.insulinType || !shipmentForm.quantity.trim()) {
-            toast.error('Indique el tipo de insulina y la cantidad enviada.');
+        const itemIncompleto = shipmentForm.items.some((it) => !it.insulinType || !it.quantity.trim());
+        if (itemIncompleto) {
+            toast.error('Indique el tipo de insulina y la cantidad enviada en cada fila.');
+            return;
+        }
+        const tipos = shipmentForm.items.map((it) => it.insulinType);
+        if (new Set(tipos).size !== tipos.length) {
+            toast.error('No puede repetir el mismo tipo de insulina.');
             return;
         }
         try {
             setSubmittingShipment(true);
             await createInsulinShipment({
                 recipientUserId: Number(shipmentForm.recipientUserId),
-                insulinType: shipmentForm.insulinType,
-                presentacion: shipmentForm.presentacion,
-                quantity: shipmentForm.quantity.trim(),
+                items: shipmentForm.items.map((it) => ({
+                    insulinType: it.insulinType,
+                    presentacion: it.presentacion,
+                    quantity: it.quantity.trim(),
+                })),
                 shipmentDate: shipmentForm.shipmentDate,
             });
-            toast.success('Envío registrado.');
+            toast.success(shipmentForm.items.length > 1 ? 'Envíos registrados.' : 'Envío registrado.');
             closeShipmentModal();
             if (tab === 'envios') load();
         } catch (error) {
@@ -548,42 +578,58 @@ export default function DepartmentalDashboardPage() {
                                     ))}
                                 </select>
                             </div>
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">Tipo de insulina *</label>
-                                <select
-                                    value={shipmentForm.insulinType}
-                                    onChange={(e) => setShipmentForm((prev) => ({ ...prev, insulinType: e.target.value }))}
-                                    className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                            <div className="flex items-center justify-between">
+                                <label className="block text-xs font-semibold text-gray-700">Insulina(s) enviada(s) *</label>
+                                <button
+                                    type="button"
+                                    onClick={addShipmentItem}
+                                    className="text-xs font-bold text-vida-main hover:text-vida-hover inline-flex items-center gap-1"
                                 >
-                                    {INSULIN_OPTIONS.map((opt) => (
-                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                    ))}
-                                </select>
+                                    <Plus size={14} /> Agregar otro tipo
+                                </button>
                             </div>
-                            <div className="flex gap-2 items-start">
-                                <div className="flex-1">
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Presentación *</label>
-                                    <select
-                                        value={shipmentForm.presentacion}
-                                        onChange={(e) => setShipmentForm((prev) => ({ ...prev, presentacion: e.target.value }))}
-                                        className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
-                                    >
-                                        {PRESENTACION_OPTIONS.map((opt) => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
+                            {shipmentForm.items.map((item, index) => (
+                                <div key={index} className="bg-gray-50 p-2 rounded-lg space-y-2">
+                                    <div className="flex gap-2 items-start">
+                                        <select
+                                            value={item.insulinType}
+                                            onChange={(e) => updateShipmentItem(index, 'insulinType', e.target.value)}
+                                            className="flex-1 border rounded-lg px-3 py-2 text-sm bg-white"
+                                        >
+                                            {INSULIN_OPTIONS.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                        </select>
+                                        {shipmentForm.items.length > 1 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => removeShipmentItem(index)}
+                                                className="text-red-400 hover:text-red-600 p-2"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2 items-start">
+                                        <select
+                                            value={item.presentacion}
+                                            onChange={(e) => updateShipmentItem(index, 'presentacion', e.target.value)}
+                                            className="flex-1 border rounded-lg px-3 py-2 text-sm bg-white"
+                                        >
+                                            {PRESENTACION_OPTIONS.map((opt) => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                        </select>
+                                        <input
+                                            type="text"
+                                            value={item.quantity}
+                                            onChange={(e) => updateShipmentItem(index, 'quantity', e.target.value)}
+                                            placeholder="Cantidad"
+                                            className="w-28 border rounded-lg px-3 py-2 text-sm"
+                                        />
+                                    </div>
                                 </div>
-                                <div className="flex-1">
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Cantidad enviada *</label>
-                                    <input
-                                        type="text"
-                                        value={shipmentForm.quantity}
-                                        onChange={(e) => setShipmentForm((prev) => ({ ...prev, quantity: e.target.value }))}
-                                        placeholder="Ej: 20 frascos"
-                                        className="w-full border rounded-lg px-3 py-2 text-sm"
-                                    />
-                                </div>
-                            </div>
+                            ))}
                             <div>
                                 <label className="block text-xs font-semibold text-gray-700 mb-1">Fecha de envío *</label>
                                 <input

@@ -657,12 +657,18 @@ class DepartmentalResponsableItem(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class InsulinShipmentCreate(BaseModel):
-    recipient_user_id: int = Field(..., gt=0)
+class InsulinShipmentItem(BaseModel):
     insulin_type: str = Field(..., min_length=1, max_length=200)
     presentacion: PresentacionInsulina
     quantity: str = Field(..., min_length=1, max_length=100)
+
+class InsulinShipmentCreate(BaseModel):
+    recipient_user_id: int = Field(..., gt=0)
     shipment_date: Optional[date] = None
+    # Un responsable puede necesitar recibir más de un tipo de insulina en el
+    # mismo envío — cada item queda como una fila propia en el historial,
+    # todas con la misma fecha/destinatario.
+    items: List[InsulinShipmentItem] = Field(..., min_length=1)
 
 class InsulinShipmentResponse(BaseModel):
     id: int
