@@ -22,7 +22,7 @@ en donations.py, exclusivo de SUPER_ADMIN):
   2. Responsable Departamental -> Beneficiario (departmental_insulin_deliveries):
      el responsable registra la entrega final en campo.
 """
-from datetime import date
+from datetime import date, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -63,6 +63,41 @@ def _matches_depto(patient_depto: Optional[str], target: Optional[str]) -> bool:
     if not target:
         return True
     return normalize_name(patient_depto) == normalize_name(target)
+
+
+def _pending_documents(patient: "models.Patient") -> List[str]:
+    """
+    Replica la lista de documentos requerida en MyDocumentsPage.jsx (la
+    vista de autoservicio del beneficiario): qué documento(s) puntuales le
+    faltan subir. Solo informativo para el responsable/coordinador
+    departamental — no pueden subir ni ver el archivo, solo saber cuáles
+    faltan para poder insistir/informar al beneficiario.
+    """
+    evaluation = patient.social_evaluation
+    # La "Cédula del beneficiario" se omite si nunca la registró (menor sin
+    # CI: es opcional en su registro). El "Compromiso Firmado" se omite
+    # solo si la evaluación fue aprobada con categoría ALTA (exoneración
+    # total) — con MEDIA/BAJA sigue siendo obligatorio, igual que en
+    # MyDocumentsPage.jsx.
+    es_alta_exonerada = bool(
+        evaluation and evaluation.estado_revision == "APROBADO" and evaluation.categoria_final == "ALTA"
+    )
+
+    pendientes = []
+    if patient.ci and not patient.url_ci_paciente:
+        pendientes.append("Cédula de Identidad (Paciente)")
+    if not patient.url_certificado_medico:
+        pendientes.append("Certificado Médico")
+    if not patient.url_foto_paciente:
+        pendientes.append("Foto Actual (Paciente)")
+    if not es_alta_exonerada and not patient.url_declaracion_aporte:
+        pendientes.append("Compromiso Firmado")
+    if patient.tutor:
+        if not patient.url_ci_tutor:
+            pendientes.append("Cédula de Identidad (Tutor)")
+        if not patient.url_foto_tutor:
+            pendientes.append("Foto del Tutor")
+    return pendientes
 
 
 def _apply_search(query, search: Optional[str]):
@@ -106,6 +141,7 @@ def _delivery_to_response(d: "models.DepartmentalInsulinDelivery") -> schemas.De
         presentacion=d.presentacion,
         quantity=d.quantity,
         delivery_date=d.delivery_date,
+        observaciones=d.observaciones,
         recorded_by_id=d.recorded_by_id,
         recorded_by_email=d.recorded_by.email if d.recorded_by else None,
         created_at=d.created_at,
@@ -140,6 +176,9 @@ async def list_active_beneficiaries(
     candidates = [p for p in result.scalars().unique().all() if _matches_depto(p.depto, target_depto)]
 
     periodo_actual = current_periodo()
+    ultimo_dia_mes_anterior = date.today().replace(day=1) - timedelta(days=1)
+    periodo_anterior = current_periodo(ultimo_dia_mes_anterior)
+
     total = len(candidates)
     page = candidates[skip: skip + limit]
     items = [
@@ -152,8 +191,11 @@ async def list_active_beneficiaries(
             depto=p.depto,
             tel_contacto=p.tel_contacto,
             estado=p.estado,
+            exonerado_aporte=p.exonerado_aporte,
             al_dia_aporte=is_patient_current_on_contribution(p, periodo_actual, include_exonerados=True),
             periodo_actual=periodo_actual,
+            al_dia_mes_anterior=is_patient_current_on_contribution(p, periodo_anterior, include_exonerados=True),
+            periodo_anterior=periodo_anterior,
         )
         for p in page
     ]
@@ -179,6 +221,10 @@ async def list_pending_doc_beneficiaries(
     query = (
         select(models.Patient)
         .where(models.Patient.estado == "PENDIENTE_DOC")
+        .options(
+            selectinload(models.Patient.social_evaluation),
+            selectinload(models.Patient.tutor),
+        )
         .order_by(models.Patient.updated_at.desc())
     )
     query = _apply_search(query, search)
@@ -188,7 +234,11 @@ async def list_pending_doc_beneficiaries(
 
     total = len(candidates)
     page = candidates[skip: skip + limit]
-    items = [schemas.DepartmentalPendingDocItem.model_validate(p) for p in page]
+    items = []
+    for p in page:
+        item = schemas.DepartmentalPendingDocItem.model_validate(p)
+        item.documentos_pendientes = _pending_documents(p)
+        items.append(item)
     return {"total": total, "items": items}
 
 
@@ -227,6 +277,7 @@ async def create_delivery(
 
     depto_entrega = patient.depto or current_user.depto_asignado or ""
     delivery_date = delivery_in.delivery_date or date.today()
+    observaciones = (delivery_in.observaciones or "").strip() or None
     nombre = " ".join(filter(None, [patient.nombres, patient.ap_paterno, patient.ap_materno]))
 
     deliveries = [
@@ -237,6 +288,7 @@ async def create_delivery(
             presentacion=item.presentacion,
             quantity=item.quantity,
             delivery_date=delivery_date,
+            observaciones=observaciones,
             recorded_by_id=current_user.id,
         )
         for item in delivery_in.items
@@ -256,6 +308,7 @@ async def create_delivery(
             presentacion=delivery.presentacion,
             quantity=delivery.quantity,
             delivery_date=delivery.delivery_date,
+            observaciones=delivery.observaciones,
             recorded_by_id=current_user.id,
             recorded_by_email=current_user.email,
             created_at=delivery.created_at,
@@ -298,6 +351,37 @@ async def list_deliveries(
     total = len(candidates)
     page = candidates[skip: skip + limit]
     return {"total": total, "items": [_delivery_to_response(d) for d in page]}
+
+
+@router.put(
+    "/entregas-insulina/{delivery_id}/observaciones",
+    response_model=schemas.DepartmentalInsulinDeliveryResponse,
+)
+async def update_delivery_observaciones(
+    delivery_id: int,
+    update_in: schemas.DepartmentalInsulinDeliveryObservationUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_departmental_observation_editor),
+):
+    """
+    Corrige la observación de una entrega ya consolidada. Exclusivo de
+    COORDINADOR_NACIONAL/SUPER_ADMIN — el responsable departamental solo
+    puede fijarla al momento de crear la entrega (POST /entregas-insulina);
+    para corregirla después debe coordinar con el Coordinador Nacional.
+    """
+    delivery = await db.get(
+        models.DepartmentalInsulinDelivery,
+        delivery_id,
+        options=[selectinload(models.DepartmentalInsulinDelivery.patient), selectinload(models.DepartmentalInsulinDelivery.recorded_by)],
+    )
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada.")
+
+    delivery.observaciones = (update_in.observaciones or "").strip() or None
+    await db.commit()
+    await db.refresh(delivery)
+
+    return _delivery_to_response(delivery)
 
 
 @router.get("/responsables", response_model=list[schemas.DepartmentalResponsableItem])

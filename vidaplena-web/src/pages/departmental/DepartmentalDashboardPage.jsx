@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { MapPin, Search, CheckCircle, AlertTriangle, Syringe, Phone, X, Send, Plus, Trash2 } from 'lucide-react';
+import {
+    MapPin, Search, CheckCircle, AlertTriangle, Syringe, Phone, X, Send, Plus, Trash2,
+    MessageSquare, Pencil, ShieldCheck, FileWarning,
+} from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import { DEPARTAMENTOS } from '../../constants/departamentos';
@@ -9,6 +12,7 @@ import {
     getPendingDocDepartmentalBeneficiaries,
     getDepartmentalInsulinDeliveries,
     createDepartmentalInsulinDelivery,
+    updateDeliveryObservaciones,
     getDepartmentalResponsables,
     createInsulinShipment,
     getInsulinShipments,
@@ -35,6 +39,10 @@ export default function DepartmentalDashboardPage() {
     const esResponsableDepartamental = user.role === 'RESPONSABLE_DEPARTAMENTAL';
     const puedeRegistrarEntrega = user.role === 'RESPONSABLE_DEPARTAMENTAL' || user.role === 'SUPER_ADMIN';
     const puedeEnviarInsulina = user.role === 'COORDINADOR_NACIONAL' || user.role === 'SUPER_ADMIN';
+    // Una vez consolidada la entrega, solo Coordinador Nacional/Super Admin
+    // pueden corregir la observación (el responsable departamental solo la
+    // fija al crearla — evita que quien registró pueda alterarla en silencio).
+    const puedeEditarObservaciones = user.role === 'COORDINADOR_NACIONAL' || user.role === 'SUPER_ADMIN';
     const TABS = esResponsableDepartamental ? TABS_RESPONSABLE : TABS_NACIONAL;
 
     const [tab, setTab] = useState('activos');
@@ -49,8 +57,14 @@ export default function DepartmentalDashboardPage() {
     const [deliveryForm, setDeliveryForm] = useState({
         items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', presentacion: PRESENTACION_OPTIONS[0]?.value || '', quantity: '' }],
         deliveryDate: '',
+        observaciones: '',
     });
     const [submittingDelivery, setSubmittingDelivery] = useState(false);
+
+    // Edición de observaciones de una entrega ya consolidada (solo
+    // Coordinador Nacional / Super Admin).
+    const [observationEdit, setObservationEdit] = useState({ open: false, delivery: null, value: '' });
+    const [savingObservation, setSavingObservation] = useState(false);
 
     const [responsables, setResponsables] = useState([]);
     const [shipmentModalOpen, setShipmentModalOpen] = useState(false);
@@ -108,6 +122,7 @@ export default function DepartmentalDashboardPage() {
         setDeliveryForm({
             items: [{ insulinType: INSULIN_OPTIONS[0]?.value || '', presentacion: PRESENTACION_OPTIONS[0]?.value || '', quantity: '' }],
             deliveryDate: new Date().toISOString().slice(0, 10),
+            observaciones: '',
         });
         setDeliveryModal({ open: true, patient });
     };
@@ -161,6 +176,7 @@ export default function DepartmentalDashboardPage() {
                     quantity: it.quantity.trim(),
                 })),
                 deliveryDate: deliveryForm.deliveryDate,
+                observaciones: deliveryForm.observaciones.trim(),
             });
             toast.success(deliveryForm.items.length > 1 ? 'Entregas registradas.' : 'Entrega registrada.');
             closeDeliveryModal();
@@ -171,6 +187,28 @@ export default function DepartmentalDashboardPage() {
             toast.error(typeof detail === 'string' ? detail : 'No se pudo registrar la entrega.');
         } finally {
             setSubmittingDelivery(false);
+        }
+    };
+
+    const openObservationEdit = (delivery) => {
+        setObservationEdit({ open: true, delivery, value: delivery.observaciones || '' });
+    };
+
+    const closeObservationEdit = () => setObservationEdit({ open: false, delivery: null, value: '' });
+
+    const submitObservationEdit = async () => {
+        try {
+            setSavingObservation(true);
+            await updateDeliveryObservaciones(observationEdit.delivery.id, observationEdit.value.trim());
+            toast.success('Observación actualizada.');
+            closeObservationEdit();
+            load();
+        } catch (error) {
+            console.error(error);
+            const detail = error?.response?.data?.detail;
+            toast.error(typeof detail === 'string' ? detail : 'No se pudo actualizar la observación.');
+        } finally {
+            setSavingObservation(false);
         }
     };
 
@@ -349,15 +387,31 @@ export default function DepartmentalDashboardPage() {
                                     {p.tel_contacto && <span className="inline-flex items-center gap-1"><Phone size={12} /> {p.tel_contacto}</span>}
                                 </p>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <span className={`text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 ${
-                                    p.al_dia_aporte
-                                        ? 'bg-green-100 text-green-700 border-green-200'
-                                        : 'bg-red-100 text-red-700 border-red-200'
-                                }`}>
-                                    {p.al_dia_aporte ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
-                                    {p.al_dia_aporte ? `Al día (${p.periodo_actual})` : `Sin aporte (${p.periodo_actual})`}
-                                </span>
+                            <div className="flex items-center gap-2 flex-wrap justify-end">
+                                {p.exonerado_aporte ? (
+                                    <span className="text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 bg-blue-100 text-blue-700 border-blue-200">
+                                        <ShieldCheck size={14} /> Exonerado
+                                    </span>
+                                ) : (
+                                    <>
+                                        <span className={`text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 ${
+                                            p.al_dia_aporte
+                                                ? 'bg-green-100 text-green-700 border-green-200'
+                                                : 'bg-red-100 text-red-700 border-red-200'
+                                        }`}>
+                                            {p.al_dia_aporte ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+                                            {p.al_dia_aporte ? `Al día (${p.periodo_actual})` : `Sin aporte (${p.periodo_actual})`}
+                                        </span>
+                                        <span className={`text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 ${
+                                            p.al_dia_mes_anterior
+                                                ? 'bg-green-50 text-green-600 border-green-200'
+                                                : 'bg-red-50 text-red-600 border-red-200'
+                                        }`}>
+                                            {p.al_dia_mes_anterior ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+                                            {p.al_dia_mes_anterior ? `Al día (${p.periodo_anterior})` : `Sin aporte (${p.periodo_anterior})`}
+                                        </span>
+                                    </>
+                                )}
                                 {puedeRegistrarEntrega && (
                                     <button
                                         type="button"
@@ -385,21 +439,47 @@ export default function DepartmentalDashboardPage() {
                                     {p.estado}
                                 </span>
                             </p>
+                            {p.documentos_pendientes && p.documentos_pendientes.length > 0 && (
+                                <div className="mt-2 flex items-start gap-1.5 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2">
+                                    <FileWarning size={14} className="text-orange-500 mt-0.5 flex-shrink-0" />
+                                    <p className="text-xs text-orange-700">
+                                        <span className="font-bold">Le falta subir:</span>{' '}
+                                        {p.documentos_pendientes.join(', ')}
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
             ) : tab === 'historial' ? (
                 <div className="space-y-3">
                     {items.map((d) => (
-                        <div key={d.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div key={d.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-start md:justify-between gap-2">
                             <div>
                                 <p className="font-semibold text-gray-800">{d.patient_nombre}</p>
                                 <p className="text-sm text-gray-500 mt-1">
                                     {d.insulin_type} ({d.presentacion}) — {d.quantity} | Entrega: {d.delivery_date}
                                     {isCoordinadorNacional && ` | ${d.depto}`}
                                 </p>
+                                {d.observaciones && (
+                                    <div className="mt-2 flex items-start gap-1.5 bg-purple-50 border border-purple-100 rounded-lg px-3 py-2 max-w-xl">
+                                        <MessageSquare size={14} className="text-purple-500 mt-0.5 flex-shrink-0" />
+                                        <p className="text-xs text-purple-800 whitespace-pre-wrap">{d.observaciones}</p>
+                                    </div>
+                                )}
                             </div>
-                            <p className="text-xs text-gray-400">Registrado por {d.recorded_by_email || 'desconocido'}</p>
+                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                <p className="text-xs text-gray-400">Registrado por {d.recorded_by_email || 'desconocido'}</p>
+                                {puedeEditarObservaciones && (
+                                    <button
+                                        type="button"
+                                        onClick={() => openObservationEdit(d)}
+                                        className="text-xs font-bold text-vida-primary hover:underline inline-flex items-center gap-1"
+                                    >
+                                        <Pencil size={12} /> {d.observaciones ? 'Editar observación' : 'Agregar observación'}
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -522,6 +602,20 @@ export default function DepartmentalDashboardPage() {
                                     value={deliveryForm.deliveryDate}
                                     onChange={(e) => setDeliveryForm((prev) => ({ ...prev, deliveryDate: e.target.value }))}
                                     className="w-full border rounded-lg px-3 py-2 text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Observaciones</label>
+                                <p className="text-xs text-gray-400 mb-1">
+                                    Ej: solicitó cambio de insulina, no podrá recoger por viaje, sospecha de reventa,
+                                    falleció, etc. Una vez guardada la entrega, solo el Coordinador Nacional o
+                                    SUPER_ADMIN podrán corregir esta nota.
+                                </p>
+                                <textarea
+                                    value={deliveryForm.observaciones}
+                                    onChange={(e) => setDeliveryForm((prev) => ({ ...prev, observaciones: e.target.value }))}
+                                    className="w-full border rounded-lg px-3 py-2 text-sm min-h-[90px]"
+                                    placeholder="Observaciones sobre el beneficiario en esta visita (opcional)"
                                 />
                             </div>
                         </div>
@@ -656,6 +750,49 @@ export default function DepartmentalDashboardPage() {
                                 className="px-4 py-2 rounded-lg bg-vida-main hover:bg-vida-hover text-white font-bold disabled:opacity-50"
                             >
                                 {submittingShipment ? 'Registrando...' : 'Registrar envío'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {observationEdit.open && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                <MessageSquare size={18} className="text-purple-600" /> Observación de la entrega
+                            </h3>
+                            <button onClick={closeObservationEdit} className="text-gray-400 hover:text-gray-600">
+                                <X size={22} />
+                            </button>
+                        </div>
+                        <p className="text-sm text-gray-500 mb-3">
+                            Beneficiario: <span className="font-semibold text-gray-800">{observationEdit.delivery?.patient_nombre}</span>
+                            <br />
+                            Entrega del {observationEdit.delivery?.delivery_date}.
+                        </p>
+                        <textarea
+                            value={observationEdit.value}
+                            onChange={(e) => setObservationEdit((prev) => ({ ...prev, value: e.target.value }))}
+                            className="w-full border rounded-lg px-3 py-2 text-sm min-h-[120px]"
+                            placeholder="Observaciones sobre el beneficiario en esta entrega"
+                        />
+                        <div className="mt-4 flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={closeObservationEdit}
+                                className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitObservationEdit}
+                                disabled={savingObservation}
+                                className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold disabled:opacity-50"
+                            >
+                                {savingObservation ? 'Guardando...' : 'Guardar'}
                             </button>
                         </div>
                     </div>

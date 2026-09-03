@@ -393,6 +393,14 @@ class DepartmentalInsulinDelivery(Base):
     presentacion = Column(String(20), nullable=False, server_default="Frasco 10ml")
     quantity = Column(Text, nullable=False)
     delivery_date = Column(Date, nullable=False, default=func.current_date())
+    # Observaciones libres sobre el beneficiario en esta visita (cambio de
+    # insulina solicitado, impedimento por viaje, fallecimiento, sospecha de
+    # reventa/exceso de insulina entregada, etc.). El responsable
+    # departamental la llena al registrar la entrega; una vez consolidada,
+    # solo COORDINADOR_NACIONAL/SUPER_ADMIN pueden editarla (ver
+    # get_current_departmental_observation_editor). Sin límite práctico de
+    # longitud — es un campo abierto a propósito.
+    observaciones = Column(Text, nullable=True)
     recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -25,8 +25,11 @@ export const getPendingDocDepartmentalBeneficiaries = async ({ skip = 0, limit =
  * no descuenta stock). Exclusivo de RESPONSABLE_DEPARTAMENTAL/SUPER_ADMIN.
  * `items`: [{ insulinType, presentacion, quantity }, ...] — un beneficiario
  * puede necesitar más de un tipo de insulina en la misma visita.
+ * `observaciones`: nota libre sobre el beneficiario en esta visita (cambio
+ * de insulina solicitado, impedimento por viaje, fallecimiento, sospecha de
+ * reventa, etc.) — se aplica a todos los items de esta misma entrega.
  */
-export const createDepartmentalInsulinDelivery = async ({ patientId, items, deliveryDate }) => {
+export const createDepartmentalInsulinDelivery = async ({ patientId, items, deliveryDate, observaciones }) => {
   const { data } = await client.post('/departmental/entregas-insulina', {
     patient_id: patientId,
     delivery_date: deliveryDate || undefined,
@@ -35,6 +38,7 @@ export const createDepartmentalInsulinDelivery = async ({ patientId, items, deli
       presentacion,
       quantity,
     })),
+    observaciones: observaciones || undefined,
   });
   return data;
 };
@@ -43,6 +47,19 @@ export const createDepartmentalInsulinDelivery = async ({ patientId, items, deli
 export const getDepartmentalInsulinDeliveries = async ({ skip = 0, limit = 20, patientId, depto = '' } = {}) => {
   const params = { skip, limit, patient_id: patientId || undefined, depto: depto || undefined };
   const { data } = await client.get('/departmental/entregas-insulina', { params });
+  return data;
+};
+
+/**
+ * Corrige la observación de una entrega ya consolidada. Exclusivo de
+ * COORDINADOR_NACIONAL/SUPER_ADMIN — el responsable departamental solo
+ * puede fijarla al crear la entrega; para corregirla después debe
+ * coordinar con el Coordinador Nacional.
+ */
+export const updateDeliveryObservaciones = async (deliveryId, observaciones) => {
+  const { data } = await client.put(`/departmental/entregas-insulina/${deliveryId}/observaciones`, {
+    observaciones: observaciones || null,
+  });
   return data;
 };
 

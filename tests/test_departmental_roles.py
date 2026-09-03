@@ -8,7 +8,7 @@ registrar entregas de insulina). El registro de entregas es solo un log de
 control — no afecta stock de almacén.
 """
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -52,11 +52,11 @@ async def _crear_patient(db_session, estado: str = "ACTIVO", depto: str = "La Pa
     await db_session.commit()
     await db_session.refresh(user)
 
+    extra.setdefault("ci", f"CI-{suffix}")
     patient = models.Patient(
         user_id=user.id,
         nombres=f"Depto{suffix}",
         ap_paterno="Test",
-        ci=f"CI-{suffix}",
         fecha_nac=date(1990, 1, 1),
         depto=depto,
         estado=estado,
@@ -437,3 +437,220 @@ async def test_coordinador_nacional_lee_historial_de_todos_los_departamentos(cli
     patient_ids = {item["patient_id"] for item in resp.json()["items"]}
     assert la_paz.id in patient_ids
     assert cocha.id in patient_ids
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  OBSERVACIONES DE LA ENTREGA (campo abierto, editable solo por
+#  COORDINADOR_NACIONAL/SUPER_ADMIN una vez consolidada la entrega)
+# ─────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_responsable_registra_entrega_con_observaciones(client, db_session):
+    patient = await _crear_patient(db_session, depto="La Paz")
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+
+    resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "observaciones": "Beneficiario solicitó cambio a Lispro para la próxima entrega.",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()[0]["observaciones"] == "Beneficiario solicitó cambio a Lispro para la próxima entrega."
+
+
+@pytest.mark.asyncio
+async def test_entrega_sin_observaciones_queda_nula(client, db_session):
+    patient = await _crear_patient(db_session, depto="La Paz")
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+
+    resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()[0]["observaciones"] is None
+
+
+@pytest.mark.asyncio
+async def test_observaciones_se_aplica_a_todos_los_items_de_la_misma_entrega(client, db_session):
+    patient = await _crear_patient(db_session, depto="La Paz")
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+
+    resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [
+            {"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"},
+            {"presentacion": "Pen 3ml", "insulin_type": "Lispro", "quantity": "1 pluma"},
+        ],
+        "observaciones": "Posible reventa: retira más insulina de la que declara necesitar.",
+    })
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert len(body) == 2
+    assert all(item["observaciones"] == "Posible reventa: retira más insulina de la que declara necesitar." for item in body)
+
+
+@pytest.mark.asyncio
+async def test_responsable_no_puede_editar_observacion_ya_consolidada(client, db_session):
+    patient = await _crear_patient(db_session, depto="La Paz")
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    create_resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "observaciones": "Nota original.",
+    })
+    delivery_id = create_resp.json()[0]["id"]
+
+    resp = await client.put(
+        f"/departmental/entregas-insulina/{delivery_id}/observaciones",
+        json={"observaciones": "Intento de edición no autorizada."},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_coordinador_nacional_puede_editar_observacion_consolidada(client, db_session):
+    patient = await _crear_patient(db_session, depto="La Paz")
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    create_resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "observaciones": "Nota original.",
+    })
+    delivery_id = create_resp.json()[0]["id"]
+
+    await _switch_identity(db_session, "COORDINADOR_NACIONAL")
+    resp = await client.put(
+        f"/departmental/entregas-insulina/{delivery_id}/observaciones",
+        json={"observaciones": "Corregido por el coordinador nacional tras confirmar el caso."},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["observaciones"] == "Corregido por el coordinador nacional tras confirmar el caso."
+
+
+@pytest.mark.asyncio
+async def test_super_admin_puede_editar_observacion_consolidada(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session, depto="La Paz")
+    create_resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+    })
+    delivery_id = create_resp.json()[0]["id"]
+
+    resp = await client.put(
+        f"/departmental/entregas-insulina/{delivery_id}/observaciones",
+        json={"observaciones": "Ajustado por SUPER_ADMIN."},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["observaciones"] == "Ajustado por SUPER_ADMIN."
+
+
+@pytest.mark.asyncio
+async def test_editar_observacion_de_entrega_inexistente_404(client, superuser_token):
+    resp = await client.put(
+        "/departmental/entregas-insulina/999999999/observaciones",
+        json={"observaciones": "No debería aplicar."},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_paciente_no_puede_editar_observacion(client, patient_token, db_session):
+    patient = await _crear_patient(db_session, depto="La Paz")
+    await _switch_identity(db_session, "SUPER_ADMIN")
+    create_resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+    })
+    delivery_id = create_resp.json()[0]["id"]
+
+    # Volvemos a autenticar como el PACIENTE de patient_token (la creación
+    # de arriba, como SUPER_ADMIN, sobreescribió el override).
+    async def _as_patient():
+        return patient_token
+    app.dependency_overrides[deps.get_current_active_user] = _as_patient
+    app.dependency_overrides[deps.get_current_user] = _as_patient
+    app.dependency_overrides.pop(deps.get_current_super_user, None)
+
+    resp = await client.put(
+        f"/departmental/entregas-insulina/{delivery_id}/observaciones",
+        json={"observaciones": "No debería poder."},
+    )
+    assert resp.status_code == 403
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  BENEFICIARIOS ACTIVOS: EXONERADO EXPLÍCITO Y MES ANTERIOR
+# ─────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_beneficiario_exonerado_expone_flag_explicito(client, db_session):
+    exonerado = await _crear_patient(db_session, depto="La Paz", exonerado_aporte=True)
+    no_exonerado = await _crear_patient(db_session, depto="La Paz")
+
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    resp = await client.get("/departmental/beneficiarios/activos", params={"limit": 5000})
+    assert resp.status_code == 200, resp.text
+    by_id = {item["id"]: item for item in resp.json()["items"]}
+
+    assert by_id[exonerado.id]["exonerado_aporte"] is True
+    assert by_id[no_exonerado.id]["exonerado_aporte"] is False
+
+
+@pytest.mark.asyncio
+async def test_al_dia_aporte_mes_anterior(client, db_session):
+    hoy = date.today()
+    primer_dia_mes_actual = hoy.replace(day=1)
+    ultimo_dia_mes_anterior = primer_dia_mes_actual - timedelta(days=1)
+    periodo_anterior = f"{ultimo_dia_mes_anterior.year}-{ultimo_dia_mes_anterior.month:02d}"
+
+    pago_mes_anterior = await _crear_patient(db_session, depto="La Paz")
+    await _crear_contribution(db_session, pago_mes_anterior, periodo_anterior, estado="ACEPTADO")
+
+    debe_mes_anterior = await _crear_patient(db_session, depto="La Paz")
+
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    resp = await client.get("/departmental/beneficiarios/activos", params={"limit": 5000})
+    assert resp.status_code == 200, resp.text
+    by_id = {item["id"]: item for item in resp.json()["items"]}
+
+    assert by_id[pago_mes_anterior.id]["periodo_anterior"] == periodo_anterior
+    assert by_id[pago_mes_anterior.id]["al_dia_mes_anterior"] is True
+    assert by_id[debe_mes_anterior.id]["al_dia_mes_anterior"] is False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  DOCUMENTOS PENDIENTES: DETALLE DE CUÁLES FALTAN
+# ─────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_pendientes_docs_expone_documentos_faltantes(client, db_session):
+    patient = await _crear_patient(
+        db_session, depto="La Paz", estado="PENDIENTE_DOC",
+        url_ci_paciente="https://fake-storage.test/ci.jpg",
+        url_declaracion_aporte="https://fake-storage.test/compromiso.jpg",
+        # url_certificado_medico y url_foto_paciente quedan sin subir.
+    )
+
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    resp = await client.get("/departmental/beneficiarios/pendientes-docs", params={"limit": 5000})
+    assert resp.status_code == 200, resp.text
+    item = next(i for i in resp.json()["items"] if i["id"] == patient.id)
+
+    assert "Certificado Médico" in item["documentos_pendientes"]
+    assert "Foto Actual (Paciente)" in item["documentos_pendientes"]
+    assert "Cédula de Identidad (Paciente)" not in item["documentos_pendientes"]
+    assert "Compromiso Firmado" not in item["documentos_pendientes"]
+
+
+@pytest.mark.asyncio
+async def test_pendientes_docs_no_exige_ci_si_paciente_nunca_lo_registro(client, db_session):
+    """Un menor sin CI (opcional en su registro) no debe figurar como con ese documento pendiente."""
+    patient = await _crear_patient(db_session, depto="La Paz", estado="PENDIENTE_DOC", ci=None)
+
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    resp = await client.get("/departmental/beneficiarios/pendientes-docs", params={"limit": 5000})
+    assert resp.status_code == 200, resp.text
+    item = next(i for i in resp.json()["items"] if i["id"] == patient.id)
+
+    assert "Cédula de Identidad (Paciente)" not in item["documentos_pendientes"]

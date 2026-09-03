@@ -101,6 +101,25 @@ def get_current_departmental_viewer(
     return current_user
 
 
+def get_current_departmental_observation_editor(
+    current_user: models.User = Depends(get_current_active_user),
+) -> models.User:
+    """
+    Editar la observación de una entrega de insulina YA consolidada: solo
+    COORDINADOR_NACIONAL y SUPER_ADMIN. El RESPONSABLE_DEPARTAMENTAL solo
+    puede fijarla al momento de crear la entrega (ver
+    get_current_departmental_delivery_writer); para corregirla después debe
+    coordinar con el Coordinador Nacional — evita que quien registró la
+    entrega pueda alterar en silencio una observación ya reportada (ej. una
+    denuncia de reventa/exceso de insulina).
+    """
+    if current_user.role not in ["COORDINADOR_NACIONAL", "SUPER_ADMIN"]:
+        raise HTTPException(
+            status_code=403, detail="No tiene permisos para editar la observación de esta entrega"
+        )
+    return current_user
+
+
 def get_current_shipment_writer(
     current_user: models.User = Depends(get_current_active_user),
 ) -> models.User:

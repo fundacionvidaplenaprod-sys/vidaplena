@@ -591,8 +591,14 @@ class DepartmentalBeneficiaryItem(BaseModel):
     depto: Optional[str] = None
     tel_contacto: Optional[str] = None
     estado: str
+    # Un exonerado (evaluación ALTA) siempre cuenta como al día en ambos
+    # meses — se expone aparte para que el frontend pueda mostrar
+    # "Exonerado" en vez de "Al día"/"Sin aporte".
+    exonerado_aporte: bool = False
     al_dia_aporte: bool
     periodo_actual: str
+    al_dia_mes_anterior: bool
+    periodo_anterior: str
 
 class PaginatedDepartmentalBeneficiaryResponse(BaseModel):
     total: int
@@ -608,6 +614,11 @@ class DepartmentalPendingDocItem(BaseModel):
     tel_contacto: Optional[str] = None
     estado: str
     updated_at: datetime
+    # Solo informativo — qué documento(s) puntuales le faltan subir, para que
+    # el responsable/coordinador departamental pueda insistir/informar al
+    # beneficiario (no puede subirlos ni verlos él mismo, solo saber cuáles
+    # faltan).
+    documentos_pendientes: List[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -632,6 +643,11 @@ class DepartmentalInsulinDeliveryCreate(BaseModel):
     # visita — cada item queda como una fila propia en el historial, todas
     # con la misma fecha/paciente.
     items: List[DepartmentalInsulinDeliveryItem] = Field(..., min_length=1)
+    # Observaciones libres sobre el beneficiario en esta visita (cambio de
+    # insulina solicitado, impedimento por viaje, fallecimiento, sospecha de
+    # reventa/exceso de insulina entregada, etc.). Campo abierto, sin límite
+    # práctico de longitud — se aplica a todos los items de esta entrega.
+    observaciones: Optional[str] = Field(None, max_length=8000)
 
 class DepartmentalInsulinDeliveryResponse(BaseModel):
     id: int
@@ -642,6 +658,7 @@ class DepartmentalInsulinDeliveryResponse(BaseModel):
     presentacion: str
     quantity: str
     delivery_date: date
+    observaciones: Optional[str] = None
     recorded_by_id: Optional[int] = None
     recorded_by_email: Optional[str] = None
     created_at: datetime
@@ -649,6 +666,15 @@ class DepartmentalInsulinDeliveryResponse(BaseModel):
 class PaginatedDepartmentalDeliveryResponse(BaseModel):
     total: int
     items: List[DepartmentalInsulinDeliveryResponse]
+
+class DepartmentalInsulinDeliveryObservationUpdate(BaseModel):
+    """
+    Payload para editar la observación de una entrega ya consolidada.
+    Exclusivo de COORDINADOR_NACIONAL/SUPER_ADMIN — el responsable
+    departamental solo puede fijarla al momento de crear la entrega; para
+    corregirla después debe coordinar con el Coordinador Nacional.
+    """
+    observaciones: Optional[str] = Field(None, max_length=8000)
 
 class DepartmentalResponsableItem(BaseModel):
     id: int
