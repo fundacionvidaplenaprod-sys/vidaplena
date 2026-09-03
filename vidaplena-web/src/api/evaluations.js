@@ -65,6 +65,19 @@ export const createSocialEvaluation = (payload) =>
   client.post('/social-evaluations/', payload).then((r) => r.data);
 
 /**
+ * Registra una evaluación extraordinaria: para beneficiarios imposibilitados
+ * (a varios niveles) de completar el formulario digital estándar. En vez del
+ * cuestionario de ingresos/vivienda/servicios, solo requiere una
+ * justificación, un informe basado en una entrevista telefónica, y la
+ * aceptación de responsabilidad de quien la registra. A diferencia del flujo
+ * normal, esta llamada YA fija la decisión final (no hay un aval posterior
+ * separado).
+ * @param {Object} payload - SocialEvaluationExtraordinariaCreate payload
+ */
+export const createExtraordinarySocialEvaluation = (payload) =>
+  client.post('/social-evaluations/extraordinaria', payload).then((r) => r.data);
+
+/**
  * Obtiene la evaluación socioeconómica de un paciente por su ID.
  * @param {number} patientId
  */

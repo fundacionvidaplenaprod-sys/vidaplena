@@ -667,6 +667,18 @@ class SocialEvaluation(Base):
     entrevista_fecha = Column(DateTime(timezone=True), nullable=True)
     entrevista_notas = Column(Text, nullable=True)
 
+    # --- Evaluación extraordinaria (imposibilidad de llenado digital) ---
+    # Vía alternativa exclusiva de EVALUADOR_SOCIAL/SUPER_ADMIN para casos en
+    # los que el beneficiario está imposibilitado (a varios niveles) de
+    # completar el formulario digital estándar. Reemplaza todo el
+    # cuestionario de ingresos/vivienda/servicios por un informe basado en
+    # una entrevista telefónica (guardado en entrevista_notas) y una
+    # justificación explícita; quien la registra acepta toda la
+    # responsabilidad de la categorización, ya que no hay CFNR calculado.
+    es_extraordinaria = Column(Boolean, nullable=False, default=False)
+    justificacion_extraordinaria = Column(Text, nullable=True)
+    responsabilidad_aceptada = Column(Boolean, nullable=False, default=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

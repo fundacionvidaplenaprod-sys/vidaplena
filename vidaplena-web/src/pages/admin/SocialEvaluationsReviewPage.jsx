@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle, CheckCircle, ExternalLink, RefreshCcw, ChevronDown, ChevronUp,
-  Video, History, ShieldAlert, UserCheck, Trash2,
+  Video, History, ShieldAlert, UserCheck, Trash2, PhoneCall, Search, X,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
@@ -12,7 +12,9 @@ import {
   getEvaluationHistory,
   reactivatePatientEvaluation,
   debugDeleteSocialEvaluation,
+  createExtraordinarySocialEvaluation,
 } from '../../api/evaluations';
+import { getPaginatedPatients } from '../../api/patients';
 import { Button } from '../../components/ui/Button';
 
 const ESTADO_STYLES = {
@@ -115,6 +117,24 @@ export default function SocialEvaluationsReviewPage() {
   const [loadingHistoryId, setLoadingHistoryId] = useState(null);
   const [reactivatingId, setReactivatingId] = useState(null);
   const [debugDeletingId, setDebugDeletingId] = useState(null);
+
+  // --- Evaluación extraordinaria (imposibilidad de llenado digital) ---
+  const [extraordinaryModalOpen, setExtraordinaryModalOpen] = useState(false);
+  const [extraordinarySearch, setExtraordinarySearch] = useState('');
+  const [extraordinarySearching, setExtraordinarySearching] = useState(false);
+  const [extraordinaryResults, setExtraordinaryResults] = useState([]);
+  const [extraordinaryPatient, setExtraordinaryPatient] = useState(null);
+  const [extraordinaryForm, setExtraordinaryForm] = useState({
+    justificacion: '',
+    informe: '',
+    habeasDataAccepted: false,
+    responsabilidadAceptada: false,
+    decision: 'APROBADO',
+    categoriaFinal: '',
+    montoComprometido: '',
+    motivo: '',
+  });
+  const [extraordinarySubmitting, setExtraordinarySubmitting] = useState(false);
 
   const fetchEvaluations = async () => {
     try {
@@ -316,6 +336,106 @@ export default function SocialEvaluationsReviewPage() {
     }
   };
 
+  const openExtraordinaryModal = () => {
+    setExtraordinarySearch('');
+    setExtraordinaryResults([]);
+    setExtraordinaryPatient(null);
+    setExtraordinaryForm({
+      justificacion: '',
+      informe: '',
+      habeasDataAccepted: false,
+      responsabilidadAceptada: false,
+      decision: 'APROBADO',
+      categoriaFinal: '',
+      montoComprometido: '',
+      motivo: '',
+    });
+    setExtraordinaryModalOpen(true);
+  };
+
+  const closeExtraordinaryModal = () => setExtraordinaryModalOpen(false);
+
+  const searchExtraordinaryPatients = async (event) => {
+    event.preventDefault();
+    if (!extraordinarySearch.trim()) return;
+    try {
+      setExtraordinarySearching(true);
+      const data = await getPaginatedPatients(0, 10, extraordinarySearch.trim(), 'ACTIVO');
+      setExtraordinaryResults(data.items || []);
+    } catch (error) {
+      console.error(error);
+      toast.error('No se pudo buscar beneficiarios.');
+    } finally {
+      setExtraordinarySearching(false);
+    }
+  };
+
+  const submitExtraordinary = async () => {
+    const form = extraordinaryForm;
+    if (!extraordinaryPatient) {
+      toast.error('Seleccione al beneficiario.');
+      return;
+    }
+    if (form.justificacion.trim().length < 20) {
+      toast.error('La justificación debe explicar el caso (mínimo 20 caracteres).');
+      return;
+    }
+    if (form.informe.trim().length < 20) {
+      toast.error('El informe de la entrevista telefónica debe tener al menos 20 caracteres.');
+      return;
+    }
+    if (!form.habeasDataAccepted) {
+      toast.error('Debe confirmar que obtuvo el consentimiento verbal de Habeas Data.');
+      return;
+    }
+    if (!form.responsabilidadAceptada) {
+      toast.error('Debe aceptar toda la responsabilidad de esta evaluación extraordinaria.');
+      return;
+    }
+    if (form.decision === 'APROBADO' && !form.categoriaFinal) {
+      toast.error('Elija la categoría final del beneficiario.');
+      return;
+    }
+    if (form.decision === 'APROBADO' && form.categoriaFinal === 'MEDIA' && !(Number(form.montoComprometido) > 0)) {
+      toast.error('Indique el monto de aporte reducido para la categoría MEDIA.');
+      return;
+    }
+    if (form.decision !== 'APROBADO' && !form.motivo.trim()) {
+      toast.error('Indique el motivo del rechazo.');
+      return;
+    }
+    try {
+      setExtraordinarySubmitting(true);
+      await createExtraordinarySocialEvaluation({
+        patient_id: extraordinaryPatient.id,
+        justificacion_extraordinaria: form.justificacion.trim(),
+        informe_entrevista: form.informe.trim(),
+        habeas_data_accepted: true,
+        responsabilidad_aceptada: true,
+        decision: form.decision,
+        ...(form.decision === 'APROBADO' ? { categoria_final: form.categoriaFinal } : {}),
+        ...(form.decision === 'APROBADO' && form.categoriaFinal === 'MEDIA'
+          ? { monto_comprometido: Number(form.montoComprometido) }
+          : {}),
+        ...(form.decision !== 'APROBADO' ? { motivo: form.motivo.trim() } : {}),
+      });
+      toast.success('Evaluación extraordinaria registrada. La decisión ya quedó fijada.');
+      closeExtraordinaryModal();
+      await fetchEvaluations();
+    } catch (error) {
+      console.error(error);
+      const detail = error?.response?.data?.detail;
+      const message = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+        ? `Error: ${detail[0].msg} en ${detail[0].loc.join(' -> ')}`
+        : 'No se pudo registrar la evaluación extraordinaria.';
+      toast.error(message);
+    } finally {
+      setExtraordinarySubmitting(false);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
@@ -337,6 +457,14 @@ export default function SocialEvaluationsReviewPage() {
             <option value="RECHAZADO">RECHAZADO</option>
             <option value="RECHAZADO_FRAUDE">RECHAZADO POR FALSEDAD</option>
           </select>
+          <button
+            type="button"
+            onClick={openExtraordinaryModal}
+            className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold inline-flex items-center gap-2"
+            title="Para beneficiarios imposibilitados de completar el formulario digital estándar."
+          >
+            <PhoneCall size={16} /> Evaluación extraordinaria
+          </button>
           <Button
             type="button"
             variant="secondary"
@@ -361,16 +489,25 @@ export default function SocialEvaluationsReviewPage() {
             <div key={item.id} className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
               <div className="p-4 flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                 <div>
-                  <p className="font-semibold text-gray-800">
+                  <p className="font-semibold text-gray-800 flex items-center flex-wrap gap-1.5">
                     {item.patient_nombre || `Paciente #${item.patient_id}`} — CI {item.patient_ci || 'Sin registrar'}
+                    {item.es_extraordinaria && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full border bg-purple-100 text-purple-700 border-purple-300 inline-flex items-center gap-1">
+                        <PhoneCall size={12} /> Extraordinaria
+                      </span>
+                    )}
                   </p>
-                  <p className="text-sm text-gray-500 mt-1 flex items-center flex-wrap gap-1.5">
-                    <span>Depto. {item.departamento} | Sugerida (sistema):</span>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${categoriaBadgeClass(item.categoria_asignada)}`}>
-                      {categoriaLabel(item.categoria_asignada)}
-                    </span>
-                    <span>| CFNR Bs. {item.cfnr.toFixed(2)}</span>
-                  </p>
+                  {item.es_extraordinaria ? (
+                    <p className="text-sm text-gray-500 mt-1">Depto. {item.departamento}</p>
+                  ) : (
+                    <p className="text-sm text-gray-500 mt-1 flex items-center flex-wrap gap-1.5">
+                      <span>Depto. {item.departamento} | Sugerida (sistema):</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${categoriaBadgeClass(item.categoria_asignada)}`}>
+                        {categoriaLabel(item.categoria_asignada)}
+                      </span>
+                      <span>| CFNR Bs. {item.cfnr.toFixed(2)}</span>
+                    </p>
+                  )}
                   {item.categoria_final && (
                     <p className="text-sm mt-1 flex items-center flex-wrap gap-1.5">
                       <span className="font-semibold text-gray-700">Categoría final:</span>
@@ -515,8 +652,30 @@ export default function SocialEvaluationsReviewPage() {
                     )}
                   </div>
 
+                  {item.es_extraordinaria && (
+                    <div className="rounded-xl p-4 border bg-purple-50 border-purple-200">
+                      <h4 className="font-semibold text-purple-800 mb-2 flex items-center gap-2">
+                        <PhoneCall size={16} /> Evaluación extraordinaria — imposibilidad de llenado digital
+                      </h4>
+                      <p className="text-sm text-purple-900 whitespace-pre-wrap">
+                        {item.justificacion_extraordinaria || 'Sin justificación registrada.'}
+                      </p>
+                      <p className="text-xs text-purple-700 mt-2">
+                        No se recolectaron datos de ingresos/vivienda/servicios: la categoría fue fijada
+                        directamente por el evaluador, quien aceptó toda la responsabilidad de esta
+                        evaluación al registrarla.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2 text-sm text-gray-700">
+                    {item.es_extraordinaria ? (
+                      <p className="text-gray-500 italic">
+                        No aplica — esta evaluación no pasó por el cuestionario digital estándar.
+                      </p>
+                    ) : (
+                    <>
                     <p><span className="font-semibold">Integrantes del hogar:</span> {item.integrantes_hogar}</p>
                     <p><span className="font-semibold">Dependientes:</span> {item.dependientes}</p>
                     <p><span className="font-semibold">Tipo de vivienda:</span> {item.tipo_vivienda}</p>
@@ -549,6 +708,8 @@ export default function SocialEvaluationsReviewPage() {
                         ? `Sí (${item.nombre_institucion_ayuda || 'no especificada'})`
                         : 'No'}
                     </p>
+                    </>
+                    )}
                   </div>
                   <div>
                     <p className="font-semibold text-gray-700 mb-2">Evidencias</p>
@@ -872,6 +1033,250 @@ export default function SocialEvaluationsReviewPage() {
                 {submittingId === approveModal.patientId ? 'Guardando...' : 'Confirmar aprobación'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {extraordinaryModalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 my-8">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <PhoneCall size={18} className="text-purple-600" /> Evaluación extraordinaria
+              </h3>
+              <button onClick={closeExtraordinaryModal} className="text-gray-400 hover:text-gray-600">
+                <X size={22} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Para beneficiarios imposibilitados (a varios niveles) de completar el formulario digital
+              estándar. Reemplaza el cuestionario de ingresos/vivienda/servicios por un informe basado en
+              una entrevista telefónica. <span className="font-semibold">Esta acción ya fija la decisión
+              final</span> — no pasa por un aval posterior separado.
+            </p>
+
+            {!extraordinaryPatient ? (
+              <div>
+                <form onSubmit={searchExtraordinaryPatients} className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    value={extraordinarySearch}
+                    onChange={(e) => setExtraordinarySearch(e.target.value)}
+                    placeholder="Buscar beneficiario por nombre o CI..."
+                    className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="submit"
+                    disabled={extraordinarySearching}
+                    className="px-4 py-2 rounded-lg bg-vida-main hover:bg-vida-hover text-white font-bold text-sm inline-flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <Search size={16} /> Buscar
+                  </button>
+                </form>
+                {extraordinarySearching ? (
+                  <p className="text-sm text-gray-500">Buscando...</p>
+                ) : extraordinaryResults.length > 0 ? (
+                  <div className="space-y-1 max-h-60 overflow-y-auto">
+                    {extraordinaryResults.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setExtraordinaryPatient(p)}
+                        className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 hover:border-vida-main hover:bg-vida-main/5 text-sm"
+                      >
+                        <span className="font-semibold">{p.nombres} {p.ap_paterno || ''}</span>
+                        {' — CI '}{p.ci || 'Sin registrar'}{' — '}{p.depto || 'Sin depto'}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">Busque al beneficiario para continuar.</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-gray-800">
+                      {extraordinaryPatient.nombres} {extraordinaryPatient.ap_paterno || ''}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      CI {extraordinaryPatient.ci || 'Sin registrar'} — {extraordinaryPatient.depto || 'Sin depto'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExtraordinaryPatient(null)}
+                    className="text-xs font-bold text-vida-primary hover:underline"
+                  >
+                    Cambiar
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Justificación del caso *
+                  </label>
+                  <p className="text-xs text-gray-500 mb-1">
+                    Explique por qué el beneficiario está imposibilitado de completar el formulario digital.
+                  </p>
+                  <textarea
+                    value={extraordinaryForm.justificacion}
+                    onChange={(e) => setExtraordinaryForm((prev) => ({ ...prev, justificacion: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm min-h-[80px]"
+                    placeholder="Ej: Persona adulta mayor sin acceso a internet ni celular, vive sola en zona rural sin apoyo familiar para el llenado."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Informe de la entrevista telefónica *
+                  </label>
+                  <textarea
+                    value={extraordinaryForm.informe}
+                    onChange={(e) => setExtraordinaryForm((prev) => ({ ...prev, informe: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm min-h-[100px]"
+                    placeholder="Resumen de lo conversado por llamada: situación económica, de salud, vivienda, etc."
+                  />
+                </div>
+
+                <div className="rounded-lg border-2 border-purple-300 bg-purple-50 p-3 space-y-2">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={extraordinaryForm.habeasDataAccepted}
+                      onChange={(e) => setExtraordinaryForm((prev) => ({ ...prev, habeasDataAccepted: e.target.checked }))}
+                      className="mt-0.5 w-4 h-4 accent-purple-600"
+                    />
+                    <span className="text-sm text-purple-900">
+                      Confirmo que obtuve el consentimiento verbal de Habeas Data (Art. 130 CPE / Ley 164)
+                      del beneficiario durante la llamada.
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={extraordinaryForm.responsabilidadAceptada}
+                      onChange={(e) => setExtraordinaryForm((prev) => ({ ...prev, responsabilidadAceptada: e.target.checked }))}
+                      className="mt-0.5 w-4 h-4 accent-purple-600"
+                    />
+                    <span className="text-sm text-purple-900 font-semibold">
+                      Acepto toda la responsabilidad de esta evaluación extraordinaria, registrada sin el
+                      cuestionario digital estándar.
+                    </span>
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Decisión *</label>
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setExtraordinaryForm((prev) => ({ ...prev, decision: 'APROBADO' }))}
+                      className={`flex-1 px-3 py-2 rounded-lg border-2 text-sm font-bold ${
+                        extraordinaryForm.decision === 'APROBADO'
+                          ? 'border-green-600 bg-green-600 text-white'
+                          : 'border-green-200 text-green-700 hover:border-green-400'
+                      }`}
+                    >
+                      Aprobar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExtraordinaryForm((prev) => ({ ...prev, decision: 'RECHAZADO' }))}
+                      className={`flex-1 px-3 py-2 rounded-lg border-2 text-sm font-bold ${
+                        extraordinaryForm.decision === 'RECHAZADO'
+                          ? 'border-amber-600 bg-amber-600 text-white'
+                          : 'border-amber-200 text-amber-700 hover:border-amber-400'
+                      }`}
+                    >
+                      Rechazar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExtraordinaryForm((prev) => ({ ...prev, decision: 'RECHAZADO_FRAUDE' }))}
+                      className={`flex-1 px-3 py-2 rounded-lg border-2 text-sm font-bold ${
+                        extraordinaryForm.decision === 'RECHAZADO_FRAUDE'
+                          ? 'border-red-700 bg-red-700 text-white'
+                          : 'border-red-200 text-red-700 hover:border-red-400'
+                      }`}
+                    >
+                      Rechazar por falsedad
+                    </button>
+                  </div>
+
+                  {extraordinaryForm.decision === 'APROBADO' && (
+                    <div className="space-y-2">
+                      <label className="block text-xs font-semibold text-gray-700">Categoría final *</label>
+                      <div className="flex gap-2">
+                        {CATEGORIA_ORDEN.map((cat) => {
+                          const info = CATEGORIA_INFO[cat];
+                          const isSelected = extraordinaryForm.categoriaFinal === cat;
+                          return (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => setExtraordinaryForm((prev) => ({ ...prev, categoriaFinal: cat }))}
+                              className={`flex-1 px-3 py-2 rounded-lg border-2 text-sm font-bold ${
+                                isSelected ? info.selected : `bg-white ${info.idle}`
+                              }`}
+                            >
+                              {cat}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {extraordinaryForm.categoriaFinal === 'MEDIA' && (
+                        <div className="p-3 rounded-lg border-2 border-amber-300 bg-amber-50">
+                          <label className="block text-xs font-semibold text-amber-800 mb-1">
+                            Monto de aporte reducido (Bs.) *
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            step="0.01"
+                            value={extraordinaryForm.montoComprometido}
+                            onChange={(e) => setExtraordinaryForm((prev) => ({ ...prev, montoComprometido: e.target.value }))}
+                            className="w-40 px-3 py-2 border-2 border-amber-300 rounded-lg text-sm bg-white"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {extraordinaryForm.decision !== 'APROBADO' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Motivo del rechazo *</label>
+                      <textarea
+                        value={extraordinaryForm.motivo}
+                        onChange={(e) => setExtraordinaryForm((prev) => ({ ...prev, motivo: e.target.value }))}
+                        className="w-full border rounded-lg px-3 py-2 text-sm min-h-[70px]"
+                        placeholder="Ej: Durante la llamada se detectaron inconsistencias graves en lo declarado."
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeExtraordinaryModal}
+                    className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitExtraordinary}
+                    disabled={extraordinarySubmitting}
+                    className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold disabled:opacity-50"
+                  >
+                    {extraordinarySubmitting ? 'Guardando...' : 'Registrar evaluación extraordinaria'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

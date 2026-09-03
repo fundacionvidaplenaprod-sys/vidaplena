@@ -372,6 +372,8 @@ async def _archivar_veredicto(
         "motivo_rechazo": evaluation.motivo_rechazo,
         "entrevista_fecha": evaluation.entrevista_fecha.isoformat() if evaluation.entrevista_fecha else None,
         "entrevista_notas": evaluation.entrevista_notas,
+        "es_extraordinaria": evaluation.es_extraordinaria,
+        "justificacion_extraordinaria": evaluation.justificacion_extraordinaria,
     }
     db.add(
         models.AuditLog(
@@ -436,6 +438,176 @@ async def create_or_update_social_evaluation(
         },
     )
     return db_evaluation
+
+
+@router.post(
+    "/extraordinaria",
+    response_model=schemas.SocialEvaluationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar una evaluación extraordinaria (imposibilidad de llenado digital)",
+)
+async def create_extraordinary_social_evaluation(
+    evaluation_in: schemas.SocialEvaluationExtraordinariaCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(get_evaluator_or_admin),
+):
+    """
+    Vía alternativa para beneficiarios imposibilitados (a varios niveles) de
+    completar el formulario digital estándar. En vez del cuestionario de
+    ingresos/vivienda/servicios, solo requiere una justificación explícita y
+    un informe basado en una entrevista telefónica (se guarda como
+    entrevista_notas) — quien la registra acepta toda la responsabilidad de
+    la categorización, ya que no hay CFNR calculado.
+
+    A diferencia del flujo normal, la creación YA es la decisión final: no
+    pasa por un aval posterior separado (PUT /{patient_id}/review). Reusa el
+    mismo motor de efectos sobre el aporte y el mismo archivo de auditoría
+    (AuditLog) que ese endpoint, marcando `es_extraordinaria` en ambos.
+    """
+    if evaluation_in.decision in ("RECHAZADO", "RECHAZADO_FRAUDE") and not (evaluation_in.motivo or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Debe indicar el motivo del rechazo.",
+        )
+    if evaluation_in.decision == "APROBADO" and not evaluation_in.categoria_final:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Debe elegir la categoría final (ALTA, MEDIA o BAJA) para aprobar.",
+        )
+    if (
+        evaluation_in.decision == "APROBADO"
+        and evaluation_in.categoria_final == "MEDIA"
+        and not evaluation_in.monto_comprometido
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Debe indicar el monto comprometido para la categoría MEDIA.",
+        )
+
+    patient_q = await db.execute(
+        select(models.Patient).where(models.Patient.id == evaluation_in.patient_id)
+    )
+    patient = patient_q.scalars().first()
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Paciente con ID {evaluation_in.patient_id} no encontrado.",
+        )
+    _exigir_elegibilidad(patient)
+
+    client_ip = request.client.host if request.client else "desconocida"
+    user_agent = request.headers.get("user-agent", "desconocido")[:300]
+    ahora = datetime.now(timezone.utc)
+
+    existing_q = await db.execute(
+        select(models.SocialEvaluation).where(models.SocialEvaluation.patient_id == patient.id)
+    )
+    evaluation = existing_q.scalars().first()
+    if not evaluation:
+        evaluation = models.SocialEvaluation(patient_id=patient.id)
+
+    categoria = evaluation_in.categoria_final if evaluation_in.decision == "APROBADO" else None
+
+    # Sentinel/defaults para las columnas del cuestionario digital estándar
+    # (NOT NULL en el modelo) que este flujo no recolecta — este beneficiario
+    # está imposibilitado de proveerlas, así que quedan sin datos reales.
+    evaluation.departamento = patient.depto or ""
+    evaluation.integrantes_hogar = 1
+    evaluation.dependientes = 0
+    evaluation.tipo_vivienda = "No especificado (evaluación extraordinaria)"
+    evaluation.monto_alquiler = 0.0
+    evaluation.tiene_seguro = False
+    evaluation.tipo_seguro = None
+    evaluation.condicion_laboral = None
+    evaluation.ingreso_titular = 0.0
+    evaluation.ingreso_conyuge = 0.0
+    evaluation.ingreso_otros_familiares = 0.0
+    evaluation.recibe_ayuda_otra_institucion = False
+    evaluation.nombre_institucion_ayuda = None
+    evaluation.tiene_deudas_comprometen_ingresos = False
+    evaluation.monto_deuda_mensual = 0.0
+    evaluation.tiene_agua = False
+    evaluation.monto_agua = 0.0
+    evaluation.tiene_luz = False
+    evaluation.monto_luz = 0.0
+    evaluation.tiene_gas_domiciliario = False
+    evaluation.monto_gas_domiciliario = 0.0
+    evaluation.tiene_internet = False
+    evaluation.monto_internet = 0.0
+    evaluation.monto_transporte = 0.0
+    evaluation.ingreso_per_capita = 0.0
+    evaluation.costo_vida_estimado = 0.0
+    evaluation.cfnr = 0.0
+    evaluation.categoria_asignada = categoria or "N/A"
+    evaluation.estado_alerta = "NORMAL"
+    evaluation.exclusion_sugerida = False
+    evaluation.motivo_exclusion_sugerida = None
+    evaluation.foto_ci_url = None
+    evaluation.foto_fachada_url = None
+    evaluation.foto_sala_url = None
+    evaluation.foto_dormitorio_url = None
+    # No se piden evidencias fotográficas en este flujo.
+    evaluation.imagen_consent_accepted = False
+    evaluation.habeas_data_accepted = True
+    evaluation.ip_address = client_ip
+    evaluation.user_agent = user_agent
+    evaluation.evaluator_id = current_user.id
+
+    # El informe de la llamada ES la entrevista requerida por el flujo normal.
+    evaluation.entrevista_realizada = True
+    evaluation.entrevista_fecha = ahora
+    evaluation.entrevista_notas = evaluation_in.informe_entrevista.strip()
+
+    evaluation.es_extraordinaria = True
+    evaluation.justificacion_extraordinaria = evaluation_in.justificacion_extraordinaria.strip()
+    evaluation.responsabilidad_aceptada = True
+
+    # La creación ya es la decisión final (a diferencia del flujo normal,
+    # que exige un aval posterior separado vía PUT /{patient_id}/review).
+    evaluation.estado_revision = evaluation_in.decision
+    evaluation.reviewer_id = current_user.id
+    evaluation.revisado_at = ahora
+    evaluation.motivo_rechazo = evaluation_in.motivo if evaluation_in.decision != "APROBADO" else None
+    evaluation.categoria_final = categoria
+
+    if evaluation_in.decision == "APROBADO" and categoria == "MEDIA":
+        patient.exonerado_aporte = False
+        patient.monto_aporte_comprometido = evaluation_in.monto_comprometido
+    elif evaluation_in.decision == "APROBADO" and categoria == "ALTA":
+        patient.exonerado_aporte = True
+        patient.monto_aporte_comprometido = None
+    elif evaluation_in.decision == "APROBADO":  # BAJA
+        patient.exonerado_aporte = False
+        patient.monto_aporte_comprometido = None
+    else:
+        patient.exonerado_aporte = False
+
+    if evaluation_in.decision == "RECHAZADO":
+        patient.evaluacion_bloqueada_hasta = _agregar_meses(date.today(), RECHAZO_ESTANDAR_COOLDOWN_MESES)
+    elif evaluation_in.decision == "RECHAZADO_FRAUDE":
+        patient.estado_beneficio = "SUSPENDIDO"
+        patient.evaluacion_bloqueada_hasta = None
+    else:  # APROBADO — mismo cooldown que el flujo normal antes de reevaluar
+        patient.evaluacion_bloqueada_hasta = _agregar_meses(date.today(), REEVALUACION_COOLDOWN_MESES)
+
+    await _archivar_veredicto(db, evaluation, patient, current_user.id, evaluation_in.decision)
+
+    try:
+        db.add(evaluation)
+        db.add(patient)
+        await db.commit()
+        await db.refresh(evaluation)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al guardar la evaluación extraordinaria: {str(e)}",
+        )
+
+    evaluation.patient_nombre = f"{patient.nombres} {patient.ap_paterno or ''}".strip()
+    evaluation.patient_ci = patient.ci
+    return evaluation
 
 
 # ==============================================================================

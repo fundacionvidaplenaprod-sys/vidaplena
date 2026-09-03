@@ -339,11 +339,27 @@ export default function PatientDetailsPage() {
                                         Categoría final: {socialEvaluation.categoria_final}
                                     </span>
                                 )}
+                                {socialEvaluation.es_extraordinaria && (
+                                    <span className="px-3 py-1 rounded-full text-xs font-bold border bg-purple-50 text-purple-700 border-purple-200">
+                                        Evaluación extraordinaria
+                                    </span>
+                                )}
                                 <span className="text-xs text-gray-400">
                                     Enviada el {formatDate(socialEvaluation.created_at)}
                                     {socialEvaluation.revisado_at && ` · Revisada el ${formatDate(socialEvaluation.revisado_at)}`}
                                 </span>
                             </div>
+
+                            {socialEvaluation.es_extraordinaria && (
+                                <div className="mb-4">
+                                    <span className="block text-gray-400 text-xs uppercase font-bold mb-1">
+                                        Justificación (imposibilidad de llenado digital)
+                                    </span>
+                                    <p className="text-sm text-purple-900 whitespace-pre-wrap bg-purple-50 border border-purple-100 rounded-xl p-3">
+                                        {socialEvaluation.justificacion_extraordinaria || 'Sin justificación registrada.'}
+                                    </p>
+                                </div>
+                            )}
 
                             {socialEvaluation.entrevista_realizada && (
                                 <div className="mb-4">

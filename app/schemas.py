@@ -1018,6 +1018,37 @@ class SocialEvaluationInterviewUpdate(BaseModel):
     notas: Optional[str] = Field(None, max_length=10000)
 
 
+class SocialEvaluationExtraordinariaCreate(BaseModel):
+    """
+    Payload enviado por EVALUADOR_SOCIAL/SUPER_ADMIN para registrar una
+    evaluación extraordinaria: para beneficiarios imposibilitados (a varios
+    niveles) de completar el formulario digital estándar. Reemplaza todo el
+    cuestionario de ingresos/vivienda/servicios por un informe de una
+    entrevista telefónica; la creación ya es la decisión final (no pasa por
+    un aval posterior separado), así que aquí mismo se fija la categoría
+    (o el rechazo).
+    """
+    patient_id: int = Field(..., gt=0)
+
+    # Justificación explícita de por qué no fue posible el llenado digital.
+    justificacion_extraordinaria: str = Field(..., min_length=20, max_length=2000)
+    # Informe basado en la entrevista telefónica — se guarda como
+    # entrevista_notas (mismo campo que usa el flujo normal).
+    informe_entrevista: str = Field(..., min_length=20, max_length=10000)
+    # El evaluador acepta toda la responsabilidad de esta categorización,
+    # hecha sin el cálculo automático de CFNR. Debe venir explícitamente en true.
+    responsabilidad_aceptada: Literal[True]
+    # Consentimiento verbal de Habeas Data (Art. 130 CPE / Ley 164), obtenido
+    # por teléfono y confirmado aquí por el evaluador. No se pide
+    # imagen_consent_accepted porque este flujo no sube evidencias fotográficas.
+    habeas_data_accepted: Literal[True]
+
+    decision: Literal["APROBADO", "RECHAZADO", "RECHAZADO_FRAUDE"]
+    categoria_final: Optional[Literal["ALTA", "MEDIA", "BAJA"]] = None
+    monto_comprometido: Optional[float] = Field(None, gt=0)
+    motivo: Optional[str] = Field(None, max_length=1000)
+
+
 class SocialEvaluationResponse(BaseModel):
     id: int
     patient_id: int
@@ -1092,6 +1123,11 @@ class SocialEvaluationResponse(BaseModel):
     entrevista_realizada: bool = False
     entrevista_fecha: Optional[datetime] = None
     entrevista_notas: Optional[str] = None
+
+    # Evaluación extraordinaria (imposibilidad de llenado digital)
+    es_extraordinaria: bool = False
+    justificacion_extraordinaria: Optional[str] = None
+    responsabilidad_aceptada: bool = False
 
     created_at: datetime
     updated_at: datetime
