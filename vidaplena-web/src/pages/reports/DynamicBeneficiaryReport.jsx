@@ -1,31 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import { getPatients } from '../../api/patients';
 import { getContributionsReview } from '../../api/contributions';
-import { Download, Filter, Search, Columns, RefreshCcw } from 'lucide-react';
+import { Download, Filter, Search, Columns, RefreshCcw, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import logoUrl from '../../assets/logo.png';
-
-// Función para convertir imagen a Base64
-const imageToBase64 = (url) => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'Anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      const dataURL = canvas.toDataURL('image/png');
-      resolve(dataURL);
-    };
-    img.onerror = (error) => reject(error);
-    img.src = url;
-  });
-};
+import { imageToBase64 } from '../../utils/imageToBase64';
 
 const ALL_COLUMNS = [
   { id: 'nombres', label: 'Nombres', getValue: p => p.nombres },
@@ -105,7 +88,9 @@ export default function DynamicBeneficiaryReport() {
 
       const enriched = (patientsData || []).map(p => ({
         ...p,
-        _aporteEstado: estadoByPatientId.get(p.id) || 'NO REALIZADO',
+        // Un exonerado (evaluación ALTA) nunca debe verse como "no
+        // realizado" — no debe aporte, no que "no lo hizo".
+        _aporteEstado: p.exonerado_aporte ? 'EXONERADO' : (estadoByPatientId.get(p.id) || 'NO REALIZADO'),
       }));
       setPatients(enriched);
     } catch (error) {
@@ -233,6 +218,23 @@ export default function DynamicBeneficiaryReport() {
     toast.success('Reporte descargado exitosamente');
   };
 
+  // Exportar a Excel (.xlsx)
+  const exportXLS = () => {
+    const rows = filteredPatients.map((p) => {
+      const row = {};
+      activeColumns.forEach((col) => {
+        row[col.label] = col.getValue(p);
+      });
+      return row;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Beneficiarios');
+    XLSX.writeFile(workbook, `Beneficiarios_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Reporte descargado exitosamente');
+  };
+
   return (
     <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 animate-fadeIn">
       {/* TOOLBAR */}
@@ -304,13 +306,21 @@ export default function DynamicBeneficiaryReport() {
           <Button variant="secondary" onClick={fetchData} disabled={loading} className="px-3">
             <RefreshCcw size={18} className={loading ? 'animate-spin' : ''} />
           </Button>
-          <Button 
-            onClick={exportPDF} 
+          <Button
+            onClick={exportPDF}
             disabled={loading || filteredPatients.length === 0}
             className="bg-green-600 hover:bg-green-700 text-white w-full lg:w-auto flex-1 justify-center"
           >
             <Download size={18} />
-            {filteredPatients.length === 0 ? 'Sin datos' : 'Descargar PDF'}
+            {filteredPatients.length === 0 ? 'Sin datos' : 'PDF'}
+          </Button>
+          <Button
+            onClick={exportXLS}
+            disabled={loading || filteredPatients.length === 0}
+            className="bg-emerald-700 hover:bg-emerald-800 text-white w-full lg:w-auto flex-1 justify-center"
+          >
+            <FileSpreadsheet size={18} />
+            {filteredPatients.length === 0 ? 'Sin datos' : 'Excel'}
           </Button>
         </div>
 
