@@ -27,6 +27,18 @@ const toDailyUnitsFromTreatment = (tx) => {
   return Number(tx?.dosis_diaria || 0);
 };
 
+// El backend guarda "tiempo_enfermedad" como un solo string armado al
+// enviar (ej. "3 años 2 meses"); al editar hay que descomponerlo de nuevo
+// en los dos campos separados del formulario (medical.tiempo_enfermedad_anios/meses).
+const parseTiempoEnfermedad = (str) => {
+  const anioMatch = String(str || '').match(/(\d+)\s*años?/i);
+  const mesMatch = String(str || '').match(/(\d+)\s*mes(?:es)?/i);
+  return {
+    tiempo_enfermedad_anios: anioMatch ? anioMatch[1] : '',
+    tiempo_enfermedad_meses: mesMatch ? mesMatch[1] : '',
+  };
+};
+
 const LabelRequired = ({ text }) => (
   <span className="flex items-center gap-1 font-semibold text-gray-700 text-sm">
     {text} <span className="text-red-500">*</span>
@@ -132,8 +144,21 @@ export default function RegisterPatientPage() {
         ? data.treatments.map((tx) => ({
             nombre: normalizeInsulinName(tx.nombre),
             dosis_diaria: toDailyUnitsFromTreatment(tx),
+            tiempo_uso_anios: tx.tiempo_uso_anios ?? '',
+            tiempo_uso_meses: tx.tiempo_uso_meses ?? '',
           }))
         : [{ nombre: 'Glargina', dosis_diaria: 0 }];
+
+      // El IMC se recalcula desde peso/altura en vez de confiar en el valor
+      // guardado: el useEffect de cálculo automático (más abajo) solo
+      // reacciona a cambios del usuario en peso/altura, no a un reset()
+      // programático — sin esto, el campo IMC quedaba en blanco al editar
+      // un registro cuyo IMC nunca se calculó o quedó desactualizado.
+      const pesoNum = parseFloat(data.peso);
+      const alturaNum = parseFloat(data.altura);
+      const imcRecalculado = pesoNum > 0 && alturaNum > 0
+        ? (pesoNum / (alturaNum * alturaNum)).toFixed(2)
+        : (data.imc || '');
 
       // RESETEAR EL FORMULARIO CON LOS DATOS DEL BACKEND
       reset({
@@ -145,7 +170,7 @@ export default function RegisterPatientPage() {
         fecha_nac: fechaFormat,         // Asignamos la fecha formateada
         peso: data.peso || '',          // Evitamos undefined
         altura: data.altura || '',      // Evitamos undefined
-        imc: data.imc || '',            // Nuevo dato IMC
+        imc: imcRecalculado,
         tipo_sangre: data.tipo_sangre || '', // Asegura que coincida con las opciones del <select>
         // ---------------------------------------------
         
@@ -167,7 +192,7 @@ export default function RegisterPatientPage() {
         // Datos Médicos
         medical: {
           tipo_diabetes: data.medical?.tipo_diabetes || '',
-          tiempo_enfermedad: data.medical?.tiempo_enfermedad || ''
+          ...parseTiempoEnfermedad(data.medical?.tiempo_enfermedad),
         },
 
         // Arrays y Especiales
