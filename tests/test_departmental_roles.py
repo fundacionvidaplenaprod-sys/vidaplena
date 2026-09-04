@@ -53,9 +53,9 @@ async def _crear_patient(db_session, estado: str = "ACTIVO", depto: str = "La Pa
     await db_session.refresh(user)
 
     extra.setdefault("ci", f"CI-{suffix}")
+    extra.setdefault("nombres", f"Depto{suffix}")
     patient = models.Patient(
         user_id=user.id,
-        nombres=f"Depto{suffix}",
         ap_paterno="Test",
         fecha_nac=date(1990, 1, 1),
         depto=depto,
@@ -654,3 +654,164 @@ async def test_pendientes_docs_no_exige_ci_si_paciente_nunca_lo_registro(client,
     item = next(i for i in resp.json()["items"] if i["id"] == patient.id)
 
     assert "Cédula de Identidad (Paciente)" not in item["documentos_pendientes"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  CORRECCIÓN DE UNA ENTREGA YA REGISTRADA (abierto para
+#  RESPONSABLE_DEPARTAMENTAL/SUPER_ADMIN mientras siguen en campo)
+# ─────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_responsable_corrige_su_propia_entrega(client, db_session):
+    patient = await _crear_patient(db_session, depto="La Paz")
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+
+    create_resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        "observaciones": "Nota original.",
+    })
+    delivery_id = create_resp.json()[0]["id"]
+
+    resp = await client.put(f"/departmental/entregas-insulina/{delivery_id}", json={
+        "insulin_type": "Lispro",
+        "presentacion": "Pen 3ml",
+        "quantity": "2 plumas",
+        "observaciones": "Corregido: era Lispro, no Glargina.",
+    })
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["insulin_type"] == "Lispro"
+    assert body["presentacion"] == "Pen 3ml"
+    assert body["quantity"] == "2 plumas"
+    assert body["observaciones"] == "Corregido: era Lispro, no Glargina."
+
+
+@pytest.mark.asyncio
+async def test_responsable_no_puede_corregir_entrega_de_otro_departamento(client, db_session):
+    patient = await _crear_patient(db_session, depto="Cochabamba")
+    await _switch_identity(db_session, "SUPER_ADMIN")
+    create_resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+    })
+    delivery_id = create_resp.json()[0]["id"]
+
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    resp = await client.put(f"/departmental/entregas-insulina/{delivery_id}", json={
+        "insulin_type": "Lispro",
+        "presentacion": "Pen 3ml",
+        "quantity": "1 pluma",
+    })
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_coordinador_nacional_no_puede_corregir_entrega_completa(client, db_session):
+    """Coordinador Nacional sigue siendo de solo lectura para la entrega en sí — solo puede tocar la observación."""
+    patient = await _crear_patient(db_session, depto="La Paz")
+    await _switch_identity(db_session, "SUPER_ADMIN")
+    create_resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+    })
+    delivery_id = create_resp.json()[0]["id"]
+
+    await _switch_identity(db_session, "COORDINADOR_NACIONAL")
+    resp = await client.put(f"/departmental/entregas-insulina/{delivery_id}", json={
+        "insulin_type": "Lispro",
+        "presentacion": "Pen 3ml",
+        "quantity": "1 pluma",
+    })
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_super_admin_corrige_entrega_de_cualquier_departamento(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session, depto="Cochabamba")
+    create_resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+    })
+    delivery_id = create_resp.json()[0]["id"]
+
+    resp = await client.put(f"/departmental/entregas-insulina/{delivery_id}", json={
+        "insulin_type": "NPH",
+        "presentacion": "Cartucho 3ml",
+        "quantity": "3 cartuchos",
+    })
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["insulin_type"] == "NPH"
+
+
+@pytest.mark.asyncio
+async def test_corregir_entrega_inexistente_404(client, superuser_token):
+    resp = await client.put("/departmental/entregas-insulina/999999999", json={
+        "insulin_type": "Glargina",
+        "presentacion": "Frasco 10ml",
+        "quantity": "1 frasco",
+    })
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_corregir_entrega_conserva_fecha_si_no_se_manda(client, db_session):
+    patient = await _crear_patient(db_session, depto="La Paz")
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+
+    fecha_original = str(date(2026, 1, 15))
+    create_resp = await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "delivery_date": fecha_original,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+    })
+    delivery_id = create_resp.json()[0]["id"]
+
+    resp = await client.put(f"/departmental/entregas-insulina/{delivery_id}", json={
+        "insulin_type": "Glargina",
+        "presentacion": "Cartucho 3ml",
+        "quantity": "2 frascos",
+    })
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["delivery_date"] == fecha_original
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  HISTORIAL: BÚSQUEDA POR BENEFICIARIO
+# ─────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_historial_busca_por_nombre_de_beneficiario(client, db_session):
+    juan = await _crear_patient(db_session, depto="La Paz", nombres="Juan Buscable")
+    otro = await _crear_patient(db_session, depto="La Paz", nombres="Otro Paciente")
+
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    for p in (juan, otro):
+        r = await client.post("/departmental/entregas-insulina", json={
+            "patient_id": p.id,
+            "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+        })
+        assert r.status_code == 201, r.text
+
+    resp = await client.get("/departmental/entregas-insulina", params={"search": "Buscable", "limit": 5000})
+    assert resp.status_code == 200, resp.text
+    patient_ids = {item["patient_id"] for item in resp.json()["items"]}
+    assert juan.id in patient_ids
+    assert otro.id not in patient_ids
+
+
+@pytest.mark.asyncio
+async def test_historial_busca_por_ci_de_beneficiario(client, db_session):
+    ci_unico = f"CI-BUSCAME-{uuid.uuid4().hex[:8]}"
+    patient = await _crear_patient(db_session, depto="La Paz", ci=ci_unico)
+
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    await client.post("/departmental/entregas-insulina", json={
+        "patient_id": patient.id,
+        "items": [{"presentacion": "Frasco 10ml", "insulin_type": "Glargina", "quantity": "1 frasco"}],
+    })
+
+    resp = await client.get("/departmental/entregas-insulina", params={"search": ci_unico, "limit": 5000})
+    assert resp.status_code == 200, resp.text
+    patient_ids = {item["patient_id"] for item in resp.json()["items"]}
+    assert patient.id in patient_ids

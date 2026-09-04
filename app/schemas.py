@@ -669,11 +669,31 @@ class PaginatedDepartmentalDeliveryResponse(BaseModel):
 
 class DepartmentalInsulinDeliveryObservationUpdate(BaseModel):
     """
-    Payload para editar la observación de una entrega ya consolidada.
-    Exclusivo de COORDINADOR_NACIONAL/SUPER_ADMIN — el responsable
-    departamental solo puede fijarla al momento de crear la entrega; para
-    corregirla después debe coordinar con el Coordinador Nacional.
+    Payload para editar SOLO la observación de una entrega, sin tocar el
+    resto de sus datos. Vía angosta exclusiva de COORDINADOR_NACIONAL/
+    SUPER_ADMIN (que no pueden usar PUT /entregas-insulina/{id} completo,
+    reservado a quien puede registrar entregas). El responsable
+    departamental corrige la observación junto con el resto de la entrega
+    a través de ese otro endpoint.
     """
+    observaciones: Optional[str] = Field(None, max_length=8000)
+
+class DepartmentalInsulinDeliveryUpdate(BaseModel):
+    """
+    Payload para corregir una entrega ya registrada (tipo, presentación,
+    cantidad, fecha, observaciones) — para cuando el responsable
+    departamental se da cuenta de un error después de guardarla. A
+    diferencia de la observación (ver DepartmentalInsulinDeliveryObservationUpdate),
+    esta vía es de RESPONSABLE_DEPARTAMENTAL/SUPER_ADMIN — la misma
+    autorización que registrar la entrega — y queda abierta sin ventana de
+    tiempo mientras se siguen haciendo entregas en campo. No incluye
+    patient_id: si se equivocó de beneficiario, es un error distinto a un
+    dato mal cargado.
+    """
+    insulin_type: str = Field(..., min_length=1, max_length=200)
+    presentacion: PresentacionInsulina
+    quantity: str = Field(..., min_length=1, max_length=100)
+    delivery_date: Optional[date] = None
     observaciones: Optional[str] = Field(None, max_length=8000)
 
 class DepartmentalResponsableItem(BaseModel):

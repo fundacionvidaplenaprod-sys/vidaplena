@@ -12,6 +12,7 @@ import {
     getPendingDocDepartmentalBeneficiaries,
     getDepartmentalInsulinDeliveries,
     createDepartmentalInsulinDelivery,
+    updateDelivery,
     updateDeliveryObservaciones,
     getDepartmentalResponsables,
     createInsulinShipment,
@@ -20,16 +21,17 @@ import {
 
 const LIMIT = 20;
 
-// El RESPONSABLE_DEPARTAMENTAL solo ve beneficiarios activos y pendientes de
-// documentos de SU departamento; el historial de entregas y los envíos a
-// responsables son solo para Coordinador Nacional / Super Admin.
+// El RESPONSABLE_DEPARTAMENTAL ve beneficiarios activos, pendientes de
+// documentos, y el historial de entregas de SU departamento (de solo vista,
+// salvo para corregir sus propias entregas); los envíos a responsables son
+// exclusivos de Coordinador Nacional / Super Admin.
 const TABS_RESPONSABLE = [
     { key: 'activos', label: 'Beneficiarios Activos' },
     { key: 'pendientes', label: 'Documentos Pendientes' },
+    { key: 'historial', label: 'Historial de Entregas' },
 ];
 const TABS_NACIONAL = [
     ...TABS_RESPONSABLE,
-    { key: 'historial', label: 'Historial de Entregas' },
     { key: 'envios', label: 'Envíos a Responsables' },
 ];
 
@@ -39,10 +41,11 @@ export default function DepartmentalDashboardPage() {
     const esResponsableDepartamental = user.role === 'RESPONSABLE_DEPARTAMENTAL';
     const puedeRegistrarEntrega = user.role === 'RESPONSABLE_DEPARTAMENTAL' || user.role === 'SUPER_ADMIN';
     const puedeEnviarInsulina = user.role === 'COORDINADOR_NACIONAL' || user.role === 'SUPER_ADMIN';
-    // Una vez consolidada la entrega, solo Coordinador Nacional/Super Admin
-    // pueden corregir la observación (el responsable departamental solo la
-    // fija al crearla — evita que quien registró pueda alterarla en silencio).
-    const puedeEditarObservaciones = user.role === 'COORDINADOR_NACIONAL' || user.role === 'SUPER_ADMIN';
+    // Coordinador Nacional sigue siendo de solo lectura sobre la entrega en
+    // sí (no la registra ni la corrige por completo) — solo puede tocar la
+    // observación por separado. Quien SÍ puede corregir la entrega completa
+    // (incluida la observación) es puedeRegistrarEntrega, más abajo.
+    const puedeEditarObservaciones = isCoordinadorNacional;
     const TABS = esResponsableDepartamental ? TABS_RESPONSABLE : TABS_NACIONAL;
 
     const [tab, setTab] = useState('activos');
@@ -65,6 +68,14 @@ export default function DepartmentalDashboardPage() {
     // Coordinador Nacional / Super Admin).
     const [observationEdit, setObservationEdit] = useState({ open: false, delivery: null, value: '' });
     const [savingObservation, setSavingObservation] = useState(false);
+
+    // Corrección de una entrega completa ya registrada (Responsable
+    // Departamental / Super Admin) — abierto mientras se sigue en campo.
+    const [deliveryEdit, setDeliveryEdit] = useState({
+        open: false, delivery: null,
+        insulinType: '', presentacion: '', quantity: '', deliveryDate: '', observaciones: '',
+    });
+    const [savingDeliveryEdit, setSavingDeliveryEdit] = useState(false);
 
     const [responsables, setResponsables] = useState([]);
     const [shipmentModalOpen, setShipmentModalOpen] = useState(false);
@@ -89,7 +100,7 @@ export default function DepartmentalDashboardPage() {
             } else if (tab === 'envios') {
                 data = await getInsulinShipments({ skip: params.skip, limit: params.limit, depto });
             } else {
-                data = await getDepartmentalInsulinDeliveries({ skip: params.skip, limit: params.limit, depto });
+                data = await getDepartmentalInsulinDeliveries({ skip: params.skip, limit: params.limit, depto, search });
             }
             setItems(data.items || []);
             setTotal(data.total || 0);
@@ -209,6 +220,49 @@ export default function DepartmentalDashboardPage() {
             toast.error(typeof detail === 'string' ? detail : 'No se pudo actualizar la observación.');
         } finally {
             setSavingObservation(false);
+        }
+    };
+
+    const openDeliveryEdit = (delivery) => {
+        setDeliveryEdit({
+            open: true,
+            delivery,
+            insulinType: delivery.insulin_type,
+            presentacion: delivery.presentacion,
+            quantity: delivery.quantity,
+            deliveryDate: delivery.delivery_date,
+            observaciones: delivery.observaciones || '',
+        });
+    };
+
+    const closeDeliveryEdit = () => setDeliveryEdit({
+        open: false, delivery: null,
+        insulinType: '', presentacion: '', quantity: '', deliveryDate: '', observaciones: '',
+    });
+
+    const submitDeliveryEdit = async () => {
+        if (!deliveryEdit.insulinType || !deliveryEdit.quantity.trim()) {
+            toast.error('Indique el tipo de insulina y la cantidad entregada.');
+            return;
+        }
+        try {
+            setSavingDeliveryEdit(true);
+            await updateDelivery(deliveryEdit.delivery.id, {
+                insulinType: deliveryEdit.insulinType,
+                presentacion: deliveryEdit.presentacion,
+                quantity: deliveryEdit.quantity.trim(),
+                deliveryDate: deliveryEdit.deliveryDate,
+                observaciones: deliveryEdit.observaciones.trim(),
+            });
+            toast.success('Entrega corregida.');
+            closeDeliveryEdit();
+            load();
+        } catch (error) {
+            console.error(error);
+            const detail = error?.response?.data?.detail;
+            toast.error(typeof detail === 'string' ? detail : 'No se pudo corregir la entrega.');
+        } finally {
+            setSavingDeliveryEdit(false);
         }
     };
 
@@ -349,8 +403,8 @@ export default function DepartmentalDashboardPage() {
                 ))}
             </div>
 
-            {/* BUSCADOR (no aplica al historial ni a envíos) */}
-            {tab !== 'historial' && tab !== 'envios' && (
+            {/* BUSCADOR (no aplica a envíos; en historial busca por beneficiario) */}
+            {tab !== 'envios' && (
                 <form onSubmit={handleSearchSubmit} className="flex gap-2 mb-4">
                     <div className="relative flex-1 max-w-md">
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -470,7 +524,15 @@ export default function DepartmentalDashboardPage() {
                             </div>
                             <div className="flex flex-col items-end gap-1 flex-shrink-0">
                                 <p className="text-xs text-gray-400">Registrado por {d.recorded_by_email || 'desconocido'}</p>
-                                {puedeEditarObservaciones && (
+                                {puedeRegistrarEntrega ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => openDeliveryEdit(d)}
+                                        className="text-xs font-bold text-vida-primary hover:underline inline-flex items-center gap-1"
+                                    >
+                                        <Pencil size={12} /> Corregir entrega
+                                    </button>
+                                ) : puedeEditarObservaciones && (
                                     <button
                                         type="button"
                                         onClick={() => openObservationEdit(d)}
@@ -793,6 +855,94 @@ export default function DepartmentalDashboardPage() {
                                 className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold disabled:opacity-50"
                             >
                                 {savingObservation ? 'Guardando...' : 'Guardar'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {deliveryEdit.open && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                <Pencil size={18} className="text-vida-main" /> Corregir entrega
+                            </h3>
+                            <button onClick={closeDeliveryEdit} className="text-gray-400 hover:text-gray-600">
+                                <X size={22} />
+                            </button>
+                        </div>
+                        <p className="text-sm text-gray-500 mb-4">
+                            Beneficiario: <span className="font-semibold text-gray-800">{deliveryEdit.delivery?.patient_nombre}</span>
+                            <br />
+                            Corrija los datos que se registraron mal. Sin límite de tiempo mientras siga registrando entregas.
+                        </p>
+
+                        <div className="space-y-3">
+                            <div className="flex gap-2 items-start">
+                                <select
+                                    value={deliveryEdit.insulinType}
+                                    onChange={(e) => setDeliveryEdit((prev) => ({ ...prev, insulinType: e.target.value }))}
+                                    className="flex-1 border rounded-lg px-3 py-2 text-sm bg-white"
+                                >
+                                    {INSULIN_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex gap-2 items-start">
+                                <select
+                                    value={deliveryEdit.presentacion}
+                                    onChange={(e) => setDeliveryEdit((prev) => ({ ...prev, presentacion: e.target.value }))}
+                                    className="flex-1 border rounded-lg px-3 py-2 text-sm bg-white"
+                                >
+                                    {PRESENTACION_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                                <input
+                                    type="text"
+                                    value={deliveryEdit.quantity}
+                                    onChange={(e) => setDeliveryEdit((prev) => ({ ...prev, quantity: e.target.value }))}
+                                    placeholder="Cantidad"
+                                    className="w-28 border rounded-lg px-3 py-2 text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Fecha de entrega *</label>
+                                <input
+                                    type="date"
+                                    value={deliveryEdit.deliveryDate}
+                                    onChange={(e) => setDeliveryEdit((prev) => ({ ...prev, deliveryDate: e.target.value }))}
+                                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Observaciones</label>
+                                <textarea
+                                    value={deliveryEdit.observaciones}
+                                    onChange={(e) => setDeliveryEdit((prev) => ({ ...prev, observaciones: e.target.value }))}
+                                    className="w-full border rounded-lg px-3 py-2 text-sm min-h-[90px]"
+                                    placeholder="Observaciones sobre el beneficiario en esta visita (opcional)"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={closeDeliveryEdit}
+                                className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitDeliveryEdit}
+                                disabled={savingDeliveryEdit}
+                                className="px-4 py-2 rounded-lg bg-vida-main hover:bg-vida-hover text-white font-bold disabled:opacity-50"
+                            >
+                                {savingDeliveryEdit ? 'Guardando...' : 'Guardar correcciones'}
                             </button>
                         </div>
                     </div>

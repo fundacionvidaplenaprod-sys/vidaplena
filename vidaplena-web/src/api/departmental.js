@@ -43,18 +43,39 @@ export const createDepartmentalInsulinDelivery = async ({ patientId, items, deli
   return data;
 };
 
-/** Historial de entregas registradas, acotado por departamento. */
-export const getDepartmentalInsulinDeliveries = async ({ skip = 0, limit = 20, patientId, depto = '' } = {}) => {
-  const params = { skip, limit, patient_id: patientId || undefined, depto: depto || undefined };
+/**
+ * Historial de entregas registradas, acotado por departamento. `search`
+ * filtra por nombre/CI del beneficiario, para revisar qué se le entregó a
+ * un paciente puntual.
+ */
+export const getDepartmentalInsulinDeliveries = async ({ skip = 0, limit = 20, patientId, depto = '', search = '' } = {}) => {
+  const params = { skip, limit, patient_id: patientId || undefined, depto: depto || undefined, search: search || undefined };
   const { data } = await client.get('/departmental/entregas-insulina', { params });
   return data;
 };
 
 /**
- * Corrige la observación de una entrega ya consolidada. Exclusivo de
- * COORDINADOR_NACIONAL/SUPER_ADMIN — el responsable departamental solo
- * puede fijarla al crear la entrega; para corregirla después debe
- * coordinar con el Coordinador Nacional.
+ * Corrige una entrega ya registrada (tipo, presentación, cantidad, fecha,
+ * observaciones) — para cuando el responsable departamental se da cuenta
+ * de un error después de guardarla. Misma autorización que registrar
+ * entregas (RESPONSABLE_DEPARTAMENTAL/SUPER_ADMIN), sin ventana de tiempo.
+ */
+export const updateDelivery = async (deliveryId, { insulinType, presentacion, quantity, deliveryDate, observaciones }) => {
+  const { data } = await client.put(`/departmental/entregas-insulina/${deliveryId}`, {
+    insulin_type: insulinType,
+    presentacion,
+    quantity,
+    delivery_date: deliveryDate || undefined,
+    observaciones: observaciones || undefined,
+  });
+  return data;
+};
+
+/**
+ * Corrige SOLO la observación de una entrega, sin tocar el resto de sus
+ * datos. Vía angosta exclusiva de COORDINADOR_NACIONAL/SUPER_ADMIN — el
+ * responsable departamental usa `updateDelivery` (arriba), que también le
+ * permite corregir la observación junto con el resto.
  */
 export const updateDeliveryObservaciones = async (deliveryId, observaciones) => {
   const { data } = await client.put(`/departmental/entregas-insulina/${deliveryId}/observaciones`, {

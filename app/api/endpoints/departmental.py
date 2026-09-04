@@ -323,10 +323,16 @@ async def list_deliveries(
     limit: int = 20,
     patient_id: Optional[int] = None,
     depto: Optional[str] = None,
+    search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_departmental_viewer),
 ):
-    """Historial de entregas registradas, acotado por departamento (lectura para ambos roles)."""
+    """
+    Historial de entregas registradas, acotado por departamento (lectura
+    para ambos roles). `search` filtra por nombre/CI del beneficiario —
+    para que el responsable departamental pueda revisar qué insulina y en
+    qué cantidad se le entregó a un paciente puntual.
+    """
     target_depto = _resolve_target_depto(current_user, depto)
 
     query = (
@@ -348,9 +354,60 @@ async def list_deliveries(
     # módulo (depto es texto libre históricamente).
     candidates = [d for d in result.scalars().unique().all() if _matches_depto(d.depto, target_depto)]
 
+    if search:
+        term = normalize_name(search)
+        candidates = [
+            d for d in candidates
+            if d.patient and term in normalize_name(
+                " ".join(filter(None, [d.patient.nombres, d.patient.ap_paterno, d.patient.ap_materno, d.patient.ci]))
+            )
+        ]
+
     total = len(candidates)
     page = candidates[skip: skip + limit]
     return {"total": total, "items": [_delivery_to_response(d) for d in page]}
+
+
+@router.put(
+    "/entregas-insulina/{delivery_id}",
+    response_model=schemas.DepartmentalInsulinDeliveryResponse,
+)
+async def update_delivery(
+    delivery_id: int,
+    update_in: schemas.DepartmentalInsulinDeliveryUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_departmental_delivery_writer),
+):
+    """
+    Corrige una entrega ya registrada (tipo, presentación, cantidad, fecha,
+    observaciones). Misma autorización que crear entregas
+    (RESPONSABLE_DEPARTAMENTAL/SUPER_ADMIN) — queda abierto, sin ventana de
+    tiempo, mientras se siguen registrando entregas en campo. Un
+    responsable departamental solo puede corregir entregas de su propio
+    departamento.
+    """
+    delivery = await db.get(
+        models.DepartmentalInsulinDelivery,
+        delivery_id,
+        options=[selectinload(models.DepartmentalInsulinDelivery.patient), selectinload(models.DepartmentalInsulinDelivery.recorded_by)],
+    )
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada.")
+
+    if current_user.role == "RESPONSABLE_DEPARTAMENTAL" and not _matches_depto(delivery.depto, current_user.depto_asignado):
+        raise HTTPException(status_code=403, detail="La entrega no pertenece a su departamento asignado.")
+
+    delivery.insulin_type = update_in.insulin_type
+    delivery.presentacion = update_in.presentacion
+    delivery.quantity = update_in.quantity
+    if update_in.delivery_date:
+        delivery.delivery_date = update_in.delivery_date
+    delivery.observaciones = (update_in.observaciones or "").strip() or None
+
+    await db.commit()
+    await db.refresh(delivery)
+
+    return _delivery_to_response(delivery)
 
 
 @router.put(
@@ -364,10 +421,10 @@ async def update_delivery_observaciones(
     current_user: models.User = Depends(deps.get_current_departmental_observation_editor),
 ):
     """
-    Corrige la observación de una entrega ya consolidada. Exclusivo de
-    COORDINADOR_NACIONAL/SUPER_ADMIN — el responsable departamental solo
-    puede fijarla al momento de crear la entrega (POST /entregas-insulina);
-    para corregirla después debe coordinar con el Coordinador Nacional.
+    Corrige SOLO la observación de una entrega, sin tocar el resto de sus
+    datos. Vía angosta exclusiva de COORDINADOR_NACIONAL/SUPER_ADMIN — el
+    responsable departamental usa PUT /entregas-insulina/{id} (arriba),
+    que también le permite corregir la observación junto con el resto.
     """
     delivery = await db.get(
         models.DepartmentalInsulinDelivery,
