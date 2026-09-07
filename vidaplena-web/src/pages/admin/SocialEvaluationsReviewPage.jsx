@@ -360,7 +360,10 @@ export default function SocialEvaluationsReviewPage() {
     if (!extraordinarySearch.trim()) return;
     try {
       setExtraordinarySearching(true);
-      const data = await getPaginatedPatients(0, 10, extraordinarySearch.trim(), 'ACTIVO');
+      // Sin filtro de estado: los beneficiarios que más necesitan esta vía
+      // (imposibilitados de completar el proceso digital) suelen estar
+      // atascados en PENDIENTE_DOC o NO_REGISTRADO, no en ACTIVO.
+      const data = await getPaginatedPatients(0, 10, extraordinarySearch.trim());
       setExtraordinaryResults(data.items || []);
     } catch (error) {
       console.error(error);
@@ -1086,6 +1089,10 @@ export default function SocialEvaluationsReviewPage() {
                       >
                         <span className="font-semibold">{p.nombres} {p.ap_paterno || ''}</span>
                         {' — CI '}{p.ci || 'Sin registrar'}{' — '}{p.depto || 'Sin depto'}
+                        {' — '}
+                        <span className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                          {p.estado}
+                        </span>
                       </button>
                     ))}
                   </div>
