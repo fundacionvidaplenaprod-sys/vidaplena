@@ -31,6 +31,14 @@ class UserUpdate(BaseModel):
     estado: Optional[str] = Field(None)
 
 class UserResponse(UserBase):
+    # `str` y no `EmailStr` a propósito: este es un schema de SALIDA y no debe
+    # revalidar lo que ya está guardado. La columna es CITEXT libre, y hay
+    # correos legítimos en la base que `email-validator` rechaza —p. ej. los
+    # `paciente<id>@example.test` que genera scripts/anonymize_local.sql, ya
+    # que `.test` es un TLD reservado—, lo que hacía fallar la respuesta
+    # entera con un 500. La validación de formato sigue donde corresponde:
+    # en UserCreate y UserUpdate, que sí reciben datos del exterior.
+    email: str
     id: int
     estado: str
     last_login: Optional[datetime]
@@ -38,6 +46,10 @@ class UserResponse(UserBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class PaginatedUserResponse(BaseModel):
+    total: int
+    items: List[UserResponse]
 
 class PatientActivate(BaseModel):
     password: str

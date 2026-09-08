@@ -8,11 +8,33 @@ import { toast } from 'react-hot-toast';
 import client from '../../api/axios';
 import { DEPARTAMENTOS_RESPONSABLE } from '../../constants/departamentos';
 
+const LIMIT = 20;
+
+// La tabla `users` mezcla al personal de la fundación con las cuentas de los
+// beneficiarios, que son la amplia mayoría. Sin esta separación, encontrar a
+// un responsable departamental obligaba a recorrer toda la lista.
+const TABS = [
+    { key: 'personal', label: 'Personal', params: { grupo: 'PERSONAL' } },
+    { key: 'responsables', label: 'Responsables Departamentales', params: { role: 'RESPONSABLE_DEPARTAMENTAL' } },
+    { key: 'beneficiarios', label: 'Beneficiarios', params: { grupo: 'BENEFICIARIOS' } },
+];
+
+const EMPTY_MESSAGE = {
+    personal: 'No hay cuentas de personal registradas.',
+    responsables: 'No hay responsables departamentales registrados.',
+    beneficiarios: 'No hay cuentas de beneficiarios registradas.',
+};
+
 export default function UsersManagementPage() {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+
+    const [tab, setTab] = useState('personal');
+    const [page, setPage] = useState(1);
+    const [total, setTotal] = useState(0);
+
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState(null); // null = Modo Crear
     const [formData, setFormData] = useState({ email: '', password: '', role: 'REGISTRADOR', depto_asignado: '' });
@@ -22,6 +44,8 @@ export default function UsersManagementPage() {
     const [isPinModalOpen, setIsPinModalOpen] = useState(false);
     const [directorPin, setDirectorPin] = useState('');
     const [pinProcessing, setPinProcessing] = useState(false);
+
+    const totalPages = Math.ceil(total / LIMIT) || 1;
 
     const handlePinSubmit = async (e) => {
         e.preventDefault();
@@ -45,12 +69,39 @@ export default function UsersManagementPage() {
     // Obtener el ID del usuario actual para no auto-eliminarse
     const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
+    // La búsqueda ahora la resuelve el backend (antes se filtraba en cliente
+    // sobre la lista completa; con paginación eso devolvería resultados
+    // incompletos, porque solo vería la página cargada).
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchTerm);
+            setPage(1);
+        }, 400);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
+
     // 1. CARGAR USUARIOS
     const loadUsers = async () => {
         try {
             setLoading(true);
-            const { data } = await client.get('/users/');
-            setUsers(data);
+            const tabParams = TABS.find((t) => t.key === tab)?.params || {};
+            const { data } = await client.get('/users/', {
+                params: {
+                    skip: (page - 1) * LIMIT,
+                    limit: LIMIT,
+                    search: debouncedSearch || undefined,
+                    ...tabParams,
+                },
+            });
+            const items = data.items || [];
+            // Si se vació la última página (p.ej. tras eliminar su único
+            // registro), retrocedemos en lugar de dejar la tabla en blanco.
+            if (items.length === 0 && page > 1) {
+                setPage((p) => p - 1);
+                return;
+            }
+            setUsers(items);
+            setTotal(data.total || 0);
         } catch (error) {
             console.error("Error cargando usuarios:", error);
             toast.error("Error al cargar la lista de usuarios");
@@ -61,7 +112,12 @@ export default function UsersManagementPage() {
 
     useEffect(() => {
         loadUsers();
-    }, []);
+    }, [tab, page, debouncedSearch]);
+
+    const handleTabChange = (key) => {
+        setTab(key);
+        setPage(1);
+    };
 
     // 2. ABRIR MODAL (Crear o Editar)
     const openModal = (user = null) => {
@@ -150,11 +206,6 @@ export default function UsersManagementPage() {
         }
     };
 
-    // FILTRO
-    const filteredUsers = users.filter(u => 
-        u.email.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
     return (
         <div className="p-8 max-w-7xl mx-auto animate-fadeIn min-h-screen pb-20">
             {/* HEADER */}
@@ -163,7 +214,7 @@ export default function UsersManagementPage() {
                     <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
                         <Users className="text-vida-primary" /> Gestión de Usuarios
                     </h1>
-                    <p className="text-gray-500">Administre los accesos de Super Admins y Registradores.</p>
+                    <p className="text-gray-500">Administre los accesos del personal de la fundación y de los beneficiarios.</p>
                 </div>
                 <div className="flex gap-2">
                     <Button onClick={() => setIsPinModalOpen(true)} className="bg-orange-500 hover:bg-orange-600 text-white shadow-lg flex items-center gap-2">
@@ -173,6 +224,23 @@ export default function UsersManagementPage() {
                         <UserPlus size={18} /> Nuevo Usuario
                     </Button>
                 </div>
+            </div>
+
+            {/* TABS */}
+            <div className="flex gap-2 border-b border-gray-200 mb-6 overflow-x-auto">
+                {TABS.map((t) => (
+                    <button
+                        key={t.key}
+                        onClick={() => handleTabChange(t.key)}
+                        className={`px-4 py-2 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors ${
+                            tab === t.key
+                                ? 'border-vida-main text-vida-main'
+                                : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                    >
+                        {t.label}
+                    </button>
+                ))}
             </div>
 
             {/* BUSCADOR */}
@@ -187,6 +255,11 @@ export default function UsersManagementPage() {
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
+                {!loading && (
+                    <span className="text-sm text-gray-500 whitespace-nowrap">
+                        {total} {total === 1 ? 'cuenta' : 'cuentas'}
+                    </span>
+                )}
             </div>
 
             {/* TABLA */}
@@ -204,10 +277,12 @@ export default function UsersManagementPage() {
                         <tbody className="divide-y divide-gray-100">
                             {loading ? (
                                 <tr><td colSpan="4" className="px-6 py-10 text-center text-gray-400">Cargando usuarios...</td></tr>
-                            ) : filteredUsers.length === 0 ? (
-                                <tr><td colSpan="4" className="px-6 py-10 text-center text-gray-400">No hay usuarios registrados.</td></tr>
+                            ) : users.length === 0 ? (
+                                <tr><td colSpan="4" className="px-6 py-10 text-center text-gray-400">
+                                    {debouncedSearch ? 'Ningún usuario coincide con la búsqueda.' : EMPTY_MESSAGE[tab]}
+                                </td></tr>
                             ) : (
-                                filteredUsers.map((user) => (
+                                users.map((user) => (
                                     <tr key={user.id} className="hover:bg-gray-50/80 transition-colors">
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center gap-3">
@@ -239,8 +314,8 @@ export default function UsersManagementPage() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-center">
                                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                                user.estado === 'ACTIVO' 
-                                                    ? 'bg-green-100 text-green-700' 
+                                                user.estado === 'ACTIVO'
+                                                    ? 'bg-green-100 text-green-700'
                                                     : 'bg-red-100 text-red-600'
                                             }`}>
                                                 {user.estado}
@@ -249,8 +324,8 @@ export default function UsersManagementPage() {
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <div className="flex items-center justify-end gap-2">
                                                 {/* No permitir editarse a sí mismo completamente, ni borrar */}
-                                                
-                                                <button 
+
+                                                <button
                                                     onClick={() => openModal(user)}
                                                     className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                     title="Editar"
@@ -260,11 +335,11 @@ export default function UsersManagementPage() {
 
                                                 {user.id !== currentUser.id && ( // Prohibido desactivarse a uno mismo
                                                     <>
-                                                        <button 
+                                                        <button
                                                             onClick={() => handleToggleStatus(user)}
                                                             className={`p-2 rounded-lg transition-colors ${
-                                                                user.estado === 'ACTIVO' 
-                                                                    ? 'text-green-500 hover:bg-red-50 hover:text-red-600' 
+                                                                user.estado === 'ACTIVO'
+                                                                    ? 'text-green-500 hover:bg-red-50 hover:text-red-600'
                                                                     : 'text-red-500 hover:bg-green-50 hover:text-green-600'
                                                             }`}
                                                             title={user.estado === 'ACTIVO' ? 'Desactivar' : 'Reactivar'}
@@ -272,7 +347,7 @@ export default function UsersManagementPage() {
                                                             <Power size={18} />
                                                         </button>
 
-                                                        <button 
+                                                        <button
                                                             onClick={() => handleDelete(user)}
                                                             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Eliminar permanentemente"
@@ -291,6 +366,31 @@ export default function UsersManagementPage() {
                 </div>
             </div>
 
+            {/* PAGINACIÓN */}
+            {!loading && totalPages > 1 && (
+                <div className="flex items-center justify-between px-2 py-4">
+                    <div className="text-sm text-gray-500">
+                        Página <span className="font-medium text-gray-900">{page}</span> de <span className="font-medium text-gray-900">{totalPages}</span>
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                            className="px-4 py-2 border border-gray-200 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Anterior
+                        </button>
+                        <button
+                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                            className="px-4 py-2 border border-gray-200 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Siguiente
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* MODAL DE CREACIÓN / EDICIÓN */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fadeIn">
@@ -304,7 +404,7 @@ export default function UsersManagementPage() {
                                 <X size={24} />
                             </button>
                         </div>
-                        
+
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
@@ -375,16 +475,16 @@ export default function UsersManagementPage() {
                             )}
 
                             <div className="pt-4 flex gap-3">
-                                <Button 
-                                    type="button" 
-                                    variant="secondary" 
+                                <Button
+                                    type="button"
+                                    variant="secondary"
                                     className="flex-1 bg-gray-100 text-gray-700"
                                     onClick={() => setIsModalOpen(false)}
                                 >
                                     Cancelar
                                 </Button>
-                                <Button 
-                                    type="submit" 
+                                <Button
+                                    type="submit"
                                     className="flex-1 bg-vida-main text-white"
                                     disabled={processing}
                                 >
@@ -408,7 +508,7 @@ export default function UsersManagementPage() {
                                 <X size={24} />
                             </button>
                         </div>
-                        
+
                         <form onSubmit={handlePinSubmit} className="p-6 space-y-6">
                             <p className="text-sm text-gray-600">
                                 Ingrese el nuevo PIN numérico de 4 dígitos para acceder al módulo de la directora.
@@ -431,16 +531,16 @@ export default function UsersManagementPage() {
                             </div>
 
                             <div className="pt-4 flex gap-3">
-                                <Button 
-                                    type="button" 
-                                    variant="secondary" 
+                                <Button
+                                    type="button"
+                                    variant="secondary"
                                     className="flex-1 bg-gray-100 text-gray-700"
                                     onClick={() => setIsPinModalOpen(false)}
                                 >
                                     Cancelar
                                 </Button>
-                                <Button 
-                                    type="submit" 
+                                <Button
+                                    type="submit"
                                     className="flex-1 bg-orange-500 hover:bg-orange-600 text-white"
                                     disabled={pinProcessing || directorPin.length !== 4}
                                 >
