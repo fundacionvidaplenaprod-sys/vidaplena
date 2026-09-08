@@ -442,9 +442,14 @@ export default function DepartmentalDashboardPage() {
                                 </p>
                             </div>
                             <div className="flex items-center gap-2 flex-wrap justify-end">
-                                {p.exonerado_aporte ? (
-                                    <span className="text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 bg-blue-100 text-blue-700 border-blue-200">
-                                        <ShieldCheck size={14} /> Exonerado
+                                {(p.exonerado_aporte || p.exonerado_por_cargo) ? (
+                                    <span
+                                        className="text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 bg-blue-100 text-blue-700 border-blue-200"
+                                        title={p.exonerado_aporte
+                                            ? 'Exonerado por vulnerabilidad acreditada en su evaluación socioeconómica'
+                                            : 'Exonerado por su cargo de responsable departamental'}
+                                    >
+                                        <ShieldCheck size={14} /> Exonerado {p.exonerado_aporte ? '(vulnerabilidad)' : '(cargo)'}
                                     </span>
                                 ) : (
                                     <>

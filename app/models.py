@@ -51,7 +51,10 @@ class User(Base):
         ),
     )
 
-    patient = relationship("Patient", back_populates="user", uselist=False)
+    patient = relationship(
+        "Patient", back_populates="user", uselist=False,
+        foreign_keys="Patient.user_id",
+    )
 
 class Patient(Base):
     __tablename__ = "patients"
@@ -98,6 +101,26 @@ class Patient(Base):
 
     # Evaluación Socioeconómica
     exonerado_aporte = Column(Boolean, nullable=False, default=False)
+
+    # --- Exoneración por cargo (incentivo a Responsables Departamentales) ---
+    # Deliberadamente separada de `exonerado_aporte`: esa la escribe la
+    # evaluación socioeconómica en CADA revisión (incluido ponerla en False),
+    # así que reutilizarla haría que la próxima reevaluación le borrara en
+    # silencio la exoneración al responsable. Son dos causas distintas —
+    # vulnerabilidad vs. cargo— y los reportes las muestran por separado.
+    exonerado_por_cargo = Column(Boolean, nullable=False, default=False)
+    # Cuenta de personal del responsable a la que está atada la exoneración.
+    # Es el vínculo que permite revocarla sola cuando deja el cargo: la cuenta
+    # de staff y la ficha de beneficiario son entidades distintas.
+    exonerado_cargo_user_id = Column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    exonerado_cargo_motivo = Column(Text, nullable=True)
+    # Auditoría: qué SUPER_ADMIN la autorizó y cuándo.
+    exonerado_cargo_por = Column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    exonerado_cargo_at = Column(DateTime(timezone=True), nullable=True)
     # ACTIVO | SUSPENDIDO. SUSPENDIDO = depurado por falsedad en su evaluación
     # (rechazo Nivel 2): bloquea permanentemente el envío de nuevas
     # evaluaciones hasta que un SUPER_ADMIN lo reactive explícitamente.
@@ -116,7 +139,9 @@ class Patient(Base):
         return today.year - self.fecha_nac.year - ((today.month, today.day) < (self.fecha_nac.month, self.fecha_nac.day))
 
     # Relaciones
-    user = relationship("User", back_populates="patient")
+    user = relationship("User", back_populates="patient", foreign_keys=[user_id])
+    exonerado_cargo_user = relationship("User", foreign_keys=[exonerado_cargo_user_id])
+    exonerado_cargo_autor = relationship("User", foreign_keys=[exonerado_cargo_por])
     tutor = relationship("Tutor", back_populates="patient", uselist=False, cascade="all, delete-orphan")
     medical = relationship("PatientMedical", back_populates="patient", uselist=False, cascade="all, delete-orphan")
     complications = relationship("PatientComplication", back_populates="patient", cascade="all, delete-orphan")

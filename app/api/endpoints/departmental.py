@@ -192,6 +192,7 @@ async def list_active_beneficiaries(
             tel_contacto=p.tel_contacto,
             estado=p.estado,
             exonerado_aporte=p.exonerado_aporte,
+            exonerado_por_cargo=p.exonerado_por_cargo,
             al_dia_aporte=is_patient_current_on_contribution(p, periodo_actual, include_exonerados=True),
             periodo_actual=periodo_actual,
             al_dia_mes_anterior=is_patient_current_on_contribution(p, periodo_anterior, include_exonerados=True),

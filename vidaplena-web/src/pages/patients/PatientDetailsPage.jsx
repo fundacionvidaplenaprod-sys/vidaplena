@@ -382,7 +382,14 @@ export default function PatientDetailsPage() {
                             )}
 
                             {patient.exonerado_aporte ? (
-                                <p className="text-sm text-green-700 font-medium mt-2">Beneficiario exonerado del aporte mensual.</p>
+                                <p className="text-sm text-green-700 font-medium mt-2">
+                                    Beneficiario exonerado del aporte mensual por vulnerabilidad acreditada.
+                                </p>
+                            ) : patient.exonerado_por_cargo ? (
+                                <p className="text-sm text-green-700 font-medium mt-2">
+                                    Beneficiario exonerado del aporte mensual por su cargo de responsable
+                                    departamental. Se otorga y se retira desde Gestión de Usuarios.
+                                </p>
                             ) : patient.monto_aporte_comprometido != null && (
                                 <p className="text-sm text-gray-700 font-medium mt-2">
                                     Aporte mensual comprometido: <span className="font-bold">Bs. {patient.monto_aporte_comprometido}</span>

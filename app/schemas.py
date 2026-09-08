@@ -30,6 +30,24 @@ class UserUpdate(BaseModel):
     depto_asignado: Optional[str] = Field(None, max_length=80)
     estado: Optional[str] = Field(None)
 
+class ExoneracionCargoInfo(BaseModel):
+    """Exoneración del aporte mensual atada a una cuenta de responsable."""
+    patient_id: int
+    beneficiario_nombre: str
+    beneficiario_ci: Optional[str] = None
+    motivo: Optional[str] = None
+    exonerado_at: Optional[datetime] = None
+    autorizado_por: Optional[str] = None  # email del SUPER_ADMIN que autorizó
+
+
+class ExoneracionCargoCreate(BaseModel):
+    # C.I. del beneficiario a vincular: la cuenta de personal del responsable
+    # y su ficha de beneficiario son registros distintos, así que hay que
+    # decirle al sistema explícitamente cuál es cuál.
+    ci: str = Field(..., min_length=3, max_length=32)
+    motivo: str = Field(..., min_length=10, max_length=500)
+
+
 class UserResponse(UserBase):
     # `str` y no `EmailStr` a propósito: este es un schema de SALIDA y no debe
     # revalidar lo que ya está guardado. La columna es CITEXT libre, y hay
@@ -44,6 +62,9 @@ class UserResponse(UserBase):
     last_login: Optional[datetime]
     created_at: datetime
     updated_at: datetime
+    # Solo viene poblada para responsables departamentales exonerados; el
+    # endpoint la adjunta aparte, no sale del ORM.
+    exoneracion_cargo: Optional[ExoneracionCargoInfo] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -266,6 +287,7 @@ class PatientResponse(PatientBase):
     estado_beneficio: str = "ACTIVO"
     evaluacion_bloqueada_hasta: Optional[date] = None
     exonerado_aporte: bool = False
+    exonerado_por_cargo: bool = False
 
     created_at: datetime
     updated_at: datetime
@@ -607,6 +629,7 @@ class DepartmentalBeneficiaryItem(BaseModel):
     # meses — se expone aparte para que el frontend pueda mostrar
     # "Exonerado" en vez de "Al día"/"Sin aporte".
     exonerado_aporte: bool = False
+    exonerado_por_cargo: bool = False
     al_dia_aporte: bool
     periodo_actual: str
     al_dia_mes_anterior: bool

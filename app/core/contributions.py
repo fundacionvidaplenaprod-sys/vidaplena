@@ -22,13 +22,18 @@ def is_patient_current_on_contribution(
     True si el paciente tiene un MonthlyContribution ACEPTADO para el
     periodo dado (por defecto, el mes actual).
 
-    `include_exonerados`: si True, un paciente con `exonerado_aporte=True`
-    cuenta como al día aunque no tenga ninguna contribución registrada ese
-    mes (usado en la vista departamental: un exonerado igual debe recibir
-    su insulina). El filtro anti-morosos de `donations.py` NO usa esto —
-    mantiene su comportamiento histórico sin cambios.
+    `include_exonerados`: si True, un paciente exonerado cuenta como al día
+    aunque no tenga ninguna contribución registrada ese mes (usado en la
+    vista departamental: un exonerado igual debe recibir su insulina). El
+    filtro anti-morosos de `donations.py` NO usa esto — mantiene su
+    comportamiento histórico sin cambios.
+
+    Cuentan las dos exoneraciones, que tienen causas distintas y conviven:
+    `exonerado_aporte` (vulnerabilidad, la decide la evaluación
+    socioeconómica) y `exonerado_por_cargo` (incentivo al responsable
+    departamental, la autoriza un SUPER_ADMIN). Ver `esta_exonerado`.
     """
-    if include_exonerados and getattr(patient, "exonerado_aporte", False):
+    if include_exonerados and esta_exonerado(patient):
         return True
 
     periodo = periodo or current_periodo()
@@ -36,3 +41,16 @@ def is_patient_current_on_contribution(
         if aporte.periodo == periodo and aporte.estado == "ACEPTADO":
             return True
     return False
+
+
+def esta_exonerado(patient) -> bool:
+    """
+    True si el paciente está exonerado del aporte mensual por cualquiera de
+    las dos vías. Punto único de lectura: quien necesite distinguir el motivo
+    debe mirar las banderas por separado (los reportes lo hacen, porque la
+    fundación necesita justificar ambas poblaciones aparte).
+    """
+    return bool(
+        getattr(patient, "exonerado_aporte", False)
+        or getattr(patient, "exonerado_por_cargo", False)
+    )

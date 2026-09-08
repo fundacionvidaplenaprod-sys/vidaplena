@@ -88,9 +88,15 @@ export default function DynamicBeneficiaryReport() {
 
       const enriched = (patientsData || []).map(p => ({
         ...p,
-        // Un exonerado (evaluación ALTA) nunca debe verse como "no
-        // realizado" — no debe aporte, no que "no lo hizo".
-        _aporteEstado: p.exonerado_aporte ? 'EXONERADO' : (estadoByPatientId.get(p.id) || 'NO REALIZADO'),
+        // Un exonerado nunca debe verse como "no realizado" — no debe
+        // aporte, no que "no lo hizo". Las dos exoneraciones se reportan por
+        // separado: la fundación necesita justificar ambas poblaciones
+        // aparte (vulnerabilidad acreditada vs. incentivo a un cargo).
+        _aporteEstado: p.exonerado_aporte
+          ? 'EXONERADO (VULNERABILIDAD)'
+          : p.exonerado_por_cargo
+            ? 'EXONERADO (CARGO)'
+            : (estadoByPatientId.get(p.id) || 'NO REALIZADO'),
       }));
       setPatients(enriched);
     } catch (error) {

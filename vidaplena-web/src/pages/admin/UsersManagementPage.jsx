@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
     Users, Search, UserPlus, Edit2, Trash2,
-    Shield, Mail, Lock, Power, RefreshCw, X, MapPin
+    Shield, Mail, Lock, Power, RefreshCw, X, MapPin, ShieldCheck, ShieldOff
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { toast } from 'react-hot-toast';
@@ -40,12 +40,23 @@ export default function UsersManagementPage() {
     const [formData, setFormData] = useState({ email: '', password: '', role: 'REGISTRADOR', depto_asignado: '' });
     const [processing, setProcessing] = useState(false);
 
+    // EXONERACIÓN POR CARGO
+    const [exoModal, setExoModal] = useState({ open: false, user: null });
+    const [exoForm, setExoForm] = useState({ ci: '', motivo: '' });
+    const [exoProcessing, setExoProcessing] = useState(false);
+
     // PIN MODAL
     const [isPinModalOpen, setIsPinModalOpen] = useState(false);
     const [directorPin, setDirectorPin] = useState('');
     const [pinProcessing, setPinProcessing] = useState(false);
 
     const totalPages = Math.ceil(total / LIMIT) || 1;
+    // La acción de exonerar solo se ofrece en la pestaña de responsables: es
+    // poco frecuente y de alto privilegio, y no debe colarse como un botón
+    // más en una lista densa. En el resto de pestañas se ve, pero solo como
+    // información de lectura.
+    const esTabResponsables = tab === 'responsables';
+    const colCount = esTabResponsables ? 5 : 4;
 
     const handlePinSubmit = async (e) => {
         e.preventDefault();
@@ -206,6 +217,51 @@ export default function UsersManagementPage() {
         }
     };
 
+    // 6. EXONERAR DEL APORTE MENSUAL (por cargo)
+    const openExoModal = (user) => {
+        setExoModal({ open: true, user });
+        setExoForm({ ci: '', motivo: '' });
+    };
+
+    const handleExonerar = async (e) => {
+        e.preventDefault();
+        setExoProcessing(true);
+        try {
+            await client.post(`/users/${exoModal.user.id}/exoneracion-cargo`, {
+                ci: exoForm.ci.trim(),
+                motivo: exoForm.motivo.trim(),
+            });
+            toast.success('Exoneración registrada');
+            setExoModal({ open: false, user: null });
+            loadUsers();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'No se pudo exonerar');
+        } finally {
+            setExoProcessing(false);
+        }
+    };
+
+    const handleRetirarExoneracion = async (user) => {
+        const exo = user.exoneracion_cargo;
+        const confirmacion =
+            `Se retirará la exoneración del aporte mensual de ${exo.beneficiario_nombre}`
+            + ` (C.I. ${exo.beneficiario_ci || 'sin C.I.'}).
+
+`
+            + `Volverá a deber su aporte desde el mes en curso.
+
+¿Confirmar?`;
+        if (!confirm(confirmacion)) return;
+
+        try {
+            await client.delete(`/users/${user.id}/exoneracion-cargo`);
+            toast.success('Exoneración retirada');
+            loadUsers();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'No se pudo retirar');
+        }
+    };
+
     return (
         <div className="p-8 max-w-7xl mx-auto animate-fadeIn min-h-screen pb-20">
             {/* HEADER */}
@@ -271,14 +327,17 @@ export default function UsersManagementPage() {
                                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Usuario</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Rol</th>
                                 <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Estado</th>
+                                {esTabResponsables && (
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Aporte mensual</th>
+                                )}
                                 <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {loading ? (
-                                <tr><td colSpan="4" className="px-6 py-10 text-center text-gray-400">Cargando usuarios...</td></tr>
+                                <tr><td colSpan={colCount} className="px-6 py-10 text-center text-gray-400">Cargando usuarios...</td></tr>
                             ) : users.length === 0 ? (
-                                <tr><td colSpan="4" className="px-6 py-10 text-center text-gray-400">
+                                <tr><td colSpan={colCount} className="px-6 py-10 text-center text-gray-400">
                                     {debouncedSearch ? 'Ningún usuario coincide con la búsqueda.' : EMPTY_MESSAGE[tab]}
                                 </td></tr>
                             ) : (
@@ -311,6 +370,14 @@ export default function UsersManagementPage() {
                                                     <MapPin size={12} /> {user.depto_asignado}
                                                 </span>
                                             )}
+                                            {!esTabResponsables && user.exoneracion_cargo && (
+                                                <span
+                                                    className="ml-2 text-xs font-bold text-blue-700 inline-flex items-center gap-1"
+                                                    title={`Exonerado del aporte mensual por su cargo — ${user.exoneracion_cargo.beneficiario_nombre}`}
+                                                >
+                                                    <ShieldCheck size={12} /> Exonerado
+                                                </span>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-center">
                                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${
@@ -321,6 +388,39 @@ export default function UsersManagementPage() {
                                                 {user.estado}
                                             </span>
                                         </td>
+                                        {esTabResponsables && (
+                                            <td className="px-6 py-4 text-sm">
+                                                {user.exoneracion_cargo ? (
+                                                    <div className="space-y-1">
+                                                        <span className="text-xs font-bold px-2 py-1 rounded-full border inline-flex items-center gap-1 bg-blue-100 text-blue-700 border-blue-200">
+                                                            <ShieldCheck size={14} /> Exonerado
+                                                        </span>
+                                                        <p className="text-xs text-gray-600">
+                                                            {user.exoneracion_cargo.beneficiario_nombre}
+                                                            {user.exoneracion_cargo.beneficiario_ci
+                                                                ? ` — C.I. ${user.exoneracion_cargo.beneficiario_ci}`
+                                                                : ''}
+                                                        </p>
+                                                        <p className="text-xs text-gray-400 max-w-xs truncate" title={user.exoneracion_cargo.motivo}>
+                                                            {user.exoneracion_cargo.motivo}
+                                                        </p>
+                                                        <button
+                                                            onClick={() => handleRetirarExoneracion(user)}
+                                                            className="text-xs font-semibold text-red-600 hover:text-red-700 hover:underline inline-flex items-center gap-1"
+                                                        >
+                                                            <ShieldOff size={12} /> Retirar exoneración
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => openExoModal(user)}
+                                                        className="text-xs font-semibold text-vida-main hover:underline inline-flex items-center gap-1"
+                                                    >
+                                                        <ShieldCheck size={14} /> Exonerar del aporte
+                                                    </button>
+                                                )}
+                                            </td>
+                                        )}
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <div className="flex items-center justify-end gap-2">
                                                 {/* No permitir editarse a sí mismo completamente, ni borrar */}
@@ -489,6 +589,86 @@ export default function UsersManagementPage() {
                                     disabled={processing}
                                 >
                                     {processing ? 'Guardando...' : 'Guardar'}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL DE EXONERACIÓN POR CARGO */}
+            {exoModal.open && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fadeIn">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6">
+                        <div className="flex justify-between items-center mb-4 border-b pb-4">
+                            <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                <ShieldCheck size={20} className="text-vida-main" />
+                                Exonerar del aporte mensual
+                            </h3>
+                            <button onClick={() => setExoModal({ open: false, user: null })} className="text-gray-400 hover:text-gray-600">
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-4 text-sm text-blue-900">
+                            <p className="font-semibold">{exoModal.user?.email}</p>
+                            <p className="text-xs mt-1">
+                                Responsable Departamental{exoModal.user?.depto_asignado ? ` — ${exoModal.user.depto_asignado}` : ''}
+                            </p>
+                        </div>
+
+                        <p className="text-xs text-gray-500 mb-4">
+                            La cuenta de personal y la ficha de beneficiario son registros distintos:
+                            indique el C.I. con el que la persona está registrada como beneficiaria.
+                            La exoneración alcanza <strong>solo al aporte mensual</strong> y se retira
+                            automáticamente si deja el cargo o se da de baja su cuenta.
+                        </p>
+
+                        <form onSubmit={handleExonerar} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">C.I. del beneficiario</label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="Ej. 4567890 LP"
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-vida-primary outline-none"
+                                    value={exoForm.ci}
+                                    onChange={(e) => setExoForm({ ...exoForm, ci: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">
+                                    Justificación <span className="font-normal text-gray-400">(queda en la auditoría)</span>
+                                </label>
+                                <textarea
+                                    required
+                                    minLength={10}
+                                    maxLength={500}
+                                    rows={3}
+                                    placeholder="Referencia a la normativa interna que respalda la exoneración..."
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-vida-primary outline-none resize-none"
+                                    value={exoForm.motivo}
+                                    onChange={(e) => setExoForm({ ...exoForm, motivo: e.target.value })}
+                                />
+                                <p className="text-xs text-gray-400 mt-1">{exoForm.motivo.length}/500 — mínimo 10 caracteres.</p>
+                            </div>
+
+                            <div className="pt-2 flex gap-3">
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    className="flex-1 bg-gray-100 text-gray-700"
+                                    onClick={() => setExoModal({ open: false, user: null })}
+                                >
+                                    Cancelar
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    className="flex-1 bg-vida-main text-white"
+                                    disabled={exoProcessing || exoForm.ci.trim().length < 3 || exoForm.motivo.trim().length < 10}
+                                >
+                                    {exoProcessing ? 'Registrando...' : 'Exonerar'}
                                 </Button>
                             </div>
                         </form>
