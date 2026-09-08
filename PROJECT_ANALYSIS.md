@@ -1,35 +1,38 @@
 # Análisis del Proyecto: Fundación V.I.D.A. Plena
 
-Este documento proporciona una visión general de la arquitectura, tecnologías y módulos principales del sistema de información de la **Fundación V.I.D.A. Plena**.
+Visión general de la arquitectura, tecnologías y módulos del sistema de información de la **Fundación V.I.D.A. Plena**.
+
+> Última actualización: 8 de septiembre de 2026.
 
 ## 1. Arquitectura General
 
-El proyecto sigue una arquitectura clásica de **Cliente-Servidor**, dividida en dos componentes principales:
-- **Backend**: API RESTful desarrollada en Python (FastAPI).
-- **Frontend**: Aplicación de Página Única (SPA) desarrollada en React.
+Arquitectura **Cliente-Servidor** en dos componentes:
+- **Backend**: API RESTful en Python (FastAPI).
+- **Frontend**: SPA en React.
 
-Ambas partes se comunican mediante HTTP (Axios en el cliente) consumiendo endpoints JSON. La seguridad del sistema está gestionada mediante autenticación con **Tokens JWT (JSON Web Tokens)**.
+Se comunican por HTTP (Axios) consumiendo endpoints JSON. La seguridad se gestiona con **Tokens JWT**, enviados en el header `Authorization: Bearer <token>` mediante un interceptor de Axios.
 
 ---
 
 ## 2. Tecnologías Utilizadas
 
 ### Backend (`/app`)
-- **Framework Core**: [FastAPI](https://fastapi.tiangolo.com/) (Python 3.10+).
+- **Framework**: FastAPI 0.115 sobre **Python 3.14** (estricto, para evitar corrupción de entornos virtuales).
 - **Base de Datos**: PostgreSQL.
-- **ORM**: [SQLAlchemy](https://www.sqlalchemy.org/) configurado de manera **asíncrona** (`asyncpg` / `AsyncSession`).
-- **Migraciones**: [Alembic](https://alembic.sqlalchemy.org/) para el control de versiones del esquema de la base de datos.
-- **Autenticación**: JWT (`jose`), encriptación de contraseñas con `bcrypt`.
-- **Integraciones Externas**: Firebase Admin SDK (para manejo opcional de archivos en Storage u otros servicios).
+- **ORM**: SQLAlchemy 2.0 **asíncrono** (`asyncpg` / `AsyncSession`). Se eliminaron las dependencias síncronas (`psycopg2-binary`).
+- **Migraciones**: Alembic 1.13.
+- **Autenticación**: JWT (`python-jose`), hashing con `bcrypt`.
+- **Documentos**: `reportlab` para la generación de PDF en servidor.
+- **Integraciones**: Firebase Admin SDK (Storage de documentos).
 
 ### Frontend (`/vidaplena-web`)
-- **Framework/Librería**: [React 19](https://react.dev/) + [Vite](https://vitejs.dev/).
-- **Estilos**: [Tailwind CSS](https://tailwindcss.com/) y componentes base (UI elements en `src/components/ui/`).
-- **Navegación**: `react-router-dom` para el manejo de rutas protegidas y públicas.
-- **Manejo de Estado de Formularios**: `react-hook-form`.
-- **Llamadas a API**: `axios`.
-- **Iconografía y Alertas**: `lucide-react` y `react-hot-toast`.
-- **Exportación a PDF**: `jspdf` y `jspdf-autotable`.
+- **Framework**: React 19 + Vite 7.
+- **Estilos**: Tailwind CSS 3 (colores de marca en `tailwind.config.js`: `vida-primary`, `vida-main`, etc.).
+- **Navegación**: `react-router-dom` 7.
+- **Formularios**: `react-hook-form`.
+- **API**: `axios` con interceptor de token.
+- **UI**: `lucide-react` (iconos), `react-hot-toast` (alertas).
+- **Exportación**: `jspdf` + `jspdf-autotable` (PDF) y `xlsx` (Excel).
 
 ---
 
@@ -38,135 +41,222 @@ Ambas partes se comunican mediante HTTP (Axios en el cliente) consumiendo endpoi
 ```text
 VIDAPLENA/
 │
-├── app/                        # CÓDIGO FUENTE DEL BACKEND
-│   ├── api/                    # Endpoints de la API organizados por módulos
-│   │   ├── endpoints/          # (auth.py, users.py, patients.py, appointments.py, director_deliveries.py, etc.)
-│   │   └── deps.py             # Dependencias (Inyección de Base de Datos, Verificación de JWT)
-│   ├── core/                   # Configuración global, Seguridad, Firebase init
-│   ├── db.py                   # Configuración del Motor Asíncrono de BD
-│   ├── main.py                 # Punto de entrada de FastAPI y registro de Routers (CORS)
-│   ├── models.py               # Modelos SQLAlchemy (Esquemas de Base de Datos)
-│   └── schemas.py              # Modelos Pydantic (Validación de entrada y salida de datos)
+├── app/                        # BACKEND
+│   ├── api/
+│   │   ├── endpoints/          # auth, users, patients, donations, contributions,
+│   │   │                       # reports, appointments, evaluations, departmental,
+│   │   │                       # director_deliveries, gallery, site_assets,
+│   │   │                       # site_settings, admin_complications
+│   │   └── deps.py             # Inyección de BD y dependencias de rol
+│   ├── core/                   # config, security, firebase, ocr, contributions,
+│   │                           # departamentos, text_normalize
+│   ├── db.py                   # Motor asíncrono
+│   ├── main.py                 # Entrada FastAPI y registro de routers (CORS)
+│   ├── models.py               # Modelos SQLAlchemy
+│   └── schemas.py              # Modelos Pydantic
 │
-├── alembic/                    # Módulo de migraciones de SQLAlchemy
-├── tests/                      # Pruebas automatizadas (pytest)
+├── alembic/versions/           # Migraciones
+├── tests/                      # pytest (ver sección 6)
+├── scripts/                    # dump_prod_db.sh, restore_local_db.sh, anonymize_local.sql
 │
-├── vidaplena-web/              # CÓDIGO FUENTE DEL FRONTEND
-│   ├── src/
-│   │   ├── api/                # Configuración de Axios e interceptores
-│   │   ├── assets/             # Imágenes y recursos estáticos
-│   │   ├── components/         # Componentes reutilizables (Botones, Inputs, Layouts)
-│   │   ├── context/            # AuthContext.jsx (Manejo global de estado de sesión)
-│   │   └── pages/              # Vistas organizadas por roles y características
-│   │       ├── admin/          # Panel de Super Admin (Gestión de Usuarios, Agenda Médica - DoctorAgendaPage)
-│   │       ├── auth/           # Login
-│   │       ├── dashboard/      # Dashboard principal (Inicio, Reportes)
-│   │       ├── director/       # Módulo especializado de entrega rápida (DirectorDeliveryPage)
-│   │       ├── patients/       # Gestión completa de pacientes (Registro, Historial)
-│   │       └── AppointmentBookingPage.jsx # Reserva pública de citas y validación OCR de vouchers
-│   ├── index.html              # Plantilla HTML principal
-│   ├── package.json            # Dependencias de NPM
-│   └── tailwind.config.js      # Configuración de colores de la marca (vida-primary, vida-main, etc.)
+├── vidaplena-web/              # FRONTEND
+│   └── src/
+│       ├── api/                # Axios e interceptores
+│       ├── components/         # layout (Sidebar), ui, patients, appointments, landing
+│       ├── constants/          # departamentos.js
+│       ├── context/            # AuthContext.jsx
+│       └── pages/
+│           ├── admin/          # Usuarios, Revisión de Aportes, Agenda Médica,
+│           │                   # Evaluaciones Sociales, Galería, QR, Contacto, Nombres
+│           ├── appointments/   # Reserva pública de citas (SAPAM)
+│           ├── auth/           # Login
+│           ├── dashboard/      # Inicio
+│           ├── departmental/   # Panel Departamental / Nacional
+│           ├── director/       # Entrega rápida de la Directora
+│           ├── patients/       # Registro, ficha, autorregistro, portal, eval. social
+│           ├── reports/        # Reportes dinámicos
+│           └── warehouse/      # Almacén y donaciones
 │
-├── docker-compose.yml          # Opcional para orquestación de contenedores
-├── requirements.txt            # Dependencias de Python
-└── firebase-adminsdk.json      # Llave de servicio (Backend)
+├── docker-compose.yml
+├── requirements.txt
+└── firebase-adminsdk.json
 ```
 
 ---
 
 ## 4. Módulos y Lógica de Negocio
 
-### Gestión de Usuarios y Roles (Auth)
-- El acceso está restringido por Roles (`SUPER_ADMIN`, `REGISTRADOR`).
-- El inicio de sesión genera un **Token JWT** que se envía en los Headers (`Authorization: Bearer <token>`) a través de un interceptor de Axios en el frontend.
-- Los Super Administradores pueden dar de alta a nuevos usuarios desde `/dashboard/usuarios`.
+### Roles y Autenticación
+Seis roles, con la restricción declarada en `CheckConstraint` sobre `users.role`:
 
-### Gestión de Pacientes (`/patients`)
-- Módulo central donde se registran los pacientes y su expediente.
-- Incluye el seguimiento de:
-  - **Donaciones** (Donaciones recibidas por el paciente u otorgadas).
-  - **Aportes Voluntarios con Lectura Inteligente (OCR)**: Al subir su comprobante mensual (`VoluntaryContributionModal.jsx`), el motor OCR (`/api/v1/contributions/ocr-preview`) detecta de forma automática y precarga el monto, fecha y hora del recibo. A diferencia del SAPAM, no impone un monto fijo, permitiendo al paciente confirmar o editar libremente su aporte.
-  - **Complicaciones Médicas** (Tipos administrables por el Super Admin).
+| Rol | Alcance |
+|---|---|
+| `SUPER_ADMIN` | Control total. |
+| `REGISTRADOR` | Operativo: registro de beneficiarios, reportes, agenda del día. |
+| `EVALUADOR_SOCIAL` | Evaluación socioeconómica y su revisión. |
+| `RESPONSABLE_DEPARTAMENTAL` | Acotado a su `depto_asignado`: entrega insulina y registra casos en su departamento. |
+| `COORDINADOR_NACIONAL` | Todos los departamentos, de solo lectura; origina los envíos a responsables. |
+| `PACIENTE` | Portal del beneficiario. |
 
-### Módulo Especializado de la Directora (`/directora`)
-- Un sistema aislado y ágil diseñado para la Directora de la fundación, operado de forma rápida y sin ataduras al padrón general de expedientes.
-- **Autenticación Silenciosa**: Utiliza un Keypad Numérico. El PIN de 4 dígitos actúa como contraseña de un usuario técnico (`directora@vidaplena.org`).
-- **Bloqueo Inteligente**: Se bloquea manualmente o por inactividad (3 minutos sin interacciones).
-- **Pestañas de Atención Clínica (Sin Administración)**:
-  - **1. Entrega Rápida de Insulina**: Registro veloz en campo sobre la tabla independiente (`director_insulin_deliveries`) con alerta de duplicados en los últimos 25 días.
-  - **2. Agenda de Citas del Día**: Vista clínica especializada de solo atención que permite a la doctora consultar las citas confirmadas para el día de hoy, revisar los datos básicos del paciente (CI y fecha de nacimiento) y registrar la **Nota Clínica de Evolución / Consulta (`nota_consulta`)**. No incluye funciones de administración para mantener la simplicidad y rapidez.
+Las dependencias de `app/api/deps.py` (`get_current_super_user`, `get_current_departmental_viewer`, `get_current_staff_user`, etc.) aplican estos límites en cada endpoint.
 
-### Módulo de Reserva de Cita Médica (SAPAM) (`/agendar-cita` y `/dashboard/agenda-medica`)
-- **Reserva Pública sin Sesión**: Cualquier paciente puede solicitar una cita de atención médica en los horarios disponibles indicando sus datos personales básicos (Nombres, Apellidos, CI y Fecha de Nacimiento).
-- **Validación Automática de Comprobante (OCR)**: Para confirmar la cita, el sistema solicita cargar la foto de un comprobante de aporte/donación con valor a **70.00 Bs**. El motor OCR (`extract_receipt_data`) verifica de forma automatizada:
-  - El monto exacto (Bs. 70.00).
-  - La fecha del comprobante (debe ser la fecha actual).
-  - La hora de transacción (dentro de una ventana temporal reciente).
-- **Emisión Automática de Ficha PDF**: Si la validación OCR es exitosa, la cita queda `CONFIRMADA`, se genera un código de seguridad único (`security_code`, ej. `CITA-...`) y se emite la **Ficha de Atención Médica en PDF** para el paciente.
-- **Mecanismo Administrativo de Solución a Rechazos OCR (Atención por WhatsApp)**:
-  - Cuando el OCR rechaza el voucher (por imagen borrosa, iluminación, corte de texto o fallo técnico), la cita se guarda con estado `RECHAZADA` junto con el `motivo_rechazo` y se instruye al paciente a comunicarse al número oficial de **WhatsApp** de la fundación.
-  - **Dispensación manual de la ficha por el personal administrativo (`SUPER_ADMIN`)**:
-    1. El personal autorizado (`SUPER_ADMIN`) accede a la sección **Agenda Médica** (`/dashboard/agenda-medica`) y entra a la pestaña **"Historial por C.I."**.
-    2. Busca por el carnet de identidad del paciente, listándose todas sus citas (incluyendo las rechazadas con su motivo).
-    3. Al verificar por WhatsApp que el voucher enviado por el paciente es auténtico y correcto, el administrador presiona el botón **`Aprobar (verificado por WhatsApp)`**.
-    4. El sistema ejecuta el endpoint `POST /api/v1/appointments/{id}/approve`, cambiando el estado a `CONFIRMADA`, registrando la auditoría del usuario que aprobó (`revisado_manualmente_por`, `revisado_manualmente_at`) y generando el `security_code`.
-    5. Inmediatamente se habilita el botón **`Descargar ficha`** en la misma interfaz para que el administrador descargue el PDF y se lo envíe al paciente por WhatsApp (o para que el paciente lo descargue desde el portal).
-- **Exención por Vulnerabilidad ("Caso Social")**: Para pacientes en situación de vulnerabilidad o de escasos recursos que no pueden realizar el aporte de 70.00 Bs, el `SUPER_ADMIN` puede exonerar el pago y confirmar la cita directamente sin requerir voucher (`POST /api/v1/appointments/{id}/approve-social-case`), registrando el motivo de exención (`motivo_exencion`) y auditoría del usuario que autoriza (`eximido_por`, `eximido_at`).
-- **Separación de Roles (Administración vs. Atención)**: 
-  - Todas las tareas administrativas (aprobación manual por WhatsApp, historial por C.I. y bloqueo/desbloqueo de fechas no laborables en `doctor_blocked_days`) están restringidas estrictamente al rol **`SUPER_ADMIN`** (`get_current_super_user`).
-  - La consulta de la agenda del día y el registro de notas clínicas de evolución (`nota_consulta`) están habilitadas tanto para `SUPER_ADMIN` como para el personal médico/directora (`REGISTRADOR`) mediante la dependencia `get_current_staff_user`.
+### Gestión de Usuarios (`/dashboard/usuarios`)
+Exclusiva de `SUPER_ADMIN`. La tabla `users` mezcla al personal de la fundación (una decena de cuentas) con las cuentas de beneficiarios (más de un centenar, creciendo con cada autorregistro), por lo que la pantalla los separa:
 
-### Reportes (`/reports`)
-- Generación de reportes gerenciales con métricas sobre pacientes, entregas, donaciones y tipos de complicaciones.
-- Exportación en pantalla y generación de documentos estructurados en PDF mediante el frontend.
+- **Tres pestañas**: *Personal*, *Responsables Departamentales* y *Beneficiarios*. La definición de qué roles son "personal" vive en el backend (`ROLES_PERSONAL` en `users.py`), no en el frontend.
+- **Paginación de servidor** (`GET /users/` devuelve `{total, items}`, 20 por página) y **búsqueda en servidor con debounce**. La búsqueda debe resolverse en el backend: filtrar en cliente con paginación solo miraría la página cargada y devolvería resultados incompletos en silencio.
+- Alta, edición, baja/reactivación y borrado de cuentas; configuración del PIN de la Directora.
+
+### Gestión de Beneficiarios (`/patients`)
+Expediente central del beneficiario. Incluye:
+- **Padrón precargado** (`preregistered_beneficiaries`) contra el que se valida el autorregistro público.
+- **Documentación digital** en Firebase Storage (CI, certificado médico, foto, declaración de aporte, documentos del tutor).
+- **Aportes Solidarios con Lectura Inteligente (OCR)**: al subir el comprobante mensual, `POST /contributions/ocr-preview` detecta monto, fecha y hora. A diferencia del SAPAM no impone un monto fijo; el beneficiario confirma o edita. `SUPER_ADMIN` puede además registrar aportes en efectivo manualmente.
+- **Complicaciones médicas** (catálogo administrable) y **tratamientos** de insulina basal/rápida y material.
+- **Tutor legal** para menores de edad y beneficiarios con capacidades diferentes (un tutor puede tener varios representados).
+
+### Evaluación Socioeconómica y Categorización
+Operada por `EVALUADOR_SOCIAL` o `SUPER_ADMIN`.
+
+- **Formulario multi-step** (React Hook Form): vivienda, integrantes del hogar, servicios, transporte, deudas, ingresos y salud, más evidencias fotográficas.
+- **Motor de Categorización (CFNR)**: calcula la **Capacidad Financiera Neta Residual** = ingresos totales − (canasta básica + vivienda/servicios/salud + transporte + deudas). La canasta escala con el hogar (1 persona = 1000 Bs, 2 = 1800, +700 por persona adicional). Umbrales:
+  - **ALTA**: CFNR ≤ 0 Bs (déficit) → **única categoría con exoneración total del aporte**.
+  - **MEDIA**: 0 < CFNR ≤ 1500 Bs → aporte reducido, con monto fijado por el entrevistador.
+  - **BAJA**: CFNR > 1500 Bs → aporte completo, elegido por el beneficiario (mínimo 100 Bs).
+- **Módulo Anti-Fraude**: reglas que marcan `REVISIÓN MANUAL URGENTE` ante inconsistencias (ingresos cero con seguro médico activo, pobreza extrema con vivienda propia sin alquiler, etc.).
+- **Evaluación extraordinaria**: cuando el beneficiario no puede llenar el formulario digital, el evaluador registra el informe de una entrevista telefónica con su justificación; esa creación es ya la decisión final, sin aval posterior separado.
+- **Cooldowns**: rechazo estándar bloquea nuevas evaluaciones por un plazo; `RECHAZADO_FRAUDE` deja `estado_beneficio = SUSPENDIDO` hasta que un `SUPER_ADMIN` reactive; una aprobación abre cooldown de 6 meses antes de reevaluar.
+- **Cumplimiento legal (marco boliviano)**: Declaración Jurada (Art. 169 C.P.), Consentimiento Informado de Datos (Habeas Data, Art. 130 C.P.E. y Ley 164), consentimiento de uso de imágenes y trazabilidad de auditoría (IP, User-Agent y timestamp del evaluador).
+
+> La firma electrónica en pantalla se **retiró del flujo** en agosto de 2026 (migración `20260814_000003`), reemplazada por el aviso de entrevista virtual.
+
+### Exoneración del Aporte Mensual
+Existen **dos exoneraciones distintas y simultáneas**, deliberadamente en columnas separadas de `patients`. Los reportes las distinguen como `EXONERADO (VULNERABILIDAD)` y `EXONERADO (CARGO)`, porque la fundación necesita justificar ambas poblaciones por separado.
+
+| | `exonerado_aporte` | `exonerado_por_cargo` |
+|---|---|---|
+| **Causa** | Vulnerabilidad acreditada (categoría ALTA) | Incentivo al Responsable Departamental |
+| **Quién la fija** | La evaluación socioeconómica | Un `SUPER_ADMIN`, manualmente |
+| **Dónde se opera** | Revisión de Evaluación Social | Gestión de Usuarios → pestaña Responsables |
+
+**Por qué están separadas:** la evaluación reescribe `exonerado_aporte` en *cada* revisión, incluido ponerla en `False`. Compartir el campo haría que la siguiente reevaluación borrara la exoneración del responsable en silencio.
+
+**Exoneración por cargo** (`POST` / `DELETE /users/{id}/exoneracion-cargo`):
+- Los responsables departamentales no reciben sueldo y algunos son además beneficiarios; la normativa interna permite eximirlos del aporte.
+- La cuenta de personal y la ficha de beneficiario son **registros separados**, así que al otorgarla se vincula explícitamente por C.I. y se guarda en `exonerado_cargo_user_id`.
+- **Revocación automática**: se retira sola al cambiar de rol o al dar de baja la cuenta, en la misma transacción que el cambio que la provoca. Reactivar la cuenta no la devuelve: hay que otorgarla de nuevo, para que siempre conste quién la autorizó.
+- **Alcance acotado al aporte mensual**: no exime del voucher de 70 Bs de la cita médica ni altera el filtro anti-morosos del reparto automático de insulina.
+- Queda auditoría de la concesión (`GRANT_EXONERACION_CARGO`) y de cada revocación, manual o automática.
+
+El punto único de lectura es `esta_exonerado()` en `app/core/contributions.py`.
+
+### Distribución Nacional de Insulina
+Cadena logística en dos niveles, sobre tablas propias de control y auditoría:
+
+1. **Coordinador Nacional → Responsable Departamental** (`insulin_shipments`): registra envíos con tipo de insulina, **presentación** (Frasco 10ml / Pen 3ml / Cartucho) y cantidad. Un envío puede llevar más de un tipo de insulina. Origina el envío únicamente `COORDINADOR_NACIONAL` o `SUPER_ADMIN`.
+2. **Responsable Departamental → Beneficiario** (`departmental_insulin_deliveries`): registra la entrega en campo, también con presentación, varios tipos por entrega y **observaciones**. El responsable puede corregir sus propias entregas y consultar el historial.
+
+**Panel Departamental** (`/dashboard/panel-departamental`): el responsable ve solo su departamento (Pando queda excluido de la asignación); el coordinador nacional ve todos en solo lectura. Muestra beneficiarios activos y con documentos pendientes, con badges de aporte del **mes actual y del anterior** y de exoneración, para decidir si corresponde entregar insulina.
+
+**Reparto automático desde almacén** (`POST /donations/calculate-distribution/{lot_id}`): calcula envases para un horizonte de 90 días (`math.ceil`), excluye morosos sin aporte `ACEPTADO` del periodo y, ante escasez, aplica la **regla de solidaridad** reduciendo a 1 envase por beneficiario. Este filtro conserva su comportamiento histórico y **no** honra las exoneraciones.
+
+### Módulo de la Directora (`/directora`)
+Sistema aislado y ágil, sin ataduras al padrón estructurado:
+- **Autenticación por keypad**: PIN de 4 dígitos que actúa como contraseña de un usuario técnico. Bloqueo manual o por 3 minutos de inactividad.
+- **Entrega Rápida de Insulina** (`director_insulin_deliveries`): registro en campo con alerta anti-duplicados de 25 días; no afecta el stock de almacén.
+- **Agenda de Citas del Día**: consulta de citas confirmadas y registro de la **Nota Clínica de Evolución** (`nota_consulta`). Sin funciones administrativas, a propósito.
+
+### Reserva de Cita Médica — SAPAM (`/agendar-cita`, `/dashboard/agenda-medica`)
+- **Reserva pública sin sesión**: nombres, apellidos, CI y fecha de nacimiento.
+- **Validación automática del comprobante (OCR)**: exige un aporte de **70.00 Bs**, verificando monto exacto, fecha del día y hora dentro de una ventana reciente. Si valida, la cita queda `CONFIRMADA`, se emite un `security_code` y se genera la **Ficha de Atención Médica en PDF**.
+- **Rechazo y rescate por WhatsApp**: si el OCR rechaza el voucher (imagen borrosa, corte de texto, fallo técnico), la cita queda `RECHAZADA` con su `motivo_rechazo` y se instruye contactar al WhatsApp oficial. El `SUPER_ADMIN` verifica el comprobante y aprueba desde **Historial por C.I.** (`POST /appointments/{id}/approve`), quedando registrado `revisado_manualmente_por`; luego descarga la ficha para enviarla.
+- **Exención por vulnerabilidad ("Caso Social")**: `POST /appointments/{id}/approve-social-case` confirma sin voucher, registrando `motivo_exencion` y `eximido_por`.
+- **Separación de roles**: aprobación manual, historial por C.I. y bloqueo de fechas (`doctor_blocked_days`) son exclusivos de `SUPER_ADMIN`; la agenda del día y la nota clínica están abiertas al personal médico.
+
+### Reportes (`/dashboard/reportes`)
+Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones, con paginación, filtros por estado de registro y de aporte, **historial de aportes solidarios por mes** y exportación a **PDF y Excel**.
 
 ---
 
-## 5. Esquema de Base de Datos (Modelos)
+## 5. Esquema de Base de Datos
 
-El sistema utiliza **PostgreSQL** administrado por **SQLAlchemy**. A continuación se presentan las entidades principales y sus relaciones:
+26 modelos en `app/models.py`. Los principales:
 
-- **Users (`users`)**: Entidad de autenticación y autorización. Almacena credenciales, roles (`SUPER_ADMIN`, `REGISTRADOR`, `PACIENTE`) y estado de la cuenta.
-- **Patients (`patients`)**: El núcleo del expediente médico. 
-  - Relacionado 1:1 con un `User` si es un paciente que puede iniciar sesión.
-  - Almacena datos personales, datos físicos (peso, altura, IMC), dirección y enlaces a la **documentación digital** subida (fotos de CI, certificado médico, etc.) que se almacenan en Firebase Storage u otros proveedores en la nube.
-- **Tutors (`tutors`)**: Información del tutor legal o familiar de contacto (Relación 1:1 con `patients`).
-- **Patient Medical (`patient_medical`)**: Diagnóstico principal, hospital base y médico tratante (Relación 1:1 con `patients`).
-- **Complication Types & Patient Complications**: Un catálogo administrable de tipos de complicaciones diabéticas (`complication_types`) y una tabla intermedia (`patient_complications`) que asocia múltiples complicaciones a un paciente.
-- **Patient Treatments (`patient_treatments`)**: Registro de los requerimientos de insulina basal, insulina rápida y material (jeringas) de cada paciente (Relación 1:N).
-- **Contributions (`monthly_contributions`)**: Seguimiento de los pagos o aportes mensuales realizados por el paciente. Se complementa con el servicio OCR (`/contributions/ocr-preview`) para detectar de manera inteligente monto, fecha y hora al cargar recibos.
-- **Donations & Lots (`donation_lots`)**: Registro de lotes de insulinas ingresadas al inventario de la fundación, con tipo, cantidad y fecha de vencimiento.
-- **Allocations & Deliveries (`donation_allocations`, `deliveries`)**: `donation_allocations` reserva insulinas de un lote para un paciente específico, y `deliveries` registra la entrega física o consumo de esas insulinas, generando constancias en PDF.
-- **Director Deliveries (`director_insulin_deliveries`)**: Tabla independiente que alimenta el "Módulo de Directora". Registra entregas de forma rápida, libre de ataduras al expediente estructurado del paciente, para agilizar operaciones en campo.
-- **Appointments (`appointments`) & Blocked Days (`doctor_blocked_days`)**: Entidades del Módulo SAPAM para la reserva de citas médicas y control de agenda. `appointments` registra datos del solicitante, horario, resultados de validación OCR del voucher de 70 Bs, auditoría de aprobación manual (`revisado_manualmente_por`), exención por vulnerabilidad social (`eximido_por`, `motivo_exencion`) y notas clínicas; `doctor_blocked_days` almacena las fechas no disponibles en la agenda médica.
+- **`users`**: credenciales, rol y `depto_asignado` (obligatorio solo para `RESPONSABLE_DEPARTAMENTAL`).
+- **`patients`**: núcleo del expediente. Datos personales y físicos (peso, altura, IMC), ubicación, URLs de documentos, estado del registro, `estado_beneficio`, cooldown de evaluación y **las dos banderas de exoneración** con su auditoría.
+- **`preregistered_beneficiaries`**: padrón precargado para validar el autorregistro.
+- **`patient_states`, `patient_status_events`**: catálogo de estados e historial de transiciones.
+- **`tutors`, `patient_medical`, `complication_types`, `patient_complications`, `patient_treatments`**: sub-expediente del beneficiario.
+- **`monthly_contributions`**: aportes mensuales por periodo (`YYYY-MM`) con su comprobante y estado.
+- **`social_evaluations`**: evaluación socioeconómica (1:1 con `patients`), con CFNR, categoría sugerida y final, alerta de fraude, evidencias y auditoría legal.
+- **`donations`, `donation_lots`, `stock_movements`, `donation_allocations`, `deliveries`**: catálogo, inventario, reservas y entregas de almacén.
+- **`insulin_shipments`**: envíos del coordinador nacional a los responsables departamentales.
+- **`departmental_insulin_deliveries`**: entregas del responsable departamental a los beneficiarios.
+- **`director_insulin_deliveries`**: entregas rápidas de la Directora, independientes del almacén.
+- **`appointments`, `doctor_blocked_days`**: módulo SAPAM.
+- **`audit_logs`**: bitácora genérica (`entidad`, `entidad_id`, `accion`, `payload`).
+- **`gallery_photos`, `site_assets`, `site_contact_info`**: contenido del sitio público.
 
 ---
 
-## 6. Estado de Verificación y Pruebas Automatizadas (54/54 Pruebas en Verde)
+## 6. Estado de las Pruebas Automatizadas
 
-El sistema cuenta con una suite de pruebas automatizadas en **pytest** e **In-Memory SQLite AsyncSession** para garantizar la ausencia de regresiones y auditar cada regla de negocio crítica:
+**297 pruebas: 295 pasan, 2 fallan.** Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
 
-1. **`tests/test_donations_deliveries.py` (7 tests aprobados - Registro y Distribución de Insulinas)**:
-   - **Registro de Catálogo e Inventario**: Validación del alta de productos de insulina (`/donations/products/`), creación de lotes con stock y vencimiento (`/donations/lots/`) y registro de tratamientos prescritos por paciente (`PatientTreatment`).
-   - **Algoritmo de Distribución Trimestral (`/donations/calculate-distribution/{lot_id}`)**:
-     - Cálculo automático de envases requeridos para el periodo de 90 días (`DISTRIBUTION_DAYS = 90`, redondeo hacia arriba con `math.ceil`).
-     - **Filtro Anti-Morosos**: Exclusión automática de la repartición (`excluded_patients`) para aquellos pacientes que no cuenten con su aporte mensual del periodo actual en estado `ACEPTADO`.
-     - **Regla de Solidaridad en Escasez**: Cuando la demanda teórica supera el stock disponible en almacén (`escasez = True`), el algoritmo reduce de forma equitativa la asignación a **1 envase por paciente** para evitar que ningún beneficiario se quede sin cobertura.
-   - **Consolidación y Entregas**: Descuento oficial de `DonationLot.cantidad_disponible` al registrar una entrega en `/donations/deliveries/`.
-2. **`tests/test_director_deliveries.py` (4 tests aprobados - Módulo Aislado de Entrega Rápida)**:
-   - Prueba de registro de entregas en campo por la Directora sin afectar el stock de almacén.
-   - Búsqueda por nombres y apellidos normalizados (mayúsculas/minúsculas).
-   - Alerta anti-duplicados y candado temporal preventivo de 25 días.
-3. **`tests/test_appointments.py` (23 tests aprobados - Módulo SAPAM de Citas Médicas)**:
-   - Reserva pública de citas y validación automática del voucher de **70.00 Bs** mediante OCR.
-   - Aprobación manual por WhatsApp y exención por vulnerabilidad ("Caso Social") restringidas a `SUPER_ADMIN`.
-   - Limpieza automática e isolación transaccional (`cleanup_test_appointments` y `DoctorBlockedDay`).
-4. **Otras Suites de Pruebas Aprobadas**:
-   - `tests/test_beneficiary_admin.py` (8 tests aprobados)
-   - `tests/test_contributions_ocr.py` (4 tests aprobados)
-   - `tests/test_minor_registration.py` (1 test aprobado)
-   - `tests/test_self_registration.py` (6 tests aprobados)
-   - `tests/test_tutor_multiple_children.py` (1 test aprobado)
+### Cómo corre la suite (importante)
 
-**Estado General**: `54 passed, 3 warnings` (100% en verde). Todos los flujos clínicos, logísticos y administrativos están completamente respaldados por pruebas automatizadas.
+`tests/conftest.py` usa **`settings.DATABASE_URL` directamente**, es decir la misma base PostgreSQL de desarrollo — *no* es SQLite en memoria. No crea ni destruye el esquema, y los helpers hacen `commit()`, por lo que **los datos de prueba se acumulan de forma permanente**. Consecuencias reales:
+
+- La base local llegó a tener ~4.900 usuarios `@test.com` frente a 178 reales.
+- Endpoints que consultan toda la tabla (como el reparto automático) ven esos datos y pueden comportarse distinto según lo acumulado.
+- `tests/test_exoneracion_cargo.py` limpia lo que crea, a propósito: dejar fichas con `exonerado_por_cargo` las mostraría como "al día" en el panel departamental, con el que el personal decide entregas de insulina.
+
+Aislar la suite (base dedicada, `create_all`/`drop_all` o transacción por test con rollback) es la deuda técnica pendiente más relevante.
+
+### Cobertura por archivo
+
+| Archivo | Tests | Qué cubre |
+|---|---:|---|
+| `test_social_evaluation.py` | 104 | Motor CFNR, ramas de categorización, anti-fraude, cumplimiento legal |
+| `test_departmental_roles.py` | 43 | Permisos por departamento, entregas y correcciones |
+| `test_appointments.py` | 23 | SAPAM: reserva, OCR de 70 Bs, aprobación manual, caso social |
+| `test_social_evaluation_extraordinaria.py` | 14 | Evaluación por imposibilidad de llenado digital |
+| `test_contributions_admin.py` | 14 | Revisión y registro manual de aportes |
+| `test_exoneracion_cargo.py` | 13 | Exoneración por cargo, revocación automática y auditoría |
+| `test_patients_list.py` | 12 | Listado, filtros y paginación de beneficiarios |
+| `test_insulin_shipments.py` | 11 | Envíos del coordinador nacional |
+| `test_beneficiary_admin.py` | 11 | Herramientas administrativas sobre el padrón |
+| `test_users_pagination.py` | 8 | Paginación, grupos y búsqueda en `GET /users/` |
+| `test_firebase_storage.py` | 7 | Subida y borrado en Storage |
+| `test_donations_deliveries.py` | 7 | Inventario, reparto trimestral y solidaridad |
+| `test_self_registration.py` | 6 | Autorregistro público contra el padrón |
+| `test_reports_contributions.py` | 5 | Reportes de aportes |
+| `test_patient_document_upload.py` | 5 | Carga de documentos del expediente |
+| `test_director_deliveries.py` | 4 | Módulo de la Directora y anti-duplicados |
+| `test_contributions_ocr.py` | 4 | Lectura OCR de comprobantes |
+| `test_commitment_template.py` | 4 | Plantilla de compromiso de aporte |
+| `test_minor_registration.py` | 1 | Registro de menores con tutor |
+| `test_tutor_multiple_children.py` | 1 | Tutor con varios representados |
+
+### Fallos conocidos (2)
+
+1. **`test_beneficiary_admin.py::test_reset_registration_deletes_storage_documents`** — *test desactualizado*. Construye `SocialEvaluation(firma_digital_url=...)`, columna eliminada en la migración `20260814_000003`. El endpoint es correcto: `_collect_storage_urls` ya recolecta las cuatro evidencias vigentes. Se arregla quitando esa línea y la URL de la aserción.
+2. **`test_donations_deliveries.py::test_calculate_distribution_applies_solidarity_when_shortage`** — *contaminación de datos*, no un bug de la regla. El test fija stock en 10 y espera que su beneficiario reciba 1 envase, pero `calculate_distribution` recorre **todos** los pacientes `ACTIVO` de la base; con más de 10 candidatos válidos el stock se agota antes de llegar al recién sembrado, que recibe 0. Se resuelve al aislar la suite, o haciendo el test robusto a candidatos preexistentes.
+
+---
+
+## 7. Deuda Técnica y Herramientas Temporales
+
+### Endpoints temporales de QA
+Rutas con privilegios destructivos creadas para el ciclo de desarrollo. Están protegidas bajo `SUPER_ADMIN`, pero deben **deprecarse o eliminarse antes de producción**:
+
+- `DELETE /social-evaluations/debug-delete/{patient_id}` — borrado físico de una evaluación, para poder reprobar el formulario sin saturar la base.
+- `PUT /patients/admin/beneficiaries/{beneficiary_id}` — corrección de errores tipográficos del padrón precargado, que de otro modo bloquean el autorregistro (exige coincidencia exacta).
+- `POST /patients/admin/beneficiaries` — alta manual de una entrada del padrón.
+- `DELETE /patients/admin/beneficiaries/{beneficiary_id}` — borrado de una entrada errónea del padrón.
+- `POST /patients/admin/beneficiaries/{beneficiary_id}/reset-registration` — devuelve a un beneficiario al estado "No Registrado", purgando su usuario y sus documentos en Storage.
+
+### Otros pendientes
+- **Aislamiento de la suite de pruebas** (ver sección 6). Es la deuda de mayor impacto.
+- `scripts/anonymize_local.sql` genera correos `paciente<id>@example.test`; `.test` es un TLD reservado que `email-validator` rechaza. Ya no rompe las respuestas —`UserResponse.email` es `str` y no revalida a la salida—, pero conviene usar `@example.com` para que la trampa no reaparezca.
+- Warnings de deprecación pendientes: `regex=` → `pattern=` en `contributions.py`, y `class Config` → `ConfigDict` en `core/config.py` y `schemas.py`.
