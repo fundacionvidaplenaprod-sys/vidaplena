@@ -8,6 +8,8 @@ import RegisterPatientPage from './pages/patients/RegisterPatientPage';
 import PatientDetailsPage from './pages/patients/PatientDetailsPage';
 import MyDocumentsPage from './pages/patients/MyDocumentsPage';
 import SelfRegisterPatientPage from './pages/patients/SelfRegisterPatientPage';
+import RegistroCerradoPage from './pages/patients/RegistroCerradoPage';
+import { AUTOREGISTRO_HABILITADO } from './constants/features';
 import PatientReviewPage from './pages/admin/PatientReviewPage';
 import UsersManagementPage from './pages/admin/UsersManagementPage';
 import ContributionsReviewPage from './pages/admin/ContributionsReviewPage';
@@ -63,7 +65,12 @@ function App() {
         {/* IMPORTANTE: Esta ruta NO está dentro de dashboard */}
         <Route path="/mi-portal" element={<MyDocumentsPage />} />
         <Route path="/mi-evaluacion-social" element={<SocialEvaluationSelfPage />} />
-        <Route path="/registro-beneficiario" element={<SelfRegisterPatientPage />} />
+        {/* Registro público: mientras AUTOREGISTRO_HABILITADO sea false (constants/features.js)
+            la URL directa muestra el aviso de "registro cerrado" en vez del formulario. */}
+        <Route
+          path="/registro-beneficiario"
+          element={AUTOREGISTRO_HABILITADO ? <SelfRegisterPatientPage /> : <RegistroCerradoPage />}
+        />
         <Route path="/agendar-cita" element={<AppointmentBookingPage />} />
 
         {/* 4. ZONA DIRECTORA (Ruta oculta con PIN local) */}

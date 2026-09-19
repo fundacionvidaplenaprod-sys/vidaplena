@@ -7,6 +7,9 @@ import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Mail, Lock, LogIn } from 'lucide-react';
 import logoVidaPlena from '../../assets/logo.png'; // Asegúrate que esta ruta sea real
+// Interruptor del registro de beneficiarios (ver constants/features.js): con
+// `false` este enlace se oculta y la ruta /registro-beneficiario muestra un aviso.
+import { AUTOREGISTRO_HABILITADO } from '../../constants/features';
 
 export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false);
@@ -105,15 +108,17 @@ export default function LoginPage() {
                             )}
                         </Button>
 
-                        <div className="mt-6 text-center">
-                            <button
-                                type="button"
-                                onClick={() => navigate('/registro-beneficiario')}
-                                className="text-sm font-bold text-vida-main hover:text-vida-primary transition-colors underline"
-                            >
-                                ¿Eres beneficiario de la Fundación? Haz clic aquí para registrarte
-                            </button>
-                        </div>
+                        {AUTOREGISTRO_HABILITADO && (
+                            <div className="mt-6 text-center">
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/registro-beneficiario')}
+                                    className="text-sm font-bold text-vida-main hover:text-vida-primary transition-colors underline"
+                                >
+                                    ¿Eres beneficiario de la Fundación? Haz clic aquí para registrarte
+                                </button>
+                            </div>
+                        )}
 
                         <div className="mt-3 text-center">
                             <button

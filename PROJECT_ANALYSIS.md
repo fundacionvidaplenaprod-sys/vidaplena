@@ -63,7 +63,7 @@ VIDAPLENA/
 │   └── src/
 │       ├── api/                # Axios e interceptores
 │       ├── components/         # layout (Sidebar), ui, patients, appointments, landing
-│       ├── constants/          # departamentos.js
+│       ├── constants/          # departamentos.js, insulins.js, features.js (interruptores)
 │       ├── context/            # AuthContext.jsx
 │       └── pages/
 │           ├── admin/          # Usuarios, Revisión de Aportes, Agenda Médica,
@@ -110,6 +110,7 @@ Exclusiva de `SUPER_ADMIN`. La tabla `users` mezcla al personal de la fundación
 ### Gestión de Beneficiarios (`/patients`)
 Expediente central del beneficiario. Incluye:
 - **Padrón precargado** (`preregistered_beneficiaries`) contra el que se valida el autorregistro público.
+- **Autoregistro público** (`/registro-beneficiario`, `POST /patients/self-register`): **cerrado temporalmente hasta nuevo aviso** por plazo de registro vencido. Lo gobierna un único interruptor, `AUTOREGISTRO_HABILITADO` en `vidaplena-web/src/constants/features.js`: con `false` el login oculta el enlace *"¿Eres beneficiario de la Fundación?"* y la URL directa muestra `RegistroCerradoPage` (aviso con salidas a inicio de sesión e inicio) en vez del formulario. Un mismo interruptor gobierna ambos accesos para que no queden desalineados. Es un cierre **a nivel de pantalla**: el endpoint del backend sigue abierto. Para reabrirlo, poner la constante en `true`.
 - **Documentación digital** en Firebase Storage (CI, certificado médico, foto, declaración de aporte, documentos del tutor).
 - **Aportes Solidarios con Lectura Inteligente (OCR)**: al subir el comprobante mensual, `POST /contributions/ocr-preview` detecta monto, fecha y hora. A diferencia del SAPAM no impone un monto fijo; el beneficiario confirma o edita. `SUPER_ADMIN` puede además registrar aportes en efectivo manualmente.
 - **Complicaciones médicas** (catálogo administrable) y **tratamientos** de insulina basal/rápida y material.
@@ -238,7 +239,16 @@ Aislar la suite (base dedicada, `create_all`/`drop_all` o transacción por test 
 | `test_minor_registration.py` | 1 | Registro de menores con tutor |
 | `test_tutor_multiple_children.py` | 1 | Tutor con varios representados |
 
-### Fallos conocidos (2)
+### Pruebas del frontend (vitest + jsdom)
+
+`npx vitest run` desde `vidaplena-web/`. **9 pruebas: 8 pasan, 1 falla.**
+
+| Archivo | Tests | Qué cubre |
+|---|---:|---|
+| `src/__tests__/autoregistro.test.jsx` | 8 | Cierre del registro: enlace oculto en el login, URL directa muestra el aviso y no el formulario, y reversibilidad al reabrirlo. Monta `<App />` con `MemoryRouter` para probar el enrutado real; el interruptor se mockea con un objeto mutable. Se verificó con una mutación (romper el bloqueo hace fallar exactamente los 3 tests de la URL directa). |
+| `src/pages/patients/__tests__/RegisterPatientPage.test.jsx` | 1 | Registro de un menor con tutor. **Falla desde antes** (`getAllByLabelText` no encuentra la etiqueta); se comprobó que falla también sobre el código original, sin relación con el autoregistro. |
+
+### Fallos conocidos (2 en el backend)
 
 1. **`test_beneficiary_admin.py::test_reset_registration_deletes_storage_documents`** — *test desactualizado*. Construye `SocialEvaluation(firma_digital_url=...)`, columna eliminada en la migración `20260814_000003`. El endpoint es correcto: `_collect_storage_urls` ya recolecta las cuatro evidencias vigentes. Se arregla quitando esa línea y la URL de la aserción.
 2. **`test_donations_deliveries.py::test_calculate_distribution_applies_solidarity_when_shortage`** — *contaminación de datos*, no un bug de la regla. El test fija stock en 10 y espera que su beneficiario reciba 1 envase, pero `calculate_distribution` recorre **todos** los pacientes `ACTIVO` de la base; con más de 10 candidatos válidos el stock se agota antes de llegar al recién sembrado, que recibe 0. Se resuelve al aislar la suite, o haciendo el test robusto a candidatos preexistentes.
@@ -257,6 +267,8 @@ Rutas con privilegios destructivos creadas para el ciclo de desarrollo. Están p
 - `POST /patients/admin/beneficiaries/{beneficiary_id}/reset-registration` — devuelve a un beneficiario al estado "No Registrado", purgando su usuario y sus documentos en Storage.
 
 ### Otros pendientes
+- **Reabrir el autoregistro de beneficiarios** cuando la Fundación lo indique: `AUTOREGISTRO_HABILITADO = true` en `vidaplena-web/src/constants/features.js`. Mientras tanto, `POST /patients/self-register` sigue aceptando peticiones directas; si se quiere un cierre real y no solo de pantalla, debe responder `503` desde el backend.
+- **Test del frontend roto**: `RegisterPatientPage.test.jsx` falla desde antes (ver sección 6).
 - **Aislamiento de la suite de pruebas** (ver sección 6). Es la deuda de mayor impacto.
 - `scripts/anonymize_local.sql` genera correos `paciente<id>@example.test`; `.test` es un TLD reservado que `email-validator` rechaza. Ya no rompe las respuestas —`UserResponse.email` es `str` y no revalida a la salida—, pero conviene usar `@example.com` para que la trampa no reaparezca.
 - Warnings de deprecación pendientes: `regex=` → `pattern=` en `contributions.py`, y `class Config` → `ConfigDict` en `core/config.py` y `schemas.py`.
