@@ -6,10 +6,31 @@ export const getMyContributions = async () => {
   return response.data;
 };
 
-export const getContributionsReview = async (estado) => {
-  const params = estado ? { estado } : {};
+export const getContributionsReview = async ({ estado, periodo } = {}) => {
+  const params = { estado: estado || undefined, periodo: periodo || undefined };
   const response = await client.get('/contributions/review', { params });
   return response.data;
+};
+
+/**
+ * Descarga el PDF de "Control de Vouchers" (Reportes): lista general de
+ * TODOS los beneficiarios con la captura del comprobante, nombre y fecha de
+ * pago. `periodo` (YYYY-MM) es opcional — sin él trae todos los periodos.
+ */
+export const downloadVouchersControlPdf = async (periodo) => {
+  const params = periodo ? { periodo } : {};
+  const response = await client.get('/contributions/vouchers/export.pdf', {
+    params,
+    responseType: 'blob',
+  });
+  const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `Control_Vouchers_${periodo || 'TODOS'}.pdf`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 };
 
 export const previewContributionOcr = async (file) => {

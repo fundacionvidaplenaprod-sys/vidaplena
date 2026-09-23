@@ -1,11 +1,14 @@
+import asyncio
 import io
 import uuid
 from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional, Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
+from PIL import Image as PILImage
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import desc
@@ -25,6 +28,19 @@ router = APIRouter()
 
 LOGO_PATH = Path(__file__).resolve().parents[2] / "static" / "logo.png"
 ESTADO_LABELS = {"DECLARADO": "Declarado", "OBSERVADO": "Observado", "ACEPTADO": "Aceptado"}
+
+# Miniatura de la captura del voucher en el reporte de control (caja
+# máxima en puntos PDF; se escala manteniendo proporción, nunca se agranda).
+VOUCHER_THUMB_MAX_WIDTH = 55
+VOUCHER_THUMB_MAX_HEIGHT = 75
+# Resolución objetivo al recomprimir (no solo redibujar) la miniatura. Sin
+# esto, reportlab incrusta la foto original completa (varios MB, tomada
+# con celular) y solo la escala visualmente — el PDF se vuelve enorme y
+# lento con más de un puñado de vouchers.
+VOUCHER_THUMB_DPI = 150
+VOUCHER_THUMB_JPEG_QUALITY = 70
+VOUCHER_FETCH_TIMEOUT = 8.0
+VOUCHER_FETCH_CONCURRENCY = 12
 
 # Constantes
 MAX_FILE_SIZE_MB = 2
@@ -263,7 +279,7 @@ async def read_my_contributions(
     return result.scalars().all()
 
 async def _fetch_contributions_for_review(
-    db: AsyncSession, estado: Optional[str], patient_id: Optional[int] = None
+    db: AsyncSession, estado: Optional[str], patient_id: Optional[int] = None, periodo: Optional[str] = None
 ) -> List[schemas.ContributionReviewResponse]:
     query = (
         select(models.MonthlyContribution, models.Patient)
@@ -277,6 +293,8 @@ async def _fetch_contributions_for_review(
         query = query.where(models.MonthlyContribution.estado == estado)
     if patient_id:
         query = query.where(models.MonthlyContribution.patient_id == patient_id)
+    if periodo:
+        query = query.where(models.MonthlyContribution.periodo == periodo)
 
     result = await db.execute(query)
     rows = result.all()
@@ -303,13 +321,14 @@ async def _fetch_contributions_for_review(
 @router.get("/review", response_model=List[schemas.ContributionReviewResponse])
 async def read_contributions_for_review(
     estado: Optional[Literal["DECLARADO", "OBSERVADO", "ACEPTADO"]] = None,
+    periodo: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user),
 ):
     if current_user.role not in ["SUPER_ADMIN", "REGISTRADOR"]:
         raise HTTPException(status_code=403, detail="No tiene permisos para revisar aportes.")
 
-    return await _fetch_contributions_for_review(db, estado)
+    return await _fetch_contributions_for_review(db, estado, periodo=periodo)
 
 
 @router.get("/patient/{patient_id}", response_model=List[schemas.ContributionReviewResponse])
@@ -432,6 +451,184 @@ async def export_contributions_report_pdf(
     doc.build(story)
     buffer.seek(0)
     filename = f"Reporte_Vouchers_{(estado or 'TODOS')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    return StreamingResponse(
+        buffer, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _fetch_voucher_thumbnail(http_client: httpx.AsyncClient, semaphore: asyncio.Semaphore, url: Optional[str]):
+    """
+    Descarga la captura de un comprobante y la prepara como miniatura para
+    el reporte. Devuelve None si no hay URL, si es un PDF (no es una imagen
+    que se pueda incrustar como miniatura), o si falla la descarga/lectura
+    — en cualquiera de esos casos el reporte cae a un texto de reemplazo en
+    vez de romper la generación completa del PDF.
+    """
+    if not url:
+        return None
+    async with semaphore:
+        try:
+            resp = await http_client.get(url, timeout=VOUCHER_FETCH_TIMEOUT)
+            resp.raise_for_status()
+        except Exception:
+            return None
+
+    content_type = resp.headers.get("content-type", "")
+    if "pdf" in content_type.lower():
+        return None
+
+    try:
+        pil_img = PILImage.open(io.BytesIO(resp.content))
+        pil_img.load()
+        width, height = pil_img.size
+        if not width or not height:
+            return None
+        scale = min(VOUCHER_THUMB_MAX_WIDTH / width, VOUCHER_THUMB_MAX_HEIGHT / height, 1.0)
+        draw_width, draw_height = width * scale, height * scale
+
+        # Reescalar y RECOMPRIMIR de verdad a la resolución de impresión
+        # objetivo — pasarle a reportlab el ancho/alto de dibujo NO reduce
+        # el peso incrustado: la foto original (a veces varios MB, tomada
+        # con celular) quedaría intacta dentro del PDF, solo escalada
+        # visualmente. Con decenas de vouchers eso vuelve el PDF enorme.
+        if pil_img.mode not in ("RGB", "L"):
+            pil_img = pil_img.convert("RGB")
+        target_px = (
+            max(round(draw_width * VOUCHER_THUMB_DPI / 72), 1),
+            max(round(draw_height * VOUCHER_THUMB_DPI / 72), 1),
+        )
+        pil_img.thumbnail(target_px, PILImage.LANCZOS)
+
+        recompressed = io.BytesIO()
+        pil_img.save(recompressed, format="JPEG", quality=VOUCHER_THUMB_JPEG_QUALITY)
+        recompressed.seek(0)
+
+        # reportlab's Image acepta un objeto tipo-archivo (con .read()) — un
+        # ImageReader ya "consumido" no sirve como filename posicional aquí.
+        return Image(recompressed, width=draw_width, height=draw_height)
+    except Exception:
+        return None
+
+
+@router.get("/vouchers/export.pdf")
+async def export_vouchers_control_report_pdf(
+    periodo: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_active_user),
+):
+    """
+    Reporte general de control de vouchers (Reportes > Control de Vouchers):
+    a diferencia del historial de un beneficiario puntual (en su ficha) o
+    del reporte de vouchers sin imagen (/review/export.pdf, usado en
+    Revisión de Aportes), este incrusta la captura de cada comprobante
+    junto al nombre del beneficiario y la fecha de pago, para TODOS los
+    beneficiarios. `periodo` (YYYY-MM) es opcional — sin él trae todos los
+    periodos, lo que puede ser un PDF grande/lento si hay muchos vouchers.
+    """
+    if current_user.role not in ["SUPER_ADMIN", "REGISTRADOR"]:
+        raise HTTPException(status_code=403, detail="No tiene permisos para ver este reporte.")
+
+    items = await _fetch_contributions_for_review(db, estado=None, periodo=periodo)
+
+    semaphore = asyncio.Semaphore(VOUCHER_FETCH_CONCURRENCY)
+    async with httpx.AsyncClient() as http_client:
+        thumbnails = await asyncio.gather(*[
+            _fetch_voucher_thumbnail(http_client, semaphore, item.url_comprobante) for item in items
+        ])
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter,
+        rightMargin=48, leftMargin=48, topMargin=48, bottomMargin=48,
+    )
+    styles = getSampleStyleSheet()
+    style_org = ParagraphStyle(
+        "OrgStyle", parent=styles["Normal"], fontSize=15,
+        leading=18, fontName="Helvetica-Bold", textColor=colors.HexColor("#0F3D1E"),
+    )
+    style_subtitle = ParagraphStyle(
+        "SubtitleStyle", parent=styles["Normal"], fontSize=9,
+        leading=12, textColor=colors.HexColor("#6B7280"),
+    )
+    style_title = ParagraphStyle(
+        "TitleStyle", parent=styles["Normal"], fontSize=13,
+        leading=16, alignment=TA_CENTER, spaceAfter=4, fontName="Helvetica-Bold",
+        textColor=colors.HexColor("#0F3D1E"),
+    )
+    style_meta = ParagraphStyle(
+        "MetaStyle", parent=styles["Normal"], fontSize=9,
+        leading=12, alignment=TA_CENTER, textColor=colors.HexColor("#6B7280"), spaceAfter=16,
+    )
+    style_cell = ParagraphStyle("CellStyle", parent=styles["Normal"], fontSize=9, leading=11)
+    style_link = ParagraphStyle(
+        "LinkStyle", parent=styles["Normal"], fontSize=8,
+        leading=10, textColor=colors.HexColor("#0F3D1E"),
+    )
+
+    header_cells = [
+        [
+            Image(str(LOGO_PATH), width=46, height=46) if LOGO_PATH.exists() else "",
+            [
+                Paragraph("Fundación V.I.D.A. Plena", style_org),
+                Paragraph("Comprometidos con la salud y el bienestar.", style_subtitle),
+            ],
+        ]
+    ]
+    header_table = Table(header_cells, colWidths=[54, 420])
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (0, 0), 0),
+    ]))
+
+    periodo_label = periodo or "Todos los periodos"
+    generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    table_data = [["Captura", "Beneficiario", "C.I.", "Fecha de pago"]]
+    for item, thumb in zip(items, thumbnails):
+        if thumb is not None:
+            captura_cell = thumb
+        elif item.url_comprobante:
+            captura_cell = Paragraph(f'<link href="{item.url_comprobante}">Ver comprobante (PDF)</link>', style_link)
+        else:
+            captura_cell = Paragraph("Sin comprobante", style_link)
+        table_data.append([
+            captura_cell,
+            Paragraph(item.patient_nombre, style_cell),
+            item.patient_ci or "Sin CI",
+            item.fecha_pago.strftime("%d/%m/%Y"),
+        ])
+
+    report_table = Table(
+        table_data,
+        colWidths=[65, 200, 65, 80],
+        repeatRows=1,
+    )
+    report_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F3D1E")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 9),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        ("ALIGN", (2, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#E9F5EC")]),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+
+    story = [
+        header_table,
+        Spacer(1, 14),
+        Paragraph("Control de Vouchers", style_title),
+        Paragraph(f"Periodo: {periodo_label} &nbsp;|&nbsp; Generado: {generated_at} &nbsp;|&nbsp; Total: {len(items)}", style_meta),
+        report_table if items else Paragraph("No hay vouchers para el filtro seleccionado.", styles["Normal"]),
+    ]
+
+    doc.build(story)
+    buffer.seek(0)
+    filename = f"Control_Vouchers_{(periodo or 'TODOS')}_{datetime.now().strftime('%Y%m%d')}.pdf"
     return StreamingResponse(
         buffer, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
