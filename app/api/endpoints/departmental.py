@@ -167,7 +167,13 @@ async def list_active_beneficiaries(
     query = (
         select(models.Patient)
         .where(models.Patient.estado == "ACTIVO")
-        .options(selectinload(models.Patient.contributions))
+        .options(
+            selectinload(models.Patient.contributions),
+            # El Coordinador Nacional planifica envíos de insulina desde esta
+            # misma lista; necesita saber qué tiene prescrito cada
+            # beneficiario (tipo y dosis diaria) en vez de asumirlo.
+            selectinload(models.Patient.treatments),
+        )
         .order_by(models.Patient.nombres)
     )
     query = _apply_search(query, search)
@@ -197,6 +203,9 @@ async def list_active_beneficiaries(
             periodo_actual=periodo_actual,
             al_dia_mes_anterior=is_patient_current_on_contribution(p, periodo_anterior, include_exonerados=True),
             periodo_anterior=periodo_anterior,
+            tratamientos=[
+                schemas.PatientTreatmentResponse.model_validate(t) for t in p.treatments
+            ],
         )
         for p in page
     ]

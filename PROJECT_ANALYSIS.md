@@ -158,6 +158,7 @@ Cadena logística en dos niveles, sobre tablas propias de control y auditoría:
 2. **Responsable Departamental → Beneficiario** (`departmental_insulin_deliveries`): registra la entrega en campo, también con presentación, varios tipos por entrega y **observaciones**. El responsable puede corregir sus propias entregas y consultar el historial.
 
 **Panel Departamental** (`/dashboard/panel-departamental`): el responsable ve solo su departamento (Pando queda excluido de la asignación); el coordinador nacional ve todos en solo lectura. Muestra beneficiarios activos y con documentos pendientes, con badges de aporte del **mes actual y del anterior** y de exoneración, para decidir si corresponde entregar insulina.
+El endpoint de beneficiarios activos entrega además el **tratamiento de insulina prescrito** de cada uno (tipo y dosis diaria, desde `patient_treatments`); en pantalla solo lo muestra el **Coordinador Nacional**, para planificar los envíos según lo que cada beneficiario realmente necesita en vez de un catálogo fijo — el Responsable Departamental recibe el mismo dato en el payload, pero la pantalla no se lo muestra hoy.
 
 **Reparto automático desde almacén** (`POST /donations/calculate-distribution/{lot_id}`): calcula envases para un horizonte de 90 días (`math.ceil`), excluye morosos sin aporte `ACEPTADO` del periodo y, ante escasez, aplica la **regla de solidaridad** reduciendo a 1 envase por beneficiario. Este filtro conserva su comportamiento histórico y **no** honra las exoneraciones.
 
@@ -202,7 +203,7 @@ Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones,
 
 ## 6. Estado de las Pruebas Automatizadas
 
-**297 pruebas: 295 pasan, 2 fallan.** Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
+**312 pruebas: 310 pasan, 2 fallan.** Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
 
 ### Cómo corre la suite (importante)
 
@@ -219,7 +220,7 @@ Aislar la suite (base dedicada, `create_all`/`drop_all` o transacción por test 
 | Archivo | Tests | Qué cubre |
 |---|---:|---|
 | `test_social_evaluation.py` | 104 | Motor CFNR, ramas de categorización, anti-fraude, cumplimiento legal |
-| `test_departmental_roles.py` | 43 | Permisos por departamento, entregas y correcciones |
+| `test_departmental_roles.py` | 46 | Permisos por departamento, entregas, correcciones y visibilidad de tratamientos |
 | `test_appointments.py` | 23 | SAPAM: reserva, OCR de 70 Bs, aprobación manual, caso social |
 | `test_social_evaluation_extraordinaria.py` | 14 | Evaluación por imposibilidad de llenado digital |
 | `test_contributions_admin.py` | 14 | Revisión y registro manual de aportes |

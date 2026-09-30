@@ -440,6 +440,27 @@ export default function DepartmentalDashboardPage() {
                                     {isCoordinadorNacional && <span className="inline-flex items-center gap-1"><MapPin size={12} /> {p.depto || 'Sin depto'}</span>}
                                     {p.tel_contacto && <span className="inline-flex items-center gap-1"><Phone size={12} /> {p.tel_contacto}</span>}
                                 </p>
+                                {/* Tipo y dosis de insulina prescritos: el Coordinador Nacional los
+                                    necesita para planificar envíos acordes a lo que cada beneficiario
+                                    realmente usa, en vez de un catálogo fijo. */}
+                                {isCoordinadorNacional && (
+                                    <p className="text-sm text-gray-500 mt-1.5 flex items-center gap-2 flex-wrap">
+                                        <Syringe size={12} className="text-vida-main shrink-0" />
+                                        {p.tratamientos && p.tratamientos.length > 0 ? (
+                                            p.tratamientos.map((t) => (
+                                                <span
+                                                    key={t.id}
+                                                    className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200"
+                                                >
+                                                    {t.nombre}
+                                                    {t.dosis_diaria ? ` — ${t.dosis_diaria} UI/día` : ''}
+                                                </span>
+                                            ))
+                                        ) : (
+                                            <span className="text-xs text-gray-400 italic">Sin tratamiento registrado</span>
+                                        )}
+                                    </p>
+                                )}
                             </div>
                             <div className="flex items-center gap-2 flex-wrap justify-end">
                                 {(p.exonerado_aporte || p.exonerado_por_cargo) ? (

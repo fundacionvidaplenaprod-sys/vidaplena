@@ -634,6 +634,12 @@ class DepartmentalBeneficiaryItem(BaseModel):
     periodo_actual: str
     al_dia_mes_anterior: bool
     periodo_anterior: str
+    # Tratamiento de insulina prescrito (tipo y dosis diaria). Lo consulta el
+    # Coordinador Nacional para planificar envíos acordes a lo que cada
+    # beneficiario realmente necesita, en vez de un catálogo fijo. El
+    # Responsable Departamental lo recibe en el mismo payload, aunque hoy la
+    # pantalla no se lo muestra.
+    tratamientos: List[PatientTreatmentResponse] = []
 
 class PaginatedDepartmentalBeneficiaryResponse(BaseModel):
     total: int

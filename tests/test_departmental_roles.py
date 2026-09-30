@@ -597,6 +597,66 @@ async def test_beneficiario_exonerado_expone_flag_explicito(client, db_session):
     assert by_id[no_exonerado.id]["exonerado_aporte"] is False
 
 
+# ─────────────────────────────────────────────────────────────────────────
+#  TRATAMIENTO DE INSULINA: TIPO Y DOSIS PRESCRITOS
+# ─────────────────────────────────────────────────────────────────────────
+# El Coordinador Nacional planifica envíos de insulina a cada Responsable
+# Departamental desde esta misma lista. Sin ver qué tiene prescrito cada
+# beneficiario, solo puede guiarse por un catálogo fijo de tipos —no por lo
+# que la persona realmente necesita.
+
+@pytest.mark.asyncio
+async def test_coordinador_nacional_ve_tipo_y_dosis_de_insulina(client, db_session):
+    paciente = await _crear_patient(db_session, depto="La Paz")
+    db_session.add(models.PatientTreatment(
+        patient_id=paciente.id, nombre="Glargina", dosis_diaria=18.0,
+    ))
+    db_session.add(models.PatientTreatment(
+        patient_id=paciente.id, nombre="Lispro", dosis_diaria=6.0,
+    ))
+    await db_session.commit()
+
+    await _switch_identity(db_session, "COORDINADOR_NACIONAL")
+    resp = await client.get("/departmental/beneficiarios/activos", params={"limit": 5000})
+    assert resp.status_code == 200, resp.text
+    by_id = {item["id"]: item for item in resp.json()["items"]}
+
+    tratamientos = by_id[paciente.id]["tratamientos"]
+    assert len(tratamientos) == 2
+    por_nombre = {t["nombre"]: t["dosis_diaria"] for t in tratamientos}
+    assert por_nombre == {"Glargina": 18.0, "Lispro": 6.0}
+
+
+@pytest.mark.asyncio
+async def test_beneficiario_sin_tratamiento_expone_lista_vacia(client, db_session):
+    sin_tratamiento = await _crear_patient(db_session, depto="La Paz")
+
+    await _switch_identity(db_session, "COORDINADOR_NACIONAL")
+    resp = await client.get("/departmental/beneficiarios/activos", params={"limit": 5000})
+    assert resp.status_code == 200, resp.text
+    by_id = {item["id"]: item for item in resp.json()["items"]}
+
+    assert by_id[sin_tratamiento.id]["tratamientos"] == []
+
+
+@pytest.mark.asyncio
+async def test_responsable_departamental_tambien_recibe_tratamientos_en_el_payload(client, db_session):
+    # El endpoint es el mismo para ambos roles; el recorte a "solo
+    # Coordinador Nacional" es decisión de la pantalla, no del backend.
+    paciente = await _crear_patient(db_session, depto="La Paz")
+    db_session.add(models.PatientTreatment(
+        patient_id=paciente.id, nombre="Glargina", dosis_diaria=10.0,
+    ))
+    await db_session.commit()
+
+    await _switch_identity(db_session, "RESPONSABLE_DEPARTAMENTAL", depto_asignado="La Paz")
+    resp = await client.get("/departmental/beneficiarios/activos", params={"limit": 5000})
+    assert resp.status_code == 200, resp.text
+    by_id = {item["id"]: item for item in resp.json()["items"]}
+
+    assert by_id[paciente.id]["tratamientos"][0]["nombre"] == "Glargina"
+
+
 @pytest.mark.asyncio
 async def test_al_dia_aporte_mes_anterior(client, db_session):
     hoy = date.today()
