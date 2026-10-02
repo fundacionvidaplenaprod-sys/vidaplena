@@ -19,7 +19,14 @@ export function ConfirmModal({
     processing = false,
     onConfirm,
     onCancel,
+    // Campo de texto opcional, para reemplazar también a window.prompt() en el
+    // mismo modal en vez de encadenar dos diálogos nativos distintos.
+    inputLabel,
+    inputValue,
+    onInputChange,
+    inputPlaceholder,
 }) {
+    const hasInput = inputLabel !== undefined;
     return (
         <Modal isOpen={isOpen} onClose={onCancel} title={title}>
             <div className="flex gap-3 mb-6">
@@ -29,6 +36,18 @@ export function ConfirmModal({
                 />
                 <p className="text-sm text-gray-600 whitespace-pre-line">{message}</p>
             </div>
+            {hasInput && (
+                <div className="mb-6">
+                    <label className="block text-sm font-bold text-gray-700 mb-1">{inputLabel}</label>
+                    <input
+                        type="text"
+                        value={inputValue}
+                        onChange={(e) => onInputChange(e.target.value)}
+                        placeholder={inputPlaceholder}
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-vida-primary outline-none"
+                    />
+                </div>
+            )}
             <div className="flex gap-3">
                 <Button
                     type="button"

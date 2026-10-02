@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { 
+import { ConfirmModal } from '../ui/ConfirmModal';
+import {
   Users, 
   LogOut, 
   LayoutDashboard, 
@@ -31,12 +33,12 @@ export default function Sidebar({ isOpen, onClose }) {
   const isCoordinadorNacional = user.role === 'COORDINADOR_NACIONAL';
 
   const { logout } = useAuth();
- 
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
   const handleLogout = () => {
-    if (confirm("¿Estás seguro de que deseas salir?")) {
-      logout();
-      navigate('/login');
-    }
+    setShowLogoutConfirm(false);
+    logout();
+    navigate('/login');
   };
 
   // 2. CONSTRUIR MENÚ DINÁMICO
@@ -189,7 +191,7 @@ export default function Sidebar({ isOpen, onClose }) {
             </div>
 
             <button
-                onClick={handleLogout}
+                onClick={() => setShowLogoutConfirm(true)}
                 className="flex w-full items-center gap-3 px-4 py-3 text-gray-400 hover:bg-red-500/10 hover:text-red-400 rounded-xl transition-colors font-medium text-sm"
             >
                 <LogOut size={20} />
@@ -197,6 +199,15 @@ export default function Sidebar({ isOpen, onClose }) {
             </button>
         </div>
       </aside>
+
+      <ConfirmModal
+        isOpen={showLogoutConfirm}
+        title="Cerrar sesión"
+        message="¿Estás seguro de que deseas salir?"
+        confirmLabel="Cerrar sesión"
+        onConfirm={handleLogout}
+        onCancel={() => setShowLogoutConfirm(false)}
+      />
     </>
   );
 }

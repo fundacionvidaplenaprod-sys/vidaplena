@@ -4,6 +4,7 @@ import {
     Shield, Mail, Lock, Power, RefreshCw, X, MapPin, ShieldCheck, ShieldOff
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { toast } from 'react-hot-toast';
 import client from '../../api/axios';
 import { DEPARTAMENTOS_RESPONSABLE } from '../../constants/departamentos';
@@ -49,6 +50,12 @@ export default function UsersManagementPage() {
     const [isPinModalOpen, setIsPinModalOpen] = useState(false);
     const [directorPin, setDirectorPin] = useState('');
     const [pinProcessing, setPinProcessing] = useState(false);
+
+    // Confirmaciones de las acciones de la tabla (baja/reactivación, borrado,
+    // retiro de exoneración): antes dependían de window.confirm() nativo.
+    const [userToToggle, setUserToToggle] = useState(null);
+    const [userToDelete, setUserToDelete] = useState(null);
+    const [userToUnexonerate, setUserToUnexonerate] = useState(null);
 
     const totalPages = Math.ceil(total / LIMIT) || 1;
     // La acción de exonerar solo se ofrece en la pestaña de responsables: es
@@ -190,9 +197,10 @@ export default function UsersManagementPage() {
     };
 
     // 4. DAR DE BAJA / REACTIVAR (Toggle)
-    const handleToggleStatus = async (user) => {
-        const action = user.estado === 'ACTIVO' ? 'desactivar' : 'activar';
-        if (!confirm(`¿Estás seguro de ${action} a ${user.email}?`)) return;
+    const handleToggleStatus = async () => {
+        const user = userToToggle;
+        if (!user) return;
+        setUserToToggle(null);
 
         try {
             await client.put(`/users/${user.id}/toggle-status`);
@@ -204,8 +212,10 @@ export default function UsersManagementPage() {
     };
 
     // 5. ELIMINAR (Hard Delete)
-    const handleDelete = async (user) => {
-        if (!confirm(`⚠️ ¡CUIDADO! ⚠️\n\nEstás a punto de ELIMINAR PERMANENTEMENTE a ${user.email}.\nEsto borrará sus logs y accesos.\n\n¿Confirmar eliminación?`)) return;
+    const handleDelete = async () => {
+        const user = userToDelete;
+        if (!user) return;
+        setUserToDelete(null);
 
         try {
             await client.delete(`/users/${user.id}`);
@@ -241,17 +251,10 @@ export default function UsersManagementPage() {
         }
     };
 
-    const handleRetirarExoneracion = async (user) => {
-        const exo = user.exoneracion_cargo;
-        const confirmacion =
-            `Se retirará la exoneración del aporte mensual de ${exo.beneficiario_nombre}`
-            + ` (C.I. ${exo.beneficiario_ci || 'sin C.I.'}).
-
-`
-            + `Volverá a deber su aporte desde el mes en curso.
-
-¿Confirmar?`;
-        if (!confirm(confirmacion)) return;
+    const handleRetirarExoneracion = async () => {
+        const user = userToUnexonerate;
+        if (!user) return;
+        setUserToUnexonerate(null);
 
         try {
             await client.delete(`/users/${user.id}/exoneracion-cargo`);
@@ -405,7 +408,7 @@ export default function UsersManagementPage() {
                                                             {user.exoneracion_cargo.motivo}
                                                         </p>
                                                         <button
-                                                            onClick={() => handleRetirarExoneracion(user)}
+                                                            onClick={() => setUserToUnexonerate(user)}
                                                             className="text-xs font-semibold text-red-600 hover:text-red-700 hover:underline inline-flex items-center gap-1"
                                                         >
                                                             <ShieldOff size={12} /> Retirar exoneración
@@ -436,7 +439,7 @@ export default function UsersManagementPage() {
                                                 {user.id !== currentUser.id && ( // Prohibido desactivarse a uno mismo
                                                     <>
                                                         <button
-                                                            onClick={() => handleToggleStatus(user)}
+                                                            onClick={() => setUserToToggle(user)}
                                                             className={`p-2 rounded-lg transition-colors ${
                                                                 user.estado === 'ACTIVO'
                                                                     ? 'text-green-500 hover:bg-red-50 hover:text-red-600'
@@ -448,7 +451,7 @@ export default function UsersManagementPage() {
                                                         </button>
 
                                                         <button
-                                                            onClick={() => handleDelete(user)}
+                                                            onClick={() => setUserToDelete(user)}
                                                             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Eliminar permanentemente"
                                                         >
@@ -731,6 +734,35 @@ export default function UsersManagementPage() {
                     </div>
                 </div>
             )}
+
+            <ConfirmModal
+                isOpen={!!userToToggle}
+                title={userToToggle?.estado === 'ACTIVO' ? 'Desactivar usuario' : 'Reactivar usuario'}
+                message={userToToggle && `¿Estás seguro de ${userToToggle.estado === 'ACTIVO' ? 'desactivar' : 'activar'} a ${userToToggle.email}?`}
+                confirmLabel={userToToggle?.estado === 'ACTIVO' ? 'Sí, desactivar' : 'Sí, activar'}
+                onConfirm={handleToggleStatus}
+                onCancel={() => setUserToToggle(null)}
+            />
+
+            <ConfirmModal
+                isOpen={!!userToDelete}
+                title="Eliminar usuario"
+                danger
+                message={userToDelete && `⚠️ Estás a punto de ELIMINAR PERMANENTEMENTE a ${userToDelete.email}.\nEsto borrará sus logs y accesos.`}
+                confirmLabel="Sí, eliminar"
+                onConfirm={handleDelete}
+                onCancel={() => setUserToDelete(null)}
+            />
+
+            <ConfirmModal
+                isOpen={!!userToUnexonerate}
+                title="Retirar exoneración"
+                danger
+                message={userToUnexonerate?.exoneracion_cargo && `Se retirará la exoneración del aporte mensual de ${userToUnexonerate.exoneracion_cargo.beneficiario_nombre} (C.I. ${userToUnexonerate.exoneracion_cargo.beneficiario_ci || 'sin C.I.'}).\n\nVolverá a deber su aporte desde el mes en curso.`}
+                confirmLabel="Sí, retirar"
+                onConfirm={handleRetirarExoneracion}
+                onCancel={() => setUserToUnexonerate(null)}
+            />
         </div>
     );
 }

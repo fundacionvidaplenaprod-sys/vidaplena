@@ -4,6 +4,7 @@ import { Package, PlusCircle, Calculator, Upload, Settings, Save, CheckCircle2, 
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { INSULIN_OPTIONS } from '../../constants/insulins';
 import {
   calculateDonationDistribution,
@@ -34,6 +35,7 @@ export default function DonationsWarehousePage() {
   const [savingLot, setSavingLot] = useState(false);
   const [checkingLotId, setCheckingLotId] = useState(null);
   const [calculatingLotId, setCalculatingLotId] = useState(null);
+  const [lotToRecalculate, setLotToRecalculate] = useState(null);
   const [calculatedLots, setCalculatedLots] = useState({});
   const [calculationResult, setCalculationResult] = useState(null);
   const [csvFile, setCsvFile] = useState(null);
@@ -391,13 +393,11 @@ export default function DonationsWarehousePage() {
           toast.error('Este lote ya está consolidado y no permite recálculo');
           return;
         }
-        const confirmed = window.confirm(
-          'Este lote ya tiene asignaciones en BORRADOR. ¿Desea recalcular y reemplazarlas?'
-        );
-        if (!confirmed) {
-          await handleOpenLotManagement(lot);
-          return;
-        }
+        // Hay asignaciones en BORRADOR: hace falta confirmar antes de
+        // reemplazarlas. Se pausa acá y el modal retoma el flujo al
+        // confirmar o cancelar (performCalculation / handleOpenLotManagement).
+        setLotToRecalculate(lot);
+        return;
       }
     } catch (error) {
       toast.error(error || 'No se pudo verificar el lote');
@@ -406,6 +406,10 @@ export default function DonationsWarehousePage() {
       setCheckingLotId(null);
     }
 
+    await performCalculation(lot);
+  };
+
+  const performCalculation = async (lot) => {
     try {
       setCalculatingLotId(lot.id);
       const result = await calculateDonationDistribution(lot.id);
@@ -419,6 +423,19 @@ export default function DonationsWarehousePage() {
     } finally {
       setCalculatingLotId(null);
     }
+  };
+
+  const handleConfirmRecalculate = async () => {
+    const lot = lotToRecalculate;
+    if (!lot) return;
+    setLotToRecalculate(null);
+    await performCalculation(lot);
+  };
+
+  const handleCancelRecalculate = async () => {
+    const lot = lotToRecalculate;
+    setLotToRecalculate(null);
+    if (lot) await handleOpenLotManagement(lot);
   };
 
   const handleCsvFileChange = (event) => {
@@ -1150,6 +1167,16 @@ export default function DonationsWarehousePage() {
           </div>
         </section>
       )}
+
+      <ConfirmModal
+        isOpen={!!lotToRecalculate}
+        title="Recalcular distribución"
+        message="Este lote ya tiene asignaciones en BORRADOR. ¿Desea recalcular y reemplazarlas?"
+        confirmLabel="Sí, recalcular"
+        processing={lotToRecalculate && calculatingLotId === lotToRecalculate.id}
+        onConfirm={handleConfirmRecalculate}
+        onCancel={handleCancelRecalculate}
+      />
     </div>
   );
 }

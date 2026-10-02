@@ -4,6 +4,7 @@ import { toast } from 'react-hot-toast';
 import { CalendarClock, Ban, Search, Save, Trash2, Plus, CheckCircle2, Download, HeartHandshake } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { SocialCaseAppointmentModal } from '../../components/appointments/SocialCaseAppointmentModal';
 import {
   getAgenda,
@@ -44,6 +45,9 @@ export default function DoctorAgendaPage() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [approvingId, setApprovingId] = useState(null);
   const [approvingSocialId, setApprovingSocialId] = useState(null);
+  const [appointmentToApprove, setAppointmentToApprove] = useState(null);
+  const [socialCaseToApprove, setSocialCaseToApprove] = useState(null);
+  const [socialCaseMotivo, setSocialCaseMotivo] = useState('Caso Social');
 
   // Nueva reserva de Trabajo Social
   const [socialCaseModalOpen, setSocialCaseModalOpen] = useState(false);
@@ -125,11 +129,10 @@ export default function DoctorAgendaPage() {
     }
   };
 
-  const handleApprove = async (appointmentId) => {
-    const confirmado = window.confirm(
-      '¿Confirmas que verificaste el comprobante manualmente (por WhatsApp) y es válido? Se aprobará la cita y quedará confirmada.'
-    );
-    if (!confirmado) return;
+  const handleApprove = async () => {
+    const appointmentId = appointmentToApprove;
+    if (!appointmentId) return;
+    setAppointmentToApprove(null);
     try {
       setApprovingId(appointmentId);
       await approveAppointment(appointmentId);
@@ -142,12 +145,11 @@ export default function DoctorAgendaPage() {
     }
   };
 
-  const handleApproveSocialCase = async (appointmentId) => {
-    const confirmado = window.confirm(
-      '¿Confirmas que este paciente califica como Caso Social y se le exime del aporte de donación? Se confirmará la cita sin voucher.'
-    );
-    if (!confirmado) return;
-    const motivo = window.prompt('Motivo de la exención (opcional):', 'Caso Social') || 'Caso Social';
+  const handleApproveSocialCase = async () => {
+    const appointmentId = socialCaseToApprove;
+    if (!appointmentId) return;
+    const motivo = socialCaseMotivo.trim() || 'Caso Social';
+    setSocialCaseToApprove(null);
     try {
       setApprovingSocialId(appointmentId);
       await approveSocialCase(appointmentId, motivo);
@@ -312,7 +314,7 @@ export default function DoctorAgendaPage() {
                     {item.estado === 'RECHAZADA' && (
                       <Button
                         type="button"
-                        onClick={() => handleApprove(item.id)}
+                        onClick={() => setAppointmentToApprove(item.id)}
                         disabled={approvingId === item.id || approvingSocialId === item.id}
                         className="w-auto px-3 py-1.5 text-xs inline-flex items-center gap-1"
                       >
@@ -322,7 +324,7 @@ export default function DoctorAgendaPage() {
                     {item.estado === 'RECHAZADA' && (
                       <Button
                         type="button"
-                        onClick={() => handleApproveSocialCase(item.id)}
+                        onClick={() => { setSocialCaseMotivo('Caso Social'); setSocialCaseToApprove(item.id); }}
                         disabled={approvingId === item.id || approvingSocialId === item.id}
                         className="w-auto px-3 py-1.5 text-xs inline-flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white"
                       >
@@ -365,6 +367,30 @@ export default function DoctorAgendaPage() {
         isOpen={socialCaseModalOpen}
         onClose={() => setSocialCaseModalOpen(false)}
         onSuccess={() => loadAgenda(fecha)}
+      />
+
+      <ConfirmModal
+        isOpen={!!appointmentToApprove}
+        title="Aprobar cita"
+        message="¿Confirmas que verificaste el comprobante manualmente (por WhatsApp) y es válido? Se aprobará la cita y quedará confirmada."
+        confirmLabel="Sí, aprobar"
+        processing={approvingId === appointmentToApprove}
+        onConfirm={handleApprove}
+        onCancel={() => setAppointmentToApprove(null)}
+      />
+
+      <ConfirmModal
+        isOpen={!!socialCaseToApprove}
+        title="Aprobar como Caso Social"
+        message="¿Confirmas que este paciente califica como Caso Social y se le exime del aporte de donación? Se confirmará la cita sin voucher."
+        confirmLabel="Sí, confirmar"
+        processing={approvingSocialId === socialCaseToApprove}
+        onConfirm={handleApproveSocialCase}
+        onCancel={() => setSocialCaseToApprove(null)}
+        inputLabel="Motivo de la exención (opcional)"
+        inputValue={socialCaseMotivo}
+        onInputChange={setSocialCaseMotivo}
+        inputPlaceholder="Caso Social"
       />
     </div>
   );

@@ -29,6 +29,7 @@ export default function PatientDetailsPage() {
     const [loading, setLoading] = useState(true);
     const [activating, setActivating] = useState(false);
     const [isChangingStatus, setIsChangingStatus] = useState(false);
+    const [pendingStatusChange, setPendingStatusChange] = useState(null);
     const [credentials, setCredentials] = useState(null); // { username, password }
     const [showCredsModal, setShowCredsModal] = useState(false);
     const [socialEvaluation, setSocialEvaluation] = useState(null);
@@ -88,8 +89,10 @@ export default function PatientDetailsPage() {
         }
     };
 
-    const handleManualStatusChange = async (newStatus) => {
-        if (!confirm(`¿Forzar cambio de estado a ${newStatus}?`)) return;
+    const handleManualStatusChange = async () => {
+        const newStatus = pendingStatusChange;
+        if (!newStatus) return;
+        setPendingStatusChange(null);
 
         try {
             await changePatientStatus(id, newStatus);
@@ -164,7 +167,7 @@ export default function PatientDetailsPage() {
                         <select
                             className="bg-white text-gray-900 border border-gray-300 rounded-lg px-3 py-1 text-sm shadow-sm outline-none focus:ring-2 focus:ring-vida-main"
                             value={patient.estado}
-                            onChange={(e) => handleManualStatusChange(e.target.value)}
+                            onChange={(e) => setPendingStatusChange(e.target.value)}
                             onBlur={() => setIsChangingStatus(false)} // Si hace clic fuera, se cierra
                             autoFocus
                         >
@@ -430,6 +433,15 @@ export default function PatientDetailsPage() {
                 processing={activating}
                 onConfirm={handleActivate}
                 onCancel={() => setShowActivateConfirm(false)}
+            />
+
+            <ConfirmModal
+                isOpen={!!pendingStatusChange}
+                title="Forzar cambio de estado"
+                message={`¿Forzar cambio de estado a ${pendingStatusChange}?`}
+                confirmLabel="Sí, cambiar"
+                onConfirm={handleManualStatusChange}
+                onCancel={() => setPendingStatusChange(null)}
             />
 
             {/* MODAL DE CREDENCIALES */}

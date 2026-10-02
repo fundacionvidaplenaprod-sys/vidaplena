@@ -4,6 +4,7 @@ import { toast } from 'react-hot-toast';
 import { Images, UploadCloud, Trash2, Save } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { getGalleryPhotos, createGalleryPhoto, updateGalleryPhoto, deleteGalleryPhoto } from '../../api/gallery';
 
 export default function GalleryManagementPage() {
@@ -20,6 +21,7 @@ export default function GalleryManagementPage() {
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [photoToDelete, setPhotoToDelete] = useState(null);
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -90,9 +92,10 @@ export default function GalleryManagementPage() {
     }
   };
 
-  const handleDelete = async (photo) => {
-    const confirmado = window.confirm(`¿Eliminar esta foto de la galería permanentemente?`);
-    if (!confirmado) return;
+  const handleDelete = async () => {
+    const photo = photoToDelete;
+    if (!photo) return;
+    setPhotoToDelete(null);
     try {
       setDeletingId(photo.id);
       await deleteGalleryPhoto(photo.id);
@@ -184,7 +187,7 @@ export default function GalleryManagementPage() {
                   <Save size={14} /> {savingId === photo.id ? 'Guardando...' : 'Guardar'}
                 </Button>
                 <button
-                  onClick={() => handleDelete(photo)}
+                  onClick={() => setPhotoToDelete(photo)}
                   disabled={deletingId === photo.id}
                   className="text-red-400 hover:text-red-600 p-2"
                   title="Eliminar foto"
@@ -196,6 +199,17 @@ export default function GalleryManagementPage() {
           </div>
         ))}
       </div>
+
+      <ConfirmModal
+        isOpen={!!photoToDelete}
+        title="Eliminar foto"
+        danger
+        message="¿Eliminar esta foto de la galería permanentemente?"
+        confirmLabel="Sí, eliminar"
+        processing={deletingId === photoToDelete?.id}
+        onConfirm={handleDelete}
+        onCancel={() => setPhotoToDelete(null)}
+      />
     </div>
   );
 }

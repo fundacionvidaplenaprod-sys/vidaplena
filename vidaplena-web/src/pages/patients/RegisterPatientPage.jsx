@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { createPatient, getPatientById, updatePatient } from '../../api/patients';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { INSULIN_OPTIONS, normalizeInsulinName } from '../../constants/insulins';
 import {
   User, MapPin, Phone, Mail,
@@ -56,16 +57,14 @@ export default function RegisterPatientPage() {
   const [loadingData, setLoadingData] = useState(false); // Estado de carga para edición
   const [hasInitialCi, setHasInitialCi] = useState(false);
   const [ciUnlocked, setCiUnlocked] = useState(false);
+  const [showUnlockCiConfirm, setShowUnlockCiConfirm] = useState(false);
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
   const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
 
   const handleUnlockCi = () => {
-    const confirmado = window.confirm(
-      'El C.I. es un dato de identidad único. ¿Confirmas que quieres desbloquearlo para corregirlo? ' +
-        'Verifica que el nuevo número sea correcto antes de guardar.'
-    );
-    if (confirmado) setCiUnlocked(true);
+    setCiUnlocked(true);
+    setShowUnlockCiConfirm(false);
   };
 
   const { register, control, handleSubmit, watch, trigger, reset, setValue, formState: { errors, isSubmitting } } = useForm({
@@ -429,7 +428,7 @@ export default function RegisterPatientPage() {
                   {isEditMode && hasInitialCi && isSuperAdmin && (
                     <button
                       type="button"
-                      onClick={handleUnlockCi}
+                      onClick={() => setShowUnlockCiConfirm(true)}
                       disabled={ciUnlocked}
                       title={ciUnlocked ? 'C.I. desbloqueado para edición' : 'Desbloquear C.I. (Solo Super Admin)'}
                       className={`absolute right-2 top-[38px] p-1 rounded-full transition-colors ${
@@ -793,6 +792,15 @@ export default function RegisterPatientPage() {
           )}
         </div>
       </form>
+
+      <ConfirmModal
+        isOpen={showUnlockCiConfirm}
+        title="Desbloquear C.I."
+        message="El C.I. es un dato de identidad único. ¿Confirmas que quieres desbloquearlo para corregirlo? Verifica que el nuevo número sea correcto antes de guardar."
+        confirmLabel="Sí, desbloquear"
+        onConfirm={handleUnlockCi}
+        onCancel={() => setShowUnlockCiConfirm(false)}
+      />
     </div>
   );
 }

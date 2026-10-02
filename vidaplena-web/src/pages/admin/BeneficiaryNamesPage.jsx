@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import {
   getPaginatedBeneficiariesAdmin,
   createBeneficiaryAdmin,
@@ -45,6 +46,8 @@ export default function BeneficiaryNamesPage() {
 
   const [rowToDelete, setRowToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  const [rowToReset, setRowToReset] = useState(null);
 
   const totalPages = Math.ceil(total / LIMIT) || 1;
 
@@ -103,18 +106,15 @@ export default function BeneficiaryNamesPage() {
     setForm(emptyForm);
   };
 
-  const handleResetRegistration = async (item) => {
-    const confirmado = window.confirm(
-      `¿Borrar el paciente/usuario de prueba registrado como "${item.nombres} ${item.ap_paterno || ''}"? ` +
-        `Esto elimina permanentemente ese registro (datos médicos, documentos, etc.) y libera el padrón.`
-    );
-    if (!confirmado) return;
+  const handleResetRegistration = async () => {
+    if (!rowToReset) return;
     try {
       setSaving(true);
-      const updated = await resetBeneficiaryRegistration(item.id);
-      setRows((prev) => prev.map((r) => (r.id === item.id ? updated : r)));
+      const updated = await resetBeneficiaryRegistration(rowToReset.id);
+      setRows((prev) => prev.map((r) => (r.id === rowToReset.id ? updated : r)));
       toast.success('Paciente de prueba eliminado. El padrón quedó libre.');
-      if (editingId === item.id) cancelEdit();
+      if (editingId === rowToReset.id) cancelEdit();
+      setRowToReset(null);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'No se pudo restablecer el registro.');
     } finally {
@@ -350,7 +350,7 @@ export default function BeneficiaryNamesPage() {
                           <div className="flex items-center justify-end gap-1">
                             {item.already_registered && (
                               <button
-                                onClick={() => handleResetRegistration(item)}
+                                onClick={() => setRowToReset(item)}
                                 disabled={saving}
                                 className="p-1.5 rounded-full text-amber-500 hover:text-amber-700 hover:bg-amber-50 transition-colors"
                                 title="Borrar paciente/usuario de prueba y liberar este beneficiario (herramienta temporal de pruebas)"
@@ -456,6 +456,17 @@ export default function BeneficiaryNamesPage() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!rowToReset}
+        title="Borrar registro de prueba"
+        danger
+        processing={saving}
+        message={rowToReset && `¿Borrar el paciente/usuario de prueba registrado como "${rowToReset.nombres} ${rowToReset.ap_paterno || ''}"? Esto elimina permanentemente ese registro (datos médicos, documentos, etc.) y libera el padrón.`}
+        confirmLabel="Sí, borrar"
+        onConfirm={handleResetRegistration}
+        onCancel={() => setRowToReset(null)}
+      />
     </>
   );
 }

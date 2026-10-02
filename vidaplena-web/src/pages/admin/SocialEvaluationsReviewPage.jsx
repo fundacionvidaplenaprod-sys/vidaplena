@@ -16,6 +16,7 @@ import {
 } from '../../api/evaluations';
 import { getPaginatedPatients } from '../../api/patients';
 import { Button } from '../../components/ui/Button';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 
 const ESTADO_STYLES = {
   PENDIENTE: 'bg-yellow-100 text-yellow-700 border-yellow-200',
@@ -117,6 +118,8 @@ export default function SocialEvaluationsReviewPage() {
   const [loadingHistoryId, setLoadingHistoryId] = useState(null);
   const [reactivatingId, setReactivatingId] = useState(null);
   const [debugDeletingId, setDebugDeletingId] = useState(null);
+  const [patientToReactivate, setPatientToReactivate] = useState(null);
+  const [evaluationToDebugDelete, setEvaluationToDebugDelete] = useState(null);
 
   // --- Evaluación extraordinaria (imposibilidad de llenado digital) ---
   const [extraordinaryModalOpen, setExtraordinaryModalOpen] = useState(false);
@@ -175,11 +178,10 @@ export default function SocialEvaluationsReviewPage() {
     }
   };
 
-  const handleReactivate = async (patientId) => {
-    const confirmado = window.confirm(
-      '¿Reactivar a este beneficiario? Podrá volver a enviar una evaluación socioeconómica de inmediato.'
-    );
-    if (!confirmado) return;
+  const handleReactivate = async () => {
+    const patientId = patientToReactivate;
+    if (!patientId) return;
+    setPatientToReactivate(null);
     try {
       setReactivatingId(patientId);
       await reactivatePatientEvaluation(patientId);
@@ -195,12 +197,10 @@ export default function SocialEvaluationsReviewPage() {
   };
 
   // TODO: ELIMINAR AL TERMINAR QA (MODO PRUEBAS)
-  const handleDebugDelete = async (patientId) => {
-    const confirmado = window.confirm(
-      '[MODO PRUEBAS] ¿Eliminar físicamente esta evaluación socioeconómica? ' +
-        'Esta acción NO se puede deshacer y el beneficiario podrá volver a llenar el formulario desde cero.'
-    );
-    if (!confirmado) return;
+  const handleDebugDelete = async () => {
+    const patientId = evaluationToDebugDelete;
+    if (!patientId) return;
+    setEvaluationToDebugDelete(null);
     try {
       setDebugDeletingId(patientId);
       await debugDeleteSocialEvaluation(patientId);
@@ -592,7 +592,7 @@ export default function SocialEvaluationsReviewPage() {
                   {isSuperAdmin && (item.estado_revision === 'RECHAZADO' || item.estado_revision === 'RECHAZADO_FRAUDE') && (
                     <button
                       type="button"
-                      onClick={() => handleReactivate(item.patient_id)}
+                      onClick={() => setPatientToReactivate(item.patient_id)}
                       disabled={reactivatingId === item.patient_id}
                       className="text-xs font-bold text-vida-primary hover:underline inline-flex items-center gap-1 disabled:opacity-50"
                     >
@@ -602,7 +602,7 @@ export default function SocialEvaluationsReviewPage() {
                   {isSuperAdmin && (
                     <button
                       type="button"
-                      onClick={() => handleDebugDelete(item.patient_id)}
+                      onClick={() => setEvaluationToDebugDelete(item.patient_id)}
                       disabled={debugDeletingId === item.patient_id}
                       title="Herramienta temporal de QA: borra físicamente el registro."
                       className="text-xs font-bold px-3 py-1.5 rounded-lg bg-red-700 hover:bg-red-800 text-white inline-flex items-center gap-1 disabled:opacity-50"
@@ -1287,6 +1287,27 @@ export default function SocialEvaluationsReviewPage() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!patientToReactivate}
+        title="Reactivar beneficiario"
+        message="¿Reactivar a este beneficiario? Podrá volver a enviar una evaluación socioeconómica de inmediato."
+        confirmLabel="Sí, reactivar"
+        processing={reactivatingId === patientToReactivate}
+        onConfirm={handleReactivate}
+        onCancel={() => setPatientToReactivate(null)}
+      />
+
+      <ConfirmModal
+        isOpen={!!evaluationToDebugDelete}
+        title="[MODO PRUEBAS] Eliminar evaluación"
+        danger
+        message="¿Eliminar físicamente esta evaluación socioeconómica? Esta acción NO se puede deshacer y el beneficiario podrá volver a llenar el formulario desde cero."
+        confirmLabel="Sí, eliminar"
+        processing={debugDeletingId === evaluationToDebugDelete}
+        onConfirm={handleDebugDelete}
+        onCancel={() => setEvaluationToDebugDelete(null)}
+      />
     </div>
   );
 }
