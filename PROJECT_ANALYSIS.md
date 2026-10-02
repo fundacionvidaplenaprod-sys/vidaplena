@@ -115,6 +115,7 @@ Expediente central del beneficiario. Incluye:
 - **Aportes Solidarios con Lectura Inteligente (OCR)**: al subir el comprobante mensual, `POST /contributions/ocr-preview` detecta monto, fecha y hora. A diferencia del SAPAM no impone un monto fijo; el beneficiario confirma o edita. `SUPER_ADMIN` puede además registrar aportes en efectivo manualmente.
 - **Complicaciones médicas** (catálogo administrable) y **tratamientos** de insulina basal/rápida y material.
 - **Tutor legal** para menores de edad y beneficiarios con capacidades diferentes (un tutor puede tener varios representados).
+- **Activación manual por personal** (`PUT /patients/{id}/activate`, botón "Aprobar y Crear Usuario" en la ficha): con el autoregistro cerrado, `SUPER_ADMIN`/`REGISTRADOR` siguen pudiendo dar de alta a un beneficiario y generarle credenciales (email del paciente o del tutor si es menor; contraseña inicial = su C.I.), dejando `estado = PENDIENTE_DOC` para que pueda subir documentos al loguearse en `/mi-portal`.
 
 ### Evaluación Socioeconómica y Categorización
 Operada por `EVALUADOR_SOCIAL` o `SUPER_ADMIN`.
@@ -203,7 +204,7 @@ Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones,
 
 ## 6. Estado de las Pruebas Automatizadas
 
-**312 pruebas: 310 pasan, 2 fallan.** Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
+**312 pruebas.** Un fallo es constante (test desactualizado) y el otro es intermitente —depende del volumen acumulado en la base compartida—, así que el conteo exacto de "pasan/fallan" varía entre corridas; ver el detalle de ambos más abajo. Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
 
 ### Cómo corre la suite (importante)
 
@@ -269,6 +270,7 @@ Rutas con privilegios destructivos creadas para el ciclo de desarrollo. Están p
 
 ### Otros pendientes
 - **Reabrir el autoregistro de beneficiarios** cuando la Fundación lo indique: `AUTOREGISTRO_HABILITADO = true` en `vidaplena-web/src/constants/features.js`. Mientras tanto, `POST /patients/self-register` sigue aceptando peticiones directas; si se quiere un cierre real y no solo de pantalla, debe responder `503` desde el backend.
+- **`window.confirm()` nativo en acciones críticas**: se confirmó en producción que "Aprobar y Crear Usuario" (`PatientDetailsPage.jsx`) quedaba completamente inerte —sin red, sin aviso, sin error— cuando el navegador/dispositivo del `SUPER_ADMIN` suprimía ese diálogo nativo (común en navegadores móviles, webviews embebidos o políticas de seguridad). Se reemplazó por `components/ui/ConfirmModal.jsx`, un modal propio verificado end-to-end (admin activa → beneficiario se loguea → ve "Subir" y "Descargar Compromiso"). **Quedan 8 archivos más con el mismo patrón sin corregir**: `Sidebar.jsx`, `BeneficiaryNamesPage.jsx`, `DoctorAgendaPage.jsx`, `GalleryManagementPage.jsx`, `SocialEvaluationsReviewPage.jsx`, `UsersManagementPage.jsx`, `RegisterPatientPage.jsx`, `DonationsWarehousePage.jsx` — cualquiera puede fallar en silencio del mismo modo.
 - **Test del frontend roto**: `RegisterPatientPage.test.jsx` falla desde antes (ver sección 6).
 - **Aislamiento de la suite de pruebas** (ver sección 6). Es la deuda de mayor impacto.
 - `scripts/anonymize_local.sql` genera correos `paciente<id>@example.test`; `.test` es un TLD reservado que `email-validator` rechaza. Ya no rompe las respuestas —`UserResponse.email` es `str` y no revalida a la salida—, pero conviene usar `@example.com` para que la trampa no reaparezca.

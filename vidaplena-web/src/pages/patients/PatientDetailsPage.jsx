@@ -4,6 +4,7 @@ import { getPatientById, activatePatient, updatePatient, changePatientStatus } f
 import { getSocialEvaluation } from '../../api/evaluations';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { toast } from 'react-hot-toast';
 import { ArrowLeft, CheckCircle, User, Activity, Edit2, AlertTriangle, Pill, Copy, Key, Mail, ClipboardCheck } from 'lucide-react';
 
@@ -31,6 +32,11 @@ export default function PatientDetailsPage() {
     const [credentials, setCredentials] = useState(null); // { username, password }
     const [showCredsModal, setShowCredsModal] = useState(false);
     const [socialEvaluation, setSocialEvaluation] = useState(null);
+    // Reemplaza al window.confirm() que usaba antes "Aprobar y Crear Usuario":
+    // ese diálogo nativo puede quedar suprimido por el navegador/dispositivo sin
+    // ningún aviso, dejando el botón pareciendo roto (sin error, sin toast, sin
+    // llamada de red). Con un modal propio la confirmación siempre se ve.
+    const [showActivateConfirm, setShowActivateConfirm] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -60,11 +66,7 @@ export default function PatientDetailsPage() {
     };
 
     const handleActivate = async () => {
-        const confirmacion = window.confirm(
-            `¿Estás seguro de activar a ${patient.nombres}?\n\nEsto habilitará su acceso al sistema.`
-        );
-
-        if (!confirmacion) return;
+        setShowActivateConfirm(false);
 
         try {
             setActivating(true);
@@ -410,7 +412,7 @@ export default function PatientDetailsPage() {
                         Volver
                     </Button>
                     <Button
-                        onClick={handleActivate}
+                        onClick={() => setShowActivateConfirm(true)}
                         disabled={activating}
                         className="bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200"
                     >
@@ -419,6 +421,16 @@ export default function PatientDetailsPage() {
                     </Button>
                 </div>
             )}
+
+            <ConfirmModal
+                isOpen={showActivateConfirm}
+                title="Activar beneficiario"
+                message={`¿Estás seguro de activar a ${patient.nombres}?\n\nEsto generará su usuario y habilitará su acceso al sistema.`}
+                confirmLabel="Sí, activar"
+                processing={activating}
+                onConfirm={handleActivate}
+                onCancel={() => setShowActivateConfirm(false)}
+            />
 
             {/* MODAL DE CREDENCIALES */}
             <Modal 
