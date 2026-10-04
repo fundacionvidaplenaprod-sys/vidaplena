@@ -207,7 +207,7 @@ Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones,
 
 ## 6. Estado de las Pruebas Automatizadas
 
-**354 pruebas.** Un fallo es constante (test desactualizado) y el otro es intermitente —depende del volumen acumulado en la base compartida—, así que el conteo exacto de "pasan/fallan" varía entre corridas; ver el detalle de ambos más abajo. Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
+**358 pruebas.** Un fallo es constante (test desactualizado) y el otro es intermitente —depende del volumen acumulado en la base compartida—, así que el conteo exacto de "pasan/fallan" varía entre corridas; ver el detalle de ambos más abajo. Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
 
 ### Cómo corre la suite (importante)
 
@@ -229,7 +229,8 @@ Aislar la suite (base dedicada, `create_all`/`drop_all` o transacción por test 
 | `test_social_evaluation_extraordinaria.py` | 14 | Evaluación por imposibilidad de llenado digital |
 | `test_contributions_admin.py` | 14 | Revisión y registro manual de aportes |
 | `test_contribution_periodo.py` | 12 | Corrección de periodo: solo SUPER_ADMIN, 409 por choque, formato, auditoría |
-| `test_morosos.py` | 30 | Definición de moroso, exonerados, motivos, filtro por depto, tarjeta == listado |
+| `test_morosos.py` | 30 |
+| `test_patient_status_endpoints.py` | 4 | `validate` y `change-status`: responden con la ficha y dejan evento de estado | Definición de moroso, exonerados, motivos, filtro por depto, tarjeta == listado |
 | `test_exoneracion_cargo.py` | 13 | Exoneración por cargo, revocación automática y auditoría |
 | `test_patients_list.py` | 12 | Listado, filtros y paginación de beneficiarios |
 | `test_insulin_shipments.py` | 11 | Envíos del coordinador nacional |
@@ -279,5 +280,4 @@ Rutas con privilegios destructivos creadas para el ciclo de desarrollo. Están p
 - **Test del frontend roto**: `RegisterPatientPage.test.jsx` falla desde antes (ver sección 6).
 - **Aislamiento de la suite de pruebas** (ver sección 6). Es la deuda de mayor impacto.
 - `scripts/anonymize_local.sql` genera correos `paciente<id>@example.test`; `.test` es un TLD reservado que `email-validator` rechaza. Ya no rompe las respuestas —`UserResponse.email` es `str` y no revalida a la salida—, pero conviene usar `@example.com` para que la trampa no reaparezca.
-- `PUT /patients/{id}/validate` (SUPER_ADMIN) guarda el cambio de estado pero responde con error al serializar el paciente (`MissingGreenlet` por relaciones expiradas tras `db.refresh`). La interfaz no lo usa —aprueba con `change-status`—, así que no se nota; conviene corregirlo o eliminarlo.
 - Warnings de deprecación pendientes: `regex=` → `pattern=` en `contributions.py`, y `class Config` → `ConfigDict` en `core/config.py` y `schemas.py`.
