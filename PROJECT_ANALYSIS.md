@@ -180,7 +180,7 @@ Sistema aislado y ágil, sin ataduras al padrón estructurado:
 ### Reportes (`/dashboard/reportes`)
 Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones, con paginación, filtros por estado de registro y de aporte, **historial de aportes solidarios por mes** y exportación a **PDF y Excel**.
 
-**Morosos** (pestaña *Morosos* y tarjeta del Resumen Operativo; `GET /reports/morosos`): beneficiarios **ACTIVOS** sin aporte **ACEPTADO** en el periodo evaluado, que por defecto es el **mes anterior** (evaluar el mes en curso marcaría como deudor a casi todos en sus primeros días). Excluye a los exonerados, tanto por vulnerabilidad como por cargo. Un aporte `DECLARADO` u `OBSERVADO` sigue contando como no pagado, pero el listado distingue *no registró aporte* / *pendiente de revisión* / *observado* para separar a quien no pagó de quien pagó y falta validar. Permite elegir el mes y filtrar por departamento (comparación tolerante a mayúsculas y tildes), e incluye el celular para la cobranza; exporta a PDF y Excel. La tarjeta del resumen y el listado usan **la misma función** (`calcular_morosos` en `reports.py`), así que no pueden discrepar. Antes, la tarjeta "Inactivos / morosos" mostraba `total − activos − pendientes`, un resto aritmético que no miraba aportes: no detectaba a ningún deudor real entre los activos. Esa tarjeta se separó en *Morosos*, *Inactivos* y *Otros estados* (habilitados, pendientes de aporte, no registrados).
+**Morosos** (pestaña *Morosos* y tarjeta del Resumen Operativo; `GET /reports/morosos`): beneficiarios **ACTIVOS** sin aporte **ACEPTADO** en el periodo evaluado, que por defecto es el **mes anterior** (evaluar el mes en curso marcaría como deudor a casi todos en sus primeros días). Excluye a los exonerados, tanto por vulnerabilidad como por cargo, y **nadie debe un periodo anterior a su ingreso**: quien se registra en octubre paga desde octubre y no es moroso de septiembre. La fecha de ingreso es cuándo se le generó el **usuario** (activación o autorregistro), no `Patient.created_at`, porque los beneficiarios precargados desde el padrón tienen la ficha creada meses antes de registrarse (en la réplica, 251 fichas `NO_REGISTRADO` creadas en julio); sin usuario se usa la creación de la ficha. El mes se toma en hora de Bolivia. Limitación conocida: si un usuario se borra y se vuelve a crear (como se hace al resolver incidentes), su ingreso pasa a esa fecha y deja de deber los meses anteriores. Un aporte `DECLARADO` u `OBSERVADO` sigue contando como no pagado, pero el listado distingue *no registró aporte* / *pendiente de revisión* / *observado* para separar a quien no pagó de quien pagó y falta validar. Permite elegir el mes y filtrar por departamento (comparación tolerante a mayúsculas y tildes), e incluye el celular para la cobranza; exporta a PDF y Excel. La tarjeta del resumen y el listado usan **la misma función** (`calcular_morosos` en `reports.py`), así que no pueden discrepar. Antes, la tarjeta "Inactivos / morosos" mostraba `total − activos − pendientes`, un resto aritmético que no miraba aportes: no detectaba a ningún deudor real entre los activos. Esa tarjeta se separó en *Morosos*, *Inactivos* y *Otros estados* (habilitados, pendientes de aporte, no registrados).
 
 ---
 
@@ -207,7 +207,7 @@ Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones,
 
 ## 6. Estado de las Pruebas Automatizadas
 
-**343 pruebas.** Un fallo es constante (test desactualizado) y el otro es intermitente —depende del volumen acumulado en la base compartida—, así que el conteo exacto de "pasan/fallan" varía entre corridas; ver el detalle de ambos más abajo. Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
+**348 pruebas.** Un fallo es constante (test desactualizado) y el otro es intermitente —depende del volumen acumulado en la base compartida—, así que el conteo exacto de "pasan/fallan" varía entre corridas; ver el detalle de ambos más abajo. Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
 
 ### Cómo corre la suite (importante)
 
@@ -229,7 +229,7 @@ Aislar la suite (base dedicada, `create_all`/`drop_all` o transacción por test 
 | `test_social_evaluation_extraordinaria.py` | 14 | Evaluación por imposibilidad de llenado digital |
 | `test_contributions_admin.py` | 14 | Revisión y registro manual de aportes |
 | `test_contribution_periodo.py` | 12 | Corrección de periodo: solo SUPER_ADMIN, 409 por choque, formato, auditoría |
-| `test_morosos.py` | 19 | Definición de moroso, exonerados, motivos, filtro por depto, tarjeta == listado |
+| `test_morosos.py` | 24 | Definición de moroso, exonerados, motivos, filtro por depto, tarjeta == listado |
 | `test_exoneracion_cargo.py` | 13 | Exoneración por cargo, revocación automática y auditoría |
 | `test_patients_list.py` | 12 | Listado, filtros y paginación de beneficiarios |
 | `test_insulin_shipments.py` | 11 | Envíos del coordinador nacional |

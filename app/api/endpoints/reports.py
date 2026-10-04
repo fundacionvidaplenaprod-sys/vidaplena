@@ -26,16 +26,29 @@ async def calcular_morosos(db: AsyncSession, periodo: str, depto: str | None = N
     DECLARADO u OBSERVADO sigue contando como no pagado hasta que se acepte,
     pero se informa el motivo para distinguir "no pagó" de "pagó y falta
     revisarlo".
+
+    Nadie debe un periodo anterior a su ingreso: quien se registra en octubre
+    paga desde octubre y no es moroso de septiembre. La fecha de ingreso es
+    cuándo se le generó el usuario (activación o autorregistro) y no
+    `Patient.created_at`, porque los beneficiarios precargados desde el padrón
+    tienen la ficha creada meses antes de registrarse de verdad. Si por algún
+    motivo no tiene usuario, se usa la creación de la ficha. El mes se toma en
+    hora de Bolivia, para que alguien registrado el 30 a las 22:00 no pase al
+    mes siguiente por la zona horaria del servidor.
     """
     aporte = aliased(models.MonthlyContribution)
+    fecha_ingreso = func.coalesce(models.User.created_at, models.Patient.created_at)
+    mes_ingreso = func.to_char(func.timezone("America/La_Paz", fecha_ingreso), "YYYY-MM")
     query = (
         select(models.Patient, aporte.estado)
+        .outerjoin(models.User, models.User.id == models.Patient.user_id)
         .outerjoin(
             aporte,
             and_(aporte.patient_id == models.Patient.id, aporte.periodo == periodo),
         )
         .where(
             models.Patient.estado == "ACTIVO",
+            mes_ingreso <= periodo,
             models.Patient.exonerado_aporte.is_(False),
             models.Patient.exonerado_por_cargo.is_(False),
             or_(aporte.estado.is_(None), aporte.estado != "ACEPTADO"),
