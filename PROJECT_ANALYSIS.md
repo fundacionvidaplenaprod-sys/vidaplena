@@ -113,6 +113,7 @@ Expediente central del beneficiario. Incluye:
 - **Autoregistro público** (`/registro-beneficiario`, `POST /patients/self-register`): **cerrado temporalmente hasta nuevo aviso** por plazo de registro vencido. Lo gobierna un único interruptor, `AUTOREGISTRO_HABILITADO` en `vidaplena-web/src/constants/features.js`: con `false` el login oculta el enlace *"¿Eres beneficiario de la Fundación?"* y la URL directa muestra `RegistroCerradoPage` (aviso con salidas a inicio de sesión e inicio) en vez del formulario. Un mismo interruptor gobierna ambos accesos para que no queden desalineados. Es un cierre **a nivel de pantalla**: el endpoint del backend sigue abierto. Para reabrirlo, poner la constante en `true`.
 - **Documentación digital** en Firebase Storage (CI, certificado médico, foto, declaración de aporte, documentos del tutor).
 - **Aportes Solidarios con Lectura Inteligente (OCR)**: al subir el comprobante mensual, `POST /contributions/ocr-preview` detecta monto, fecha y hora. A diferencia del SAPAM no impone un monto fijo; el beneficiario confirma o edita. `SUPER_ADMIN` puede además registrar aportes en efectivo manualmente.
+- **Corrección del periodo (gestión) de un aporte** (`PUT /contributions/{id}/periodo`, botón *Corregir periodo* en Revisión de Aportes): el beneficiario elige el mes al subir su voucher y a menudo se equivoca (p. ej. sube en octubre un depósito de septiembre). **Solo `SUPER_ADMIN`** puede reasignarlo —el `REGISTRADOR` puede validar vouchers pero no cambiar su periodo, porque el periodo decide quién figura "al día" y quién entra al reparto de insulina—. Valida formato `AAAA-MM`, rechaza con 409 si el beneficiario ya tiene un aporte en el periodo destino (restricción `uq_contrib_patient_periodo`) y deja registro en `audit_logs` (`CAMBIO_PERIODO_APORTE`, con periodo anterior y nuevo). No altera el estado del aporte ni renombra el archivo del voucher en Storage (la ruta conserva el periodo original declarado).
 - **Complicaciones médicas** (catálogo administrable) y **tratamientos** de insulina basal/rápida y material.
 - **Tutor legal** para menores de edad y beneficiarios con capacidades diferentes (un tutor puede tener varios representados).
 - **Activación manual por personal** (`PUT /patients/{id}/activate`, botón "Aprobar y Crear Usuario" en la ficha): con el autoregistro cerrado, `SUPER_ADMIN`/`REGISTRADOR` siguen pudiendo dar de alta a un beneficiario y generarle credenciales (email del paciente o del tutor si es menor; contraseña inicial = su C.I.), dejando `estado = PENDIENTE_DOC` para que pueda subir documentos al loguearse en `/mi-portal`.
@@ -204,7 +205,7 @@ Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones,
 
 ## 6. Estado de las Pruebas Automatizadas
 
-**312 pruebas.** Un fallo es constante (test desactualizado) y el otro es intermitente —depende del volumen acumulado en la base compartida—, así que el conteo exacto de "pasan/fallan" varía entre corridas; ver el detalle de ambos más abajo. Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
+**324 pruebas.** Un fallo es constante (test desactualizado) y el otro es intermitente —depende del volumen acumulado en la base compartida—, así que el conteo exacto de "pasan/fallan" varía entre corridas; ver el detalle de ambos más abajo. Ejecutar con `.venv/Scripts/python.exe -m pytest -q`.
 
 ### Cómo corre la suite (importante)
 
@@ -225,6 +226,7 @@ Aislar la suite (base dedicada, `create_all`/`drop_all` o transacción por test 
 | `test_appointments.py` | 23 | SAPAM: reserva, OCR de 70 Bs, aprobación manual, caso social |
 | `test_social_evaluation_extraordinaria.py` | 14 | Evaluación por imposibilidad de llenado digital |
 | `test_contributions_admin.py` | 14 | Revisión y registro manual de aportes |
+| `test_contribution_periodo.py` | 12 | Corrección de periodo: solo SUPER_ADMIN, 409 por choque, formato, auditoría |
 | `test_exoneracion_cargo.py` | 13 | Exoneración por cargo, revocación automática y auditoría |
 | `test_patients_list.py` | 12 | Listado, filtros y paginación de beneficiarios |
 | `test_insulin_shipments.py` | 11 | Envíos del coordinador nacional |

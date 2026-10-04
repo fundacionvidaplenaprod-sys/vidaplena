@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, FileDown, FilePlus, RefreshCcw, Search, Banknote, QrCode } from 'lucide-react';
+import { ExternalLink, FileDown, FilePlus, RefreshCcw, Search, Banknote, QrCode, CalendarClock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import client from '../../api/axios';
 import { Button } from '../../components/ui/Button';
 import { getPaginatedPatients } from '../../api/patients';
-import { createContributionAdmin } from '../../api/contributions';
+import { createContributionAdmin, updateContributionPeriodo } from '../../api/contributions';
 
 const emptyRegisterForm = { periodo: '', monto: '', fechaPago: '' };
 
@@ -18,6 +18,12 @@ export default function ContributionsReviewPage() {
     const [exporting, setExporting] = useState(false);
     const [observationModal, setObservationModal] = useState({ open: false, contributionId: null });
     const [observationText, setObservationText] = useState('');
+
+    // Corrección del periodo (gestión) de un aporte: el beneficiario elige el
+    // mes al subir su voucher y a menudo se equivoca. Solo SUPER_ADMIN.
+    const [periodoModal, setPeriodoModal] = useState({ open: false, item: null });
+    const [periodoValue, setPeriodoValue] = useState('');
+    const [savingPeriodo, setSavingPeriodo] = useState(false);
 
     const [registerModalOpen, setRegisterModalOpen] = useState(false);
     const [patientSearch, setPatientSearch] = useState('');
@@ -107,6 +113,41 @@ export default function ContributionsReviewPage() {
     const closeObservationModal = () => {
         setObservationModal({ open: false, contributionId: null });
         setObservationText('');
+    };
+
+    const openPeriodoModal = (item) => {
+        setPeriodoModal({ open: true, item });
+        setPeriodoValue(item.periodo);
+    };
+
+    const closePeriodoModal = () => {
+        setPeriodoModal({ open: false, item: null });
+        setPeriodoValue('');
+    };
+
+    const submitPeriodo = async () => {
+        const item = periodoModal.item;
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodoValue)) {
+            toast.error('Seleccione un mes válido.');
+            return;
+        }
+        if (periodoValue === item.periodo) {
+            closePeriodoModal();
+            return;
+        }
+        try {
+            setSavingPeriodo(true);
+            await updateContributionPeriodo(item.id, periodoValue);
+            toast.success(`Aporte reasignado al periodo ${periodoValue}.`);
+            closePeriodoModal();
+            await fetchContributions();
+        } catch (error) {
+            console.error(error);
+            const detail = error?.response?.data?.detail;
+            toast.error(typeof detail === 'string' ? detail : 'No se pudo cambiar el periodo.');
+        } finally {
+            setSavingPeriodo(false);
+        }
     };
 
     const submitObservation = () => {
@@ -270,6 +311,16 @@ export default function ContributionsReviewPage() {
                                     </p>
                                     <p className="text-sm text-gray-500 mt-1">
                                         Periodo {item.periodo} | Pago {item.fecha_pago} | Monto Bs. {item.monto}
+                                        {isSuperAdmin && (
+                                            <button
+                                                type="button"
+                                                onClick={() => openPeriodoModal(item)}
+                                                className="ml-2 text-xs font-semibold text-vida-primary hover:underline inline-flex items-center gap-1"
+                                                title="Corregir la gestión (mes) a la que corresponde este aporte"
+                                            >
+                                                <CalendarClock size={13} /> Corregir periodo
+                                            </button>
+                                        )}
                                     </p>
                                     {item.observacion_admin && (
                                         <p className="text-xs text-red-600 mt-2">
@@ -331,6 +382,44 @@ export default function ContributionsReviewPage() {
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {periodoModal.open && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+                        <h3 className="text-lg font-bold text-gray-800 mb-1">Corregir periodo del aporte</h3>
+                        <p className="text-sm text-gray-500 mb-4">
+                            {periodoModal.item?.patient_nombre} — pago del {periodoModal.item?.fecha_pago}.
+                            Declarado como <span className="font-semibold">{periodoModal.item?.periodo}</span>.
+                            Elija el mes al que realmente corresponde el depósito.
+                        </p>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Periodo correcto</label>
+                        <input
+                            type="month"
+                            value={periodoValue}
+                            onChange={(event) => setPeriodoValue(event.target.value)}
+                            className="w-full border rounded-lg px-3 py-2 text-sm"
+                        />
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={closePeriodoModal}
+                                disabled={savingPeriodo}
+                                className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitPeriodo}
+                                disabled={savingPeriodo || !periodoValue}
+                                className="px-4 py-2 rounded-lg bg-vida-main hover:bg-vida-hover text-white disabled:opacity-50"
+                            >
+                                {savingPeriodo ? 'Guardando...' : 'Guardar periodo'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 

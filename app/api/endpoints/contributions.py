@@ -7,6 +7,7 @@ from typing import List, Optional, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
+from pydantic import Field
 from fastapi.responses import StreamingResponse
 from PIL import Image as PILImage
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -662,6 +663,68 @@ async def validate_contribution(
 
     contribution.estado = validation_in.estado
             
+    await db.commit()
+    await db.refresh(contribution)
+    return contribution
+
+# 4. SUPER_ADMIN: CORREGIR EL PERIODO (GESTIÓN) DE UN APORTE
+class ContributionPeriodoSchema(schemas.BaseModel):
+    periodo: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+@router.put("/{contribution_id}/periodo", response_model=schemas.ContributionResponse)
+async def update_contribution_periodo(
+    contribution_id: int,
+    periodo_in: ContributionPeriodoSchema,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Corrige el periodo (gestión) al que corresponde un aporte. El beneficiario
+    elige el periodo al subir su voucher y a menudo se equivoca (p. ej. sube en
+    octubre un depósito que correspondía a septiembre), así que quien revisa el
+    voucher puede reasignarlo. Es exclusivo de SUPER_ADMIN: el periodo decide
+    quién figura "al día" y quién entra al reparto de insulina, por lo que
+    corregirlo no puede quedar al alcance de cualquier revisor.
+    """
+    contribution = await db.get(models.MonthlyContribution, contribution_id)
+    if not contribution:
+        raise HTTPException(status_code=404, detail="Aporte no encontrado")
+
+    nuevo = periodo_in.periodo
+    anterior = contribution.periodo
+    if nuevo == anterior:
+        return contribution
+
+    # Un beneficiario solo puede tener un aporte por periodo (uq_contrib_patient_periodo).
+    existente = await db.execute(
+        select(models.MonthlyContribution.id).where(
+            models.MonthlyContribution.patient_id == contribution.patient_id,
+            models.MonthlyContribution.periodo == nuevo,
+            models.MonthlyContribution.id != contribution.id,
+        )
+    )
+    if existente.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Este beneficiario ya tiene un aporte registrado para el periodo {nuevo}.",
+        )
+
+    contribution.periodo = nuevo
+    db.add(
+        models.AuditLog(
+            actor_id=current_user.id,
+            entidad="monthly_contribution",
+            entidad_id=contribution.id,
+            accion="CAMBIO_PERIODO_APORTE",
+            payload={
+                "patient_id": contribution.patient_id,
+                "periodo_anterior": anterior,
+                "periodo_nuevo": nuevo,
+                "estado": contribution.estado,
+            },
+        )
+    )
     await db.commit()
     await db.refresh(contribution)
     return contribution

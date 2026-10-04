@@ -69,3 +69,10 @@ export const createContributionAdmin = async (patientId, { monto, periodo, fecha
   });
   return response.data;
 };
+
+// SUPER_ADMIN corrige el periodo (gestión) de un aporte que el beneficiario
+// declaró en un mes equivocado. `periodo` en formato AAAA-MM.
+export const updateContributionPeriodo = async (contributionId, periodo) => {
+  const response = await client.put(`/contributions/${contributionId}/periodo`, { periodo });
+  return response.data;
+};
