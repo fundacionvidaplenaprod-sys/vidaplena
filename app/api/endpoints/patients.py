@@ -2037,6 +2037,15 @@ async def validate_patient_registration(
     # Aplicar el cambio de estado
     old_status = patient.estado
     patient.estado = status_update.estado
+    # Mismo registro que deja change-status: el reporte de morosos toma de
+    # aquí el momento en que el beneficiario pasó a ACTIVO.
+    db.add(models.PatientStatusEvent(
+        patient_id=patient.id,
+        user_id=current_user.id,
+        old_state=old_status,
+        new_state=status_update.estado,
+        observacion=status_update.observacion_admin,
+    ))
     _log_audit_event(
         db=db,
         actor_id=current_user.id,

@@ -160,8 +160,8 @@ export default function MorososReport() {
                     </h2>
                     <p className="text-sm text-gray-500">
                         Beneficiarios activos que no tienen un aporte <span className="font-semibold">aceptado</span> en el
-                        mes elegido. No incluye a los exonerados ni a quienes ingresaron después de ese mes: cada beneficiario
-                        paga desde el mes en que se registró. Por defecto se evalúa el mes anterior.
+                        mes elegido. No incluye a los exonerados ni a quienes fueron activados después de ese mes: cada beneficiario
+                        paga desde el mes en que quedó activo. Por defecto se evalúa el mes anterior.
                     </p>
                 </div>
                 <div className="flex flex-wrap items-end gap-2">

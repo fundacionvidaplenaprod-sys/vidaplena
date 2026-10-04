@@ -27,17 +27,35 @@ async def calcular_morosos(db: AsyncSession, periodo: str, depto: str | None = N
     pero se informa el motivo para distinguir "no pagó" de "pagó y falta
     revisarlo".
 
-    Nadie debe un periodo anterior a su ingreso: quien se registra en octubre
-    paga desde octubre y no es moroso de septiembre. La fecha de ingreso es
-    cuándo se le generó el usuario (activación o autorregistro) y no
-    `Patient.created_at`, porque los beneficiarios precargados desde el padrón
-    tienen la ficha creada meses antes de registrarse de verdad. Si por algún
-    motivo no tiene usuario, se usa la creación de la ficha. El mes se toma en
-    hora de Bolivia, para que alguien registrado el 30 a las 22:00 no pase al
-    mes siguiente por la zona horaria del servidor.
+    Nadie debe un periodo anterior a su ingreso: quien es activado en octubre
+    paga desde octubre y no es moroso de septiembre. El ingreso es el primer
+    momento en que el beneficiario estuvo ACTIVO, que es cuando se aprueban sus
+    documentos y se le concede el beneficio. Se toma de `patient_status_events`
+    (el primer evento que muestra al beneficiario ya activo, sea porque pasó a
+    ACTIVO o porque salió de ACTIVO); así, reabrirlo y volver a activarlo no
+    reinicia lo que debe. Para quienes no tienen ese evento (antiguos) se usa,
+    en orden, la creación de su usuario y la de su ficha. Ni `created_at` de la
+    ficha ni el usuario sirven como regla principal: la ficha de un
+    beneficiario precargado desde el padrón existe meses antes de registrarse,
+    y el usuario se genera antes de que se aprueben los documentos.
+
+    El mes se toma en hora de Bolivia, para que una activación el 30 a las
+    22:00 no pase al mes siguiente por la zona horaria del servidor.
     """
     aporte = aliased(models.MonthlyContribution)
-    fecha_ingreso = func.coalesce(models.User.created_at, models.Patient.created_at)
+    evento = models.PatientStatusEvent
+    primera_vez_activo = (
+        select(func.min(evento.created_at))
+        .where(
+            evento.patient_id == models.Patient.id,
+            or_(evento.new_state == "ACTIVO", evento.old_state == "ACTIVO"),
+        )
+        .correlate(models.Patient)
+        .scalar_subquery()
+    )
+    fecha_ingreso = func.coalesce(
+        primera_vez_activo, models.User.created_at, models.Patient.created_at
+    )
     mes_ingreso = func.to_char(func.timezone("America/La_Paz", fecha_ingreso), "YYYY-MM")
     query = (
         select(models.Patient, aporte.estado)

@@ -214,3 +214,71 @@ async def test_el_mes_de_ingreso_se_toma_en_hora_de_bolivia(client, superuser_to
     """30 de septiembre 22:00 en Bolivia es el 1 de octubre en UTC: sigue siendo septiembre."""
     p = await _paciente(db_session, created_at=datetime(2026, 9, 30, 22, 0, tzinfo=LA_PAZ))
     assert p.id in _ids(await _morosos(client, periodo="2026-09"))
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  EL INGRESO ES LA ACTIVACIÓN (aprobación de documentos)
+# ─────────────────────────────────────────────────────────────────────────
+
+async def _evento(db_session, patient, old, new, fecha):
+    revisor = await _usuario_creado_el(db_session, INGRESO_ANTIGUO)
+    db_session.add(models.PatientStatusEvent(
+        patient_id=patient.id, user_id=revisor.id,
+        old_state=old, new_state=new, created_at=fecha,
+    ))
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_activado_en_octubre_no_es_moroso_de_septiembre_aunque_su_usuario_sea_anterior(
+    client, superuser_token, db_session
+):
+    """
+    Usuario generado en agosto, pero los documentos se aprobaron en octubre:
+    el compromiso empieza en octubre, no cuando se creó la cuenta.
+    """
+    usuario = await _usuario_creado_el(db_session, datetime(2026, 8, 20, tzinfo=LA_PAZ))
+    p = await _paciente(db_session, user_id=usuario.id)
+    await _evento(db_session, p, "HABILITADO", "ACTIVO", datetime(2026, 10, 3, 11, 0, tzinfo=LA_PAZ))
+
+    assert p.id not in _ids(await _morosos(client, periodo="2026-09"))
+    assert p.id in _ids(await _morosos(client, periodo="2026-10"))
+
+
+@pytest.mark.asyncio
+async def test_activado_en_agosto_si_debe_septiembre(client, superuser_token, db_session):
+    p = await _paciente(db_session)
+    await _evento(db_session, p, "HABILITADO", "ACTIVO", datetime(2026, 8, 12, tzinfo=LA_PAZ))
+    assert p.id in _ids(await _morosos(client, periodo="2026-09"))
+
+
+@pytest.mark.asyncio
+async def test_reabrir_y_reactivar_no_reinicia_la_deuda(client, superuser_token, db_session):
+    p = await _paciente(db_session)
+    await _evento(db_session, p, "HABILITADO", "ACTIVO", datetime(2026, 8, 12, tzinfo=LA_PAZ))
+    await _evento(db_session, p, "ACTIVO", "PENDIENTE_DOC", datetime(2026, 9, 10, tzinfo=LA_PAZ))
+    await _evento(db_session, p, "PENDIENTE_DOC", "ACTIVO", datetime(2026, 10, 2, tzinfo=LA_PAZ))
+    assert p.id in _ids(await _morosos(client, periodo="2026-09"))
+
+
+@pytest.mark.asyncio
+async def test_evento_de_salida_de_activo_tambien_prueba_que_ya_estaba_activo(client, superuser_token, db_session):
+    """Sin el evento de entrada (antiguo), una salida de ACTIVO acota desde cuándo lo era."""
+    p = await _paciente(db_session)
+    await _evento(db_session, p, "ACTIVO", "PENDIENTE_DOC", datetime(2026, 8, 25, tzinfo=LA_PAZ))
+    assert p.id in _ids(await _morosos(client, periodo="2026-09"))
+
+
+@pytest.mark.asyncio
+async def test_sin_evento_se_usa_el_respaldo_del_usuario(client, superuser_token, db_session):
+    usuario = await _usuario_creado_el(db_session, datetime(2026, 10, 2, tzinfo=LA_PAZ))
+    p = await _paciente(db_session, user_id=usuario.id)
+    assert p.id not in _ids(await _morosos(client, periodo="2026-09"))
+
+
+@pytest.mark.asyncio
+async def test_el_mes_de_activacion_se_toma_en_hora_de_bolivia(client, superuser_token, db_session):
+    """Activado el 30 de septiembre 22:00 (Bolivia) = 1 de octubre en UTC: sigue siendo septiembre."""
+    p = await _paciente(db_session)
+    await _evento(db_session, p, "HABILITADO", "ACTIVO", datetime(2026, 9, 30, 22, 0, tzinfo=LA_PAZ))
+    assert p.id in _ids(await _morosos(client, periodo="2026-09"))
