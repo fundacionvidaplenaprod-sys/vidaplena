@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity, Wallet, ReceiptText } from 'lucide-react';
+import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity, Wallet, ReceiptText, UserX } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { getAuditLogsReport, getInventoryReport, getPopulationReport } from '../../api/reports';
 import { toast } from 'react-hot-toast';
 import DynamicBeneficiaryReport from './DynamicBeneficiaryReport';
 import ContributionsHistoryReport from './ContributionsHistoryReport';
 import VoucherControlReport from './VoucherControlReport';
+import MorososReport from './MorososReport';
 
 export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
@@ -101,6 +102,16 @@ export default function ReportsPage() {
         >
           <ReceiptText size={18} /> Control de Vouchers
         </button>
+        <button
+          onClick={() => setActiveTab('morosos')}
+          className={`flex items-center gap-2 px-6 py-3 font-semibold text-sm transition-colors whitespace-nowrap border-b-2 ${
+            activeTab === 'morosos'
+              ? 'border-vida-main text-vida-main bg-vida-main/5'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          <UserX size={18} /> Morosos
+        </button>
       </div>
 
       {/* CONTENIDO TABS */}
@@ -117,7 +128,7 @@ export default function ReportsPage() {
               {loading ? 'Actualizando...' : 'Actualizar Datos'}
             </Button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <p className="text-xs text-gray-500 uppercase font-semibold">Beneficiarios totales</p>
           <p className="text-2xl font-bold text-gray-800 mt-1">{population?.total_beneficiarios ?? 0}</p>
@@ -130,9 +141,26 @@ export default function ReportsPage() {
           <p className="text-xs text-gray-500 uppercase font-semibold">Pendientes validación</p>
           <p className="text-2xl font-bold text-yellow-700 mt-1">{population?.pendientes_validacion ?? 0}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => setActiveTab('morosos')}
+          className="text-left bg-white rounded-2xl border border-red-100 shadow-sm p-4 hover:shadow-md hover:border-red-200 transition"
+          title="Ver el listado de morosos"
+        >
+          <p className="text-xs text-gray-500 uppercase font-semibold">Morosos</p>
+          <p className="text-2xl font-bold text-red-700 mt-1">{population?.morosos ?? 0}</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Activos sin aporte aceptado en {population?.periodo_morosos ?? '—'}. Ver lista →
+          </p>
+        </button>
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-          <p className="text-xs text-gray-500 uppercase font-semibold">Inactivos / morosos</p>
-          <p className="text-2xl font-bold text-red-700 mt-1">{population?.inactivos_morosos ?? 0}</p>
+          <p className="text-xs text-gray-500 uppercase font-semibold">Inactivos</p>
+          <p className="text-2xl font-bold text-gray-600 mt-1">{population?.inactivos ?? 0}</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+          <p className="text-xs text-gray-500 uppercase font-semibold">Otros estados</p>
+          <p className="text-2xl font-bold text-gray-600 mt-1">{population?.otros_estados ?? 0}</p>
+          <p className="text-xs text-gray-400 mt-1">Habilitados, pend. aporte, no registrados</p>
         </div>
       </div>
 
@@ -332,6 +360,10 @@ export default function ReportsPage() {
       ) : activeTab === 'aportes' ? (
         <div className="animate-fadeIn">
           <ContributionsHistoryReport />
+        </div>
+      ) : activeTab === 'morosos' ? (
+        <div className="animate-fadeIn">
+          <MorososReport />
         </div>
       ) : (
         <div className="animate-fadeIn">

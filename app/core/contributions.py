@@ -5,7 +5,7 @@ mensual?". Antes vivía duplicado inline solo en el filtro anti-morosos de
 `departmental` para mostrar el badge de aporte a los responsables
 departamentales/coordinador nacional.
 """
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 
@@ -13,6 +13,13 @@ def current_periodo(ref_date: Optional[date] = None) -> str:
     """Periodo actual en formato 'YYYY-MM' (el mismo usado en MonthlyContribution.periodo)."""
     d = ref_date or date.today()
     return f"{d.year}-{d.month:02d}"
+
+
+def periodo_anterior(ref_date: Optional[date] = None) -> str:
+    """Periodo del mes anterior a `ref_date` (por defecto hoy), formato 'YYYY-MM'."""
+    d = ref_date or date.today()
+    ultimo_dia_mes_anterior = d.replace(day=1) - timedelta(days=1)
+    return current_periodo(ultimo_dia_mes_anterior)
 
 
 def is_patient_current_on_contribution(

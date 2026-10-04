@@ -45,3 +45,22 @@ export const getContributionsReport = async (periodo) => {
     throw error.response?.data?.detail || 'Error al cargar historial de aportes';
   }
 };
+
+/**
+ * Beneficiarios ACTIVOS sin aporte aceptado en un periodo. Sin `periodo`, el
+ * backend usa el mes anterior. Mismo cálculo que la tarjeta "Morosos" del
+ * resumen operativo.
+ * @param {string} [periodo] - Formato "YYYY-MM"
+ * @param {string} [depto] - Departamento (opcional)
+ */
+export const getMorososReport = async (periodo, depto) => {
+  try {
+    const response = await client.get('/reports/morosos', {
+      params: { periodo: periodo || undefined, depto: depto || undefined },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error al cargar morosos:', error);
+    throw error.response?.data?.detail || 'Error al cargar el reporte de morosos';
+  }
+};
