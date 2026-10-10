@@ -47,6 +47,25 @@ export const getContributionsReport = async (periodo) => {
 };
 
 /**
+ * Reporte de distribución de insulina: sube el Excel de la donación y recibe el
+ * reparto calculado (no guarda nada en el servidor).
+ * @param {File} file - Excel .xlsx de la donación
+ */
+export const generateInsulinDistributionReport = async (file) => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await client.post('/reports/insulin-distribution', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error al generar la distribución de insulina:', error);
+    throw error.response?.data?.detail || 'Error al generar el reporte de distribución';
+  }
+};
+
+/**
  * Beneficiarios ACTIVOS sin aporte aceptado en un periodo. Sin `periodo`, el
  * backend usa el mes anterior. Mismo cálculo que la tarjeta "Morosos" del
  * resumen operativo.

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity, Wallet, ReceiptText, UserX } from 'lucide-react';
+import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity, Wallet, ReceiptText, UserX, Syringe } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { getAuditLogsReport, getInventoryReport, getPopulationReport } from '../../api/reports';
 import { toast } from 'react-hot-toast';
@@ -7,6 +7,8 @@ import DynamicBeneficiaryReport from './DynamicBeneficiaryReport';
 import ContributionsHistoryReport from './ContributionsHistoryReport';
 import VoucherControlReport from './VoucherControlReport';
 import MorososReport from './MorososReport';
+import InsulinDistributionReport from './InsulinDistributionReport';
+import { useAuth } from '../../context/AuthContext';
 
 export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
@@ -52,6 +54,8 @@ export default function ReportsPage() {
   }, []);
 
   const [activeTab, setActiveTab] = useState('resumen');
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto animate-fadeIn">
@@ -112,6 +116,18 @@ export default function ReportsPage() {
         >
           <UserX size={18} /> Morosos
         </button>
+        {isSuperAdmin && (
+          <button
+            onClick={() => setActiveTab('insulina')}
+            className={`flex items-center gap-2 px-6 py-3 font-semibold text-sm transition-colors whitespace-nowrap border-b-2 ${
+              activeTab === 'insulina'
+                ? 'border-vida-main text-vida-main bg-vida-main/5'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Syringe size={18} /> Distribución de insulina
+          </button>
+        )}
       </div>
 
       {/* CONTENIDO TABS */}
@@ -364,6 +380,10 @@ export default function ReportsPage() {
       ) : activeTab === 'morosos' ? (
         <div className="animate-fadeIn">
           <MorososReport />
+        </div>
+      ) : activeTab === 'insulina' && isSuperAdmin ? (
+        <div className="animate-fadeIn">
+          <InsulinDistributionReport />
         </div>
       ) : (
         <div className="animate-fadeIn">

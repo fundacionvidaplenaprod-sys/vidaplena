@@ -579,6 +579,118 @@ class CalculationResult(BaseModel):
     allocations: List[DonationAllocationResponse]
     excluded_patients: List[ExclusionDetail] = []
 
+
+# --- REPARTO GLOBAL DE INSULINAS (todos los lotes a la vez, con reserva) ---
+class DistributionLotItem(BaseModel):
+    lot_id: int
+    producto: str
+    unidades: int
+    ui: float
+    lote: Optional[str] = None
+    fecha_venc: Optional[date] = None
+
+
+class DistributionPatientInsulin(BaseModel):
+    insulina: str
+    necesidad_ui: float
+    entregado_ui: float
+    cobertura_pct: float
+    # Si parte de la necesidad se cubre con otra insulina (adultos sin glargina -> detemir).
+    sustituto: Optional[str] = None
+    sustituto_ui: float = 0.0
+    # Dosis diaria registrada y la usada en el cálculo (menores: tope de 30 UI/día en
+    # glargina, lispro, glulisina, aspart, detemir y degludec).
+    dosis_diaria_registrada: float = 0.0
+    dosis_diaria_aplicada: float = 0.0
+    dosis_limitada: bool = False
+    lotes: List[DistributionLotItem] = []
+
+
+class DistributionPatientItem(BaseModel):
+    patient_id: int
+    nombre_completo: str
+    es_menor: bool
+    es_tipo1: bool = False
+    insulinas: List[DistributionPatientInsulin]
+
+
+class DistributionReportPatient(DistributionPatientItem):
+    """Paciente del reporte: lo que recibe más los datos para identificarlo y entregarle."""
+
+    ci: Optional[str] = None
+    estado: Optional[str] = None
+    depto: Optional[str] = None
+    edad: Optional[int] = None
+    tipo_diabetes: Optional[str] = None
+
+
+class DistributionIngredientSummary(BaseModel):
+    insulina: str
+    stock_ui: float
+    necesidad_ui: float
+    reserva_ui: float
+    asignado_ui: float
+    faltante_ui: float
+    sobrante_ui: float
+    pacientes_con_necesidad: int
+    pacientes_sin_cubrir: int
+    sustituido_ui: float = 0.0  # necesidad cubierta con otra insulina
+    entregado_como_sustituto_ui: float = 0.0  # UI entregadas en lugar de otra insulina
+
+
+class DistributionReserveItem(BaseModel):
+    lot_id: int
+    insulina: str
+    producto: str
+    unidades: int
+    ui: float
+    lote: Optional[str] = None
+    fecha_venc: Optional[date] = None
+
+
+class DistributionRecordInsulin(BaseModel):
+    insulina: str
+    dosis_diaria: float
+
+
+class DistributionRecordIssue(BaseModel):
+    """Ficha con dos insulinas del mismo grupo: se calculó con una sola; conviene corregirla."""
+
+    patient_id: int
+    nombre_completo: str
+    ci: Optional[str] = None
+    estado: Optional[str] = None
+    depto: Optional[str] = None
+    es_menor: bool = False
+    grupo: str  # RAPIDA | BASAL
+    grupo_nombre: str
+    insulinas: List[DistributionRecordInsulin]  # las que trae la ficha
+    insulina_usada: str  # la que se tomó para el cálculo
+    motivo: str  # STOCK | SUSTITUTO | SIN_STOCK
+    sustituto: Optional[str] = None
+    premezcla_descartada: bool = False  # una premezcla no puede sustituir a una basal
+    mensaje: str
+
+
+class DistributionPlanResult(BaseModel):
+    guardado: bool
+    dias: int
+    reserva_pct: float
+    stock_total_ui: float
+    reserva_objetivo_ui: float
+    reserva_ui: float
+    asignado_ui: float
+    lotes_considerados: int
+    lotes_excluidos_consolidados: int
+    lotes_vencidos: int
+    lotes_sin_catalogo: int
+    asignaciones_generadas: int
+    insulinas: List[DistributionIngredientSummary]
+    reserva: List[DistributionReserveItem]
+    pacientes: List[DistributionPatientItem]
+    excluded_patients: List[ExclusionDetail] = []
+    registros_por_corregir: List[DistributionRecordIssue] = []
+
 # ==========================================
 #   9. SCHEMAS MÓDULO DIRECTORA
 # ==========================================
@@ -1220,3 +1332,36 @@ class SocialEvaluationResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- REPORTE DE DISTRIBUCIÓN DESDE EL EXCEL DE UNA DONACIÓN (no guarda nada) ---
+class DonationExcelLine(BaseModel):
+    fila: int
+    producto: str
+    insulina: str
+    cantidad: int
+    presentacion_ml: float
+    concentracion_ui_ml: int
+    ui_por_envase: float
+    ui_total: float
+    lote: Optional[str] = None
+    fecha_venc: Optional[date] = None
+
+
+class DonationExcelRowError(BaseModel):
+    fila: int
+    producto: str
+    mensaje: str
+
+
+class DistributionReportResult(DistributionPlanResult):
+    archivo: str
+    filas_leidas: int
+    filas_con_error: List[DonationExcelRowError] = []
+    donacion: List[DonationExcelLine] = []
+    estados_considerados: List[str] = []
+    # Menores y adultos tipo 1 que por el tamaño del envase pasan del 120 % (la garantía
+    # del 100 % manda sobre el tope).
+    prioritarios_sobre_120: int = 0
+    pacientes: List[DistributionReportPatient] = []
+

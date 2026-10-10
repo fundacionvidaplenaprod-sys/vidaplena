@@ -1,5 +1,7 @@
+from datetime import date
 from typing import Any, List
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, desc, and_, or_
@@ -11,6 +13,15 @@ from app.api import deps
 from app.core.config import settings
 from app.core.contributions import periodo_anterior
 from app.core.text_normalize import normalize_name
+from app.core import distribution_service as dist
+from app.core.donation_excel import DonationExcelError, parse_donation_excel
+from app.core.insulin_catalog import normalize_insulin_name
+from app.core.insulin_distribution import (
+    DISTRIBUTION_DAYS,
+    PRIORITY_MAX_COVERAGE,
+    LotInput as InsulinLotInput,
+    plan_distribution as plan_insulin_distribution,
+)
 
 router = APIRouter()
 
@@ -261,3 +272,132 @@ async def get_contributions_report(
         "total_observados": counts.get("OBSERVADO", 0),
         "items": items,
     }
+
+
+# --- Distribución de insulina a partir del Excel de una donación ---------------
+# Reporte de planificación: no toca lotes ni asignaciones de la base, no descuenta
+# stock y no filtra por aporte al día (a diferencia del reparto guardado).
+INSULIN_REPORT_ESTADOS = ("ACTIVO", "PENDIENTE_DOC", "HABILITADO")
+INSULIN_REPORT_MAX_BYTES = 5 * 1024 * 1024
+
+
+@router.post(
+    "/insulin-distribution",
+    response_model=schemas.DistributionReportResult,
+    summary="Distribución de insulina calculada a partir del Excel de una donación",
+)
+async def insulin_distribution_report(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+) -> Any:
+    """Recibe el Excel de la donación y calcula el reparto con las reglas definidas.
+
+    Considera a los beneficiarios ACTIVO, PENDIENTE_DOC y HABILITADO con insulina
+    cargada, sin exigir aporte. No guarda nada.
+    """
+    filename = (file.filename or "").strip()
+    content = await file.read()
+    if not filename.lower().endswith(".xlsx") or content[:2] != b"PK":
+        raise HTTPException(status_code=400, detail="Sube el Excel de la donación en formato .xlsx.")
+    if not content:
+        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+    if len(content) > INSULIN_REPORT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="El archivo excede el máximo de 5 MB.")
+
+    try:
+        parsed = await run_in_threadpool(parse_donation_excel, content, normalize_insulin_name)
+    except DonationExcelError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not parsed.rows:
+        detalle = "; ".join(f"fila {e.row_number}: {e.message}" for e in parsed.errors[:5])
+        raise HTTPException(
+            status_code=400,
+            detail="El Excel no tiene ninguna fila válida." + (f" {detalle}" if detalle else ""),
+        )
+
+    today = date.today()
+    lot_inputs: List[InsulinLotInput] = []
+    lot_meta: dict = {}
+    errors = [
+        schemas.DonationExcelRowError(fila=e.row_number, producto=e.producto, mensaje=e.message)
+        for e in parsed.errors
+    ]
+    vencidos = 0
+    for row in parsed.rows:
+        if row.fecha_venc and row.fecha_venc < today:
+            vencidos += 1
+            errors.append(
+                schemas.DonationExcelRowError(
+                    fila=row.row_number,
+                    producto=row.producto,
+                    mensaje=f"Vencido el {row.fecha_venc.isoformat()}: no se reparte",
+                )
+            )
+            continue
+        lot_inputs.append(
+            InsulinLotInput(
+                lot_id=row.row_number,
+                ingredient=row.insulina,
+                label=row.producto,
+                ui_per_unit=row.ui_per_unit,
+                units=row.cantidad,
+                expiry=row.fecha_venc,
+            )
+        )
+        lot_meta[row.row_number] = (row.producto, row.lote, row.fecha_venc)
+    errors.sort(key=lambda e: e.fila)
+
+    patient_inputs, info, excluded = await dist.load_distribution_patients(
+        db, estados=INSULIN_REPORT_ESTADOS, require_current_contribution=False
+    )
+    plan = plan_insulin_distribution(lot_inputs, patient_inputs, days=DISTRIBUTION_DAYS)
+    grouped = dist.group_assignments(plan)
+    pacientes = dist.plan_patient_items(plan, patient_inputs, info, lot_meta)
+    sobre_tope = sum(
+        1
+        for p in pacientes
+        if p.es_menor or p.es_tipo1
+        for i in p.insulinas
+        if i.cobertura_pct > PRIORITY_MAX_COVERAGE * 100 + 0.05
+    )
+
+    return schemas.DistributionReportResult(
+        guardado=False,
+        dias=plan.days,
+        reserva_pct=plan.reserve_pct,
+        stock_total_ui=plan.total_stock_ui,
+        reserva_objetivo_ui=plan.reserve_target_ui,
+        reserva_ui=plan.reserve_ui,
+        asignado_ui=plan.allocated_ui,
+        lotes_considerados=len(lot_inputs),
+        lotes_excluidos_consolidados=0,
+        lotes_vencidos=vencidos,
+        lotes_sin_catalogo=0,
+        asignaciones_generadas=len(grouped),
+        insulinas=dist.plan_ingredient_items(plan),
+        reserva=dist.plan_reserve_items(plan, lot_meta),
+        pacientes=pacientes,
+        prioritarios_sobre_120=sobre_tope,
+        excluded_patients=excluded,
+        registros_por_corregir=dist.group_choice_issues(plan, info),
+        archivo=filename,
+        filas_leidas=parsed.total_rows,
+        filas_con_error=errors,
+        donacion=[
+            schemas.DonationExcelLine(
+                fila=r.row_number,
+                producto=r.producto,
+                insulina=r.insulina,
+                cantidad=r.cantidad,
+                presentacion_ml=r.presentacion_ml,
+                concentracion_ui_ml=r.concentracion_ui_ml,
+                ui_por_envase=r.ui_per_unit,
+                ui_total=r.ui_per_unit * r.cantidad,
+                lote=r.lote,
+                fecha_venc=r.fecha_venc,
+            )
+            for r in parsed.rows
+        ],
+        estados_considerados=list(INSULIN_REPORT_ESTADOS),
+    )
