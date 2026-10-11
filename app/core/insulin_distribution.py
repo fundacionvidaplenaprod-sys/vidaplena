@@ -7,49 +7,60 @@ solo se ocupa de traducir BD <-> motor.
 Reglas:
   * Todo se calcula en UI (un envase de Toujeo U300 1,5 ml tiene 450 UI; uno
     de Lantus 3 ml, 300 UI) y recién al final se convierte a envases enteros.
-  * Reserva: el 10 % del total de UI de la donación queda sin asignar. Se
-    cubre primero con el sobrante de cada insulina (lo que nadie necesita) y
-    el resto se descuenta proporcionalmente del stock que sí hace falta.
-  * Prioridad: primero los menores de 18 años, luego los adultos con diabetes
-    tipo 1 y al final el resto; cada grupo se sirve completo antes de pasar al
-    siguiente. Si dentro de un grupo falta stock, se reparte en proporción a
-    la necesidad de cada uno.
-  * Marca preferida para menores (Lantus en glargina): los menores toman esa
-    marca primero y los adultos la dejan para el final.
-  * Dentro de cada preferencia se usa primero el lote que vence antes (FEFO).
-  * Un beneficiario usa como máximo UNA insulina de cada grupo: rápidas (lispro, aspart,
-    glulisina, regular) y basales/intermedias (glargina, protamina, NPH, detemir,
-    degludec). Si la ficha trae dos del mismo grupo es un error de carga y se usa UNA,
-    la que mejor se puede atender: la que tiene stock en la donación (con más holgura
-    frente a la demanda), o la que se cubre con una sustitución conocida; sin stock de
-    ninguna, la de mayor dosis registrada. El caso se informa para corregir la ficha
-    (`resolve_group_choices`). Las sustituciones nunca salen de su grupo.
-  * Una premezcla (`PREMIX_INSULINS`: protamina, Mix, bifásicas) nunca sustituye a una
-    basal o intermedia: si la ficha trae una premezcla junto a una basal, se usa la
-    basal aunque la premezcla tenga más stock, y ninguna regla de sustitución puede
-    tener una premezcla como destino.
-  * Menores y adultos tipo 1: se les garantiza el 100 % del tratamiento y se busca la
-    combinación de envases que no pase del 120 % (`PRIORITY_MAX_COVERAGE`), probando
-    envases de distinto tamaño. Si ninguna combinación cabe en 100-120 % —un pen de
-    300 UI no se parte— gana la garantía: se entrega la de menor exceso sobre el 100 %.
+    La dosis diaria nunca depende de la concentración.
+  * Horizonte de 60 días. Reserva: el 5 % del total de UI se aparta antes de repartir y se
+    cubre primero con el sobrante de cada insulina. La reserva se libera solo en la medida
+    necesaria: cuando todo está repartido, a los tratamientos que siguen bajo el mínimo de su
+    banda (o en 0 %) se les completa con envases de la reserva, en orden de prioridad y con el
+    menor número de envases posible. Lo que no hace falta queda guardado.
+  * Prioridad y margen de cobertura (cobertura = UI recibidas / UI necesarias en el
+    periodo). Cada grupo tiene una banda que NO se debe romper:
+        1. Menores de 18 años ........ 80 % - 120 %   y su insulina específica
+        2. Diabéticos tipo 1 ......... 75 % - 110 %
+        3. Adultos mayores, tipo 2 ... 65 % - 100 %
+        4. Diabéticos tipo 2 ......... 65 % - 100 %
+    Los grupos se atienden en ese orden y con prioridad estricta: menores y tipo 1
+    reciben primero el mínimo de su banda; en los grupos 3 y 4 entran primero los que
+    caben en su banda, luego un envase a cada uno (nadie queda en 0 % mientras haya
+    envases) y luego hasta el mínimo. Con lo que sobra se acerca a cada uno al 100 %
+    sin pasar del máximo. Los envases enteros no siempre permiten caer en la banda:
+    entonces gana la garantía del mínimo (el mínimo cubierto con el menor exceso) y el
+    caso queda marcado, pero NUNCA por encima del 120 % (`MAX_COVERAGE`): si para llegar
+    al mínimo hay que pasar del 120 %, se queda por debajo del mínimo. Para menores, cuando
+    ningún envase cae entre su mínimo y el 120 %, se elige lo más cercano al 100 % (p. ej.
+    8 UI/día = 480 UI: 2 pens = 125 % antes que 1 pen = 62,5 %). Otra excepción:
+    si ningún envase de esa insulina (ni de sus sustitutos) cabe en el 120 % —una dosis de
+    3 o 4 UI/día frente a un pen de 300 UI—, recibe un solo envase del tamaño más chico,
+    porque un envase no se parte; el caso queda marcado (`min_pen_exception`).
+  * Menores: reciben su insulina específica todo lo que haya y solo el faltante sale de la
+    tabla de sustituciones (la NPH puede pasar a degludec o detemir, nunca al revés). Un adulto
+    pasa entero al sustituto cuando este solo alcanza su banda.
   * Tope de dosis para menores de 18: en glargina, lispro, glulisina, aspart, detemir y
-    degludec la dosis diaria no pasa de 30 UI sin importar lo registrado
-    (`MINOR_DAILY_CAP_UI`); las demás insulinas no se limitan.
-  * Redondeo: primero todos reciben los envases enteros que caben dentro de su
-    necesidad (como mínimo uno); el envase extra que completa lo que falta se
-    entrega al final, en orden de prioridad y solo con el stock que sobró. Así
-    redondear hacia arriba nunca le quita stock a quien todavía no recibió lo
-    suyo ni a las sustituciones; con stock de sobra el resultado es el mismo.
-  * Sustitución (`DEFAULT_SUBSTITUTIONS`), siempre con el stock que quedó libre
-    después de que todos recibieran su propia insulina y fuera de la reserva:
-      - glargina -> detemir, solo adultos y **cambio completo**: un adulto recibe
-        toda su glargina o todo su tratamiento en detemir, no una mezcla. Si el
-        detemir no alcanza, lo que sobre de glargina se reparte parcialmente
-        entre los adultos que quedaron sin cubrir;
-      - glulisina -> aspart (menores y adultos) y regular -> lispro (todos),
-        completando solo lo que falta.
-    Lo que siga sin cubrirse queda reportado por insulina, que es la entrada de
-    la futura tabla de equivalencias.
+    degludec la dosis diaria no pasa de 30 UI sin importar lo registrado.
+  * Un beneficiario usa como máximo UNA insulina de cada grupo: rápidas (lispro,
+    aspart, glulisina, regular) y basales/intermedias (glargina, protamina, NPH,
+    detemir, degludec). Si la ficha trae dos del mismo grupo es un error de carga y
+    se usa UNA, la que mejor se puede atender (con stock, luego con sustitución,
+    luego la de mayor dosis); el caso se informa (`resolve_group_choices`).
+  * Una premezcla (`PREMIX_INSULINS`) nunca sustituye a una basal análoga (glargina,
+    detemir, degludec). La única excepción definida por la Fundación es la NPH, que sí
+    puede reemplazarse por la premezcla (`PREMIX_REPLACEABLE`).
+  * Sustituciones (`SUBSTITUTION_TABLE`): si falta la insulina propia se completa con
+    la tabla, en su orden de preferencia, y solo con stock libre. Se prefiere que todo
+    el tratamiento salga de una sola insulina (el cambio es completo); si ninguna
+    alcanza sola, se combinan.
+  * Viales de 10 ml (1.000 UI): ya separada la reserva, se entregan primero a quienes usan
+    una insulina rápida con 14 a 20 UI/día (`VIAL_DOSE_RANGE`), en orden de prioridad;
+    nunca más del 120 %. Después corre el reparto normal con lo que queda.
+  * Marca preferida para menores (Lantus en glargina): se trata de cubrir con Lantus la
+    glargina de los menores. Los menores toman esa marca primero, los adultos la dejan para el
+    final y la reserva se aparta de otras marcas antes que de Lantus, para que siga libre
+    para los menores. Si Lantus no permite caer en la banda, se amplía a otras glargina.
+    Dentro de cada preferencia se usa primero el lote que vence antes (FEFO).
+  * Degludec de menores: un menor que usa degludec la mantiene siempre. Nunca se sustituye
+    por otra insulina, si la ficha trae otra basal junto a la degludec se usa la degludec, y
+    su degludec se completa hasta el 100 % antes de que otros grupos la reciban como
+    sustituto (p. ej. de la NPH).
 """
 from __future__ import annotations
 
@@ -58,18 +69,43 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 DISTRIBUTION_DAYS = 60
-RESERVE_PCT = 0.10
+RESERVE_PCT = 0.05
 MINOR_AGE = 18
+OLDER_ADULT_AGE = 60
 # insulina canónica -> fragmentos del nombre comercial que se reservan a menores
 MINOR_PREFERRED_BRANDS: Dict[str, Tuple[str, ...]] = {"Glargina": ("lantus",)}
-# Menores y adultos tipo 1: cobertura mínima garantizada y máxima permitida.
-PRIORITY_MIN_COVERAGE = 1.0
-PRIORITY_MAX_COVERAGE = 1.2
+
+# Grupos de prioridad y su banda de cobertura (mínimo, máximo) sobre la necesidad.
+PRIORITY_MINOR = 1
+PRIORITY_TYPE1 = 2
+PRIORITY_OLDER_TYPE2 = 3
+PRIORITY_TYPE2 = 4
+COVERAGE_BANDS: Dict[int, Tuple[float, float]] = {
+    PRIORITY_MINOR: (0.80, 1.20),
+    PRIORITY_TYPE1: (0.75, 1.10),
+    PRIORITY_OLDER_TYPE2: (0.65, 1.00),
+    PRIORITY_TYPE2: (0.65, 1.00),
+}
+# Tope absoluto de cobertura: nadie recibe más del 120 % de su necesidad del periodo.
+MAX_COVERAGE = 1.20
+# Viales (10 ml = 1.000 UI): se reparten primero, ya separada la reserva, a quienes usan una
+# insulina rápida con una dosis entre estos dos valores (UI/día); a esa dosis un vial cubre
+# del 83 % al 119 % de los 60 días. El resto del reparto sigue las bandas de cada grupo.
+VIAL_MIN_UI = 1000.0
+VIAL_DOSE_RANGE = (14.0, 20.0)
+PRIORITY_NAMES: Dict[int, str] = {
+    PRIORITY_MINOR: "Menores de 18 años",
+    PRIORITY_TYPE1: "Diabéticos tipo 1",
+    PRIORITY_OLDER_TYPE2: "Adultos mayores con diabetes tipo 2",
+    PRIORITY_TYPE2: "Diabéticos tipo 2",
+}
+
 # Tope de dosis diaria (UI/día) para menores de 18, solo en estas insulinas.
 MINOR_DAILY_CAP_UI = 30.0
+MINOR_CAPPED_INGREDIENTS = frozenset({"Glargina", "Lispro", "Glulisina", "Aspart", "Detemir", "Degludec"})
 # Grupos de insulina: un beneficiario usa una sola de cada grupo.
 GROUP_RAPID = "RAPIDA"
 GROUP_BASAL = "BASAL"
@@ -77,12 +113,17 @@ INSULIN_GROUPS: Dict[str, frozenset] = {
     GROUP_RAPID: frozenset({"Lispro", "Aspart", "Glulisina", "Regular"}),
     GROUP_BASAL: frozenset({"Glargina", "Protamina", "NPH", "Detemir", "Degludec"}),
 }
-# Premezclas: nunca reemplazan a una basal ni a una intermedia.
+# Insulinas que un menor conserva siempre: nunca se sustituyen y se prefieren sobre otra basal
+# registrada en su ficha.
+MINOR_KEEP_INSULINS = frozenset({"Degludec"})
+# Premezclas: nunca reemplazan a una basal análoga (glargina, detemir, degludec).
 PREMIX_INSULINS = frozenset({"Protamina"})
+# Excepción: la NPH (intermedia) sí puede reemplazarse por una premezcla cuando falta.
+PREMIX_REPLACEABLE = frozenset({"NPH"})
 GROUP_LABELS = {GROUP_RAPID: "rápidas", GROUP_BASAL: "basales / intermedias / premezclas"}
-MINOR_CAPPED_INGREDIENTS = frozenset({"Glargina", "Lispro", "Glulisina", "Aspart", "Detemir", "Degludec"})
 
 _EPS = 1e-6
+_MAX_SIZES = 4  # tamaños de envase distintos que se combinan por insulina
 
 
 @dataclass(frozen=True)
@@ -95,20 +136,33 @@ class Substitution:
     source: str
     target: str
     factor: float = 1.0
-    adults_only: bool = True
-    # Cambio completo: un adulto recibe toda su `source` o todo en `target`.
-    whole_switch: bool = False
 
 
-# Reglas de la Fundación: adultos sin glargina pasan enteros a detemir, quien no
-# tenga glulisina (menores incluidos) recibe aspart y quien no tenga insulina
-# regular recibe lispro. Los factores 1:1 son provisionales y los debe validar el
-# equipo médico; son el único dato clínico que hay que cambiar aquí cuando se
-# defina la tabla de equivalencias.
-DEFAULT_SUBSTITUTIONS: Tuple[Substitution, ...] = (
-    Substitution("Glargina", "Detemir", factor=1.0, adults_only=True, whole_switch=True),
-    Substitution("Glulisina", "Aspart", factor=1.0, adults_only=False),
-    Substitution("Regular", "Lispro", factor=1.0, adults_only=False),
+# Tabla de sustituciones de la Fundación (en el orden de preferencia en que se escribió).
+# «X → Y → Z» = si falta X se le da Y y, si Y no alcanza, Z. Los factores 1:1 son
+# provisionales y los debe validar el equipo médico; son el único dato clínico que hay
+# que cambiar aquí. Una premezcla (Protamina) solo es destino de la NPH, nunca de una basal.
+#
+#   Glargina  → Detemir → Degludec        Glulisina → Aspart → Lispro
+#   Detemir   → Glargina → Degludec       Lispro    → Aspart → Glulisina
+#   Degludec  → Glargina                  Aspart    → Lispro → Glulisina
+#   NPH       → Degludec → Detemir        Regular   → Aspart → Lispro
+#               → Protamina (premezcla)
+SUBSTITUTION_TABLE: Dict[str, Tuple[str, ...]] = {
+    "Glargina": ("Detemir", "Degludec"),
+    "Detemir": ("Glargina", "Degludec"),
+    "Degludec": ("Glargina",),
+    "Glulisina": ("Aspart", "Lispro"),
+    "Lispro": ("Aspart", "Glulisina"),
+    "Aspart": ("Lispro", "Glulisina"),
+    "Regular": ("Aspart", "Lispro"),
+    "NPH": ("Degludec", "Detemir", "Protamina"),
+}
+
+DEFAULT_SUBSTITUTIONS: Tuple[Substitution, ...] = tuple(
+    Substitution(source, target, factor=1.0)
+    for source, targets in SUBSTITUTION_TABLE.items()
+    for target in targets
 )
 
 
@@ -128,6 +182,16 @@ class PatientInput:
     is_minor: bool
     daily_ui: Dict[str, float]
     is_type1: bool = False
+    # 1 menores, 2 tipo 1, 3 adulto mayor tipo 2, 4 tipo 2 / resto. Si no se indica se deduce.
+    priority_group: Optional[int] = None
+
+    @property
+    def group(self) -> int:
+        if self.priority_group is not None:
+            return self.priority_group
+        if self.is_minor:
+            return PRIORITY_MINOR
+        return PRIORITY_TYPE1 if self.is_type1 else PRIORITY_TYPE2
 
 
 @dataclass
@@ -156,6 +220,7 @@ class IngredientSummary:
     # y UI de esta insulina entregadas como sustituto de otra.
     substituted_out_ui: float = 0.0
     substituted_in_ui: float = 0.0
+    reserve_released_ui: float = 0.0  # UI de la reserva de esta insulina que se usaron para repartir
 
 
 @dataclass
@@ -177,6 +242,17 @@ class PatientIngredientResult:
     substitute_equiv_ui: float = 0.0  # lo que eso cubre, en UI de `ingredient`
     daily_registered: float = 0.0  # UI/día registradas en el tratamiento
     daily_applied: float = 0.0  # UI/día con las que se calculó (tras el tope de menores)
+    group: int = PRIORITY_TYPE2
+    band_min: float = 0.0  # fracciones de la necesidad
+    band_max: float = 1.0
+    outside_band: bool = False  # la cobertura quedó fuera de [band_min, band_max]
+    # Ningún envase cabía en el 120 % y se entregó uno solo, el más chico (dosis muy baja).
+    min_pen_exception: bool = False
+    # Cuánto le falta (UI de su insulina) para el mínimo de su banda y por qué no se llegó:
+    # "STOCK" = no queda envase de su insulina ni de sus sustitutos; "ENVASE" = el envase más
+    # chico que queda lo llevaría por encima del 120 %; "OTRO" = había envase y no se asignó.
+    min_shortfall_ui: float = 0.0
+    min_shortfall_cause: Optional[str] = None
 
 
 @dataclass
@@ -201,10 +277,15 @@ class DistributionPlan:
     reserve_ui: float
     allocated_ui: float
     assignments: List[Assignment] = field(default_factory=list)
+    reserve_released_ui: float = 0.0  # UI de la reserva que se repartieron para llegar a los mínimos
     reserve_lots: List[ReserveLot] = field(default_factory=list)
     ingredients: List[IngredientSummary] = field(default_factory=list)
     patients: Dict[int, List[PatientIngredientResult]] = field(default_factory=dict)
     group_choices: List[GroupChoice] = field(default_factory=list)
+    remaining_units: Dict[int, int] = field(default_factory=dict)  # envases libres por lote al terminar
+
+
+# --------------------------------------------------------------------------- catálogo de grupos
 
 
 def insulin_group(ingredient: str) -> Optional[str]:
@@ -240,11 +321,33 @@ def split_group_conflicts(
     return clean, conflicts
 
 
+def _plain(raw: Optional[str]) -> str:
+    text = unicodedata.normalize("NFD", (raw or "").strip().lower())
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+
+
 def is_type1_diabetes(raw: Optional[str]) -> bool:
     """Reconoce «Tipo 1», «TIPO 1», «tipo1», «Diabetes tipo I», «DM1»... (texto libre)."""
-    text = unicodedata.normalize("NFD", (raw or "").strip().lower())
-    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
-    return bool(re.fullmatch(r"(diabetes\s*(mellitus\s*)?)?(tipo|tp|dm|t)\s*[-.]?\s*(1|i)", text))
+    return bool(re.fullmatch(r"(diabetes\s*(mellitus\s*)?)?(tipo|tp|dm|t)\s*[-.]?\s*(1|i)", _plain(raw)))
+
+
+def is_type2_diabetes(raw: Optional[str]) -> bool:
+    """Reconoce «Tipo 2», «TIPO 2», «tipo II», «DM2»... (texto libre)."""
+    return bool(re.fullmatch(r"(diabetes\s*(mellitus\s*)?)?(tipo|tp|dm|t)\s*[-.]?\s*(2|ii)", _plain(raw)))
+
+
+def priority_group_for(age: Optional[int], diabetes_type: Optional[str]) -> int:
+    """Grupo de prioridad: menores; tipo 1; adulto mayor tipo 2; tipo 2 y todo lo demás."""
+    if age is not None and age < MINOR_AGE:
+        return PRIORITY_MINOR
+    if is_type1_diabetes(diabetes_type):
+        return PRIORITY_TYPE1
+    if age is not None and age >= OLDER_ADULT_AGE and is_type2_diabetes(diabetes_type):
+        return PRIORITY_OLDER_TYPE2
+    return PRIORITY_TYPE2
+
+
+# --------------------------------------------------------------------------- stock y combinaciones
 
 
 def _fefo_key(lot: LotInput) -> Tuple[date, int]:
@@ -275,11 +378,15 @@ def _split_reserve(
     }
 
 
-def _take_reserve(lots: List[LotInput], reserve_ui: float, avail: Dict[int, int]) -> List[ReserveLot]:
-    """Aparta envases enteros, empezando por los lotes que vencen más tarde."""
+def _take_reserve(
+    lots: List[LotInput], reserve_ui: float, avail: Dict[int, int], preferred: Sequence[str] = ()
+) -> List[ReserveLot]:
+    """Aparta envases enteros: primero de las marcas no preferidas (la preferida, Lantus, se
+    deja libre para los menores) y, dentro de cada una, de los lotes que vencen más tarde."""
     reserved: List[ReserveLot] = []
     remaining = reserve_ui
-    for lot in sorted(lots, key=_fefo_key, reverse=True):
+    order = sorted(lots, key=lambda l: (0 if _is_preferred(l, preferred) else 1, _fefo_key(l)), reverse=True)
+    for lot in order:
         if remaining <= _EPS:
             break
         n = min(avail[lot.lot_id], math.ceil((remaining - _EPS) / lot.ui_per_unit))
@@ -303,60 +410,123 @@ class _Order(list):
         self.classes = classes or {}
 
 
-def _best_pens(
-    lots: Sequence[LotInput], avail: Dict[int, int], target_ui: float
-) -> Optional[Dict[int, int]]:
-    """Combinación de envases (de distinto tamaño) que cubre `target_ui` con el menor exceso.
+def _totals(lots: Sequence[LotInput], avail: Dict[int, int], max_total: float) -> Dict[float, tuple]:
+    """Totales de UI alcanzables combinando envases de hasta 4 tamaños, hasta `max_total`.
 
-    Devuelve {lot_id: envases} o None si el stock no alcanza. Desempata por menos envases,
-    menos tamaños distintos y lotes que van antes en el orden dado.
+    Devuelve {total: (envases, tamaños usados, {tamaño: cantidad})} con la combinación de
+    menos envases para cada total; los tamaños siguen el orden de preferencia de los lotes.
     """
     by_size: Dict[float, List[LotInput]] = {}
     for lot in lots:
         if avail[lot.lot_id] > 0:
             by_size.setdefault(lot.ui_per_unit, []).append(lot)
-    sizes = list(by_size)[:4]  # los 4 primeros en orden de preferencia bastan en la práctica
+    sizes = list(by_size)[:_MAX_SIZES]
     if not sizes:
-        return None
+        return {}
     caps = [sum(avail[l.lot_id] for l in by_size[sz]) for sz in sizes]
-    if sum(c * sz for c, sz in zip(caps, sizes)) + _EPS < target_ui:
-        return None
-    limits = [min(c, math.ceil(target_ui / sz - 1e-9) + 1) for c, sz in zip(caps, sizes)]
-
-    best_key = None
-    best_counts = None
+    found: Dict[float, tuple] = {}
 
     def walk(idx: int, counts: List[int], total: float) -> None:
-        nonlocal best_key, best_counts
         if idx == len(sizes):
-            if total + _EPS < target_ui or total <= 0:
-                return
-            key = (round(total - target_ui, 6), sum(counts), sum(1 for c in counts if c), tuple(-c for c in counts))
-            if best_key is None or key < best_key:
-                best_key, best_counts = key, list(counts)
+            if total > _EPS:
+                key = round(total, 6)
+                npens = sum(counts)
+                kinds = sum(1 for c in counts if c)
+                cur = found.get(key)
+                if cur is None or (npens, kinds) < (cur[0], cur[1]):
+                    found[key] = (npens, kinds, {sz: c for sz, c in zip(sizes, counts) if c})
             return
-        for c in range(limits[idx] + 1):
-            walk(idx + 1, counts + [c], total + c * sizes[idx])
+        size = sizes[idx]
+        c = 0
+        while c <= caps[idx] and total + c * size <= max_total + _EPS:
+            walk(idx + 1, counts + [c], total + c * size)
+            c += 1
 
     walk(0, [], 0.0)
-    if best_counts is None:
+    return found
+
+
+def _select_total(
+    totals: Dict[float, tuple], lo: float, hi: float, ideal: float
+) -> Optional[Tuple[float, str]]:
+    """Elige un total: dentro de [lo, hi] el más cercano a `ideal`; si no hay, el mínimo
+    sobre `lo` (gana la garantía del mínimo); si tampoco, el mayor posible bajo `lo`.
+
+    Devuelve (total, "in" | "above" | "below") o None si no hay ninguna combinación.
+    """
+    if not totals:
         return None
-    result: Dict[int, int] = {}
-    for sz, count in zip(sizes, best_counts):
+    within = [(abs(t - ideal), totals[t][0], t) for t in totals if lo - _EPS <= t <= hi + _EPS]
+    if within:
+        return min(within)[2], "in"
+    above = [t for t in totals if t > hi + _EPS and t >= lo - _EPS]
+    if above:
+        return min(above), "above"
+    below = [t for t in totals if t < lo - _EPS]
+    if below:
+        return max(below), "below"
+    return None
+
+
+def _counts_to_lots(
+    lots: Sequence[LotInput], avail: Dict[int, int], counts: Dict[float, int]
+) -> Dict[int, int]:
+    """Pasa {tamaño: cantidad} a {lote: envases}, usando primero el lote que vence antes."""
+    out: Dict[int, int] = {}
+    for size, count in counts.items():
         remaining = count
-        for lot in by_size[sz]:  # dentro de un mismo tamaño, primero el que vence antes
+        for lot in lots:
             if remaining <= 0:
                 break
+            if lot.ui_per_unit != size:
+                continue
             n = min(avail[lot.lot_id], remaining)
             if n > 0:
-                result[lot.lot_id] = n
+                out[lot.lot_id] = out.get(lot.lot_id, 0) + n
                 remaining -= n
-    return result
+    return out
 
 
-def _pick_one(ordered: List[LotInput], avail: Dict[int, int], rem: float) -> Optional[LotInput]:
-    """Envase que menos sobra para cubrir `rem`; si ninguno alcanza solo, el más grande."""
-    cands = [(k, l) for k, l in enumerate(ordered) if avail[l.lot_id] > 0]
+def _band_pick(
+    order: Sequence[LotInput], avail: Dict[int, int], lo: float, hi: float, ideal: float
+) -> Optional[Tuple[Dict[int, int], float, str]]:
+    """Mejor combinación de envases para cubrir entre `lo` y `hi` (UI), cerca de `ideal`.
+
+    Prueba primero con los lotes preferidos del grupo (p. ej. Lantus para menores) y solo
+    si ahí no hay una combinación dentro de la banda amplía a todos los lotes.
+    Devuelve ({lote: envases}, total, "in"|"above"|"below") o None.
+    """
+    classes = getattr(order, "classes", None) or {}
+    levels = sorted({classes.get(l.lot_id, 0) for l in order})
+    best = None
+    for level in levels:
+        subset = [l for l in order if classes.get(l.lot_id, 0) <= level and avail[l.lot_id] > 0]
+        if not subset:
+            continue
+        max_size = max(l.ui_per_unit for l in subset)
+        totals = _totals(subset, avail, hi + max_size)
+        chosen = _select_total(totals, lo, hi, ideal)
+        if chosen is None:
+            continue
+        total, kind = chosen
+        rank = {"in": 0, "above": 1, "below": 2}[kind]
+        key = (rank, abs(total - ideal) if kind == "in" else (total - hi if kind == "above" else lo - total), level)
+        if best is None or key < best[0]:
+            best = (key, subset, totals[round(total, 6)][2], total, kind)
+        if kind == "in":
+            break  # ya cabe con los lotes preferidos: no se amplía
+    if best is None:
+        return None
+    _key, subset, counts, total, kind = best
+    return _counts_to_lots(subset, avail, counts), total, kind
+
+
+def _pick_one(ordered: Sequence[LotInput], avail: Dict[int, int], rem: float, hi: float) -> Optional[LotInput]:
+    """Envase que menos sobra para cubrir `rem` sin pasar de `hi`; si ninguno alcanza solo, el más grande.
+
+    Nunca devuelve un envase más grande que `hi`.
+    """
+    cands = [(k, l) for k, l in enumerate(ordered) if avail[l.lot_id] > 0 and l.ui_per_unit <= hi + _EPS]
     if not cands:
         return None
     fits = [(k, l) for k, l in cands if l.ui_per_unit + _EPS >= rem]
@@ -365,202 +535,7 @@ def _pick_one(ordered: List[LotInput], avail: Dict[int, int], rem: float) -> Opt
     return max(cands, key=lambda kl: (kl[1].ui_per_unit, -kl[0]))[1]
 
 
-def _choose_combo(
-    ordered: Sequence[LotInput], avail: Dict[int, int], target_ui: float
-) -> Optional[Dict[int, int]]:
-    """Mejor combinación respetando la preferencia de marca.
-
-    Se prueba primero solo con los lotes preferidos del grupo (p. ej. Lantus para menores);
-    si ahí no hay una combinación dentro del 100-120 %, se amplía a todos los lotes y gana
-    la de menor exceso. Con stock insuficiente devuelve None.
-    """
-    classes = getattr(ordered, "classes", None) or {}
-    levels = sorted({classes.get(l.lot_id, 0) for l in ordered})
-    best = None  # (dentro_de_ventana, exceso, nivel)
-    best_combo = None
-    for level in levels:
-        subset = [l for l in ordered if classes.get(l.lot_id, 0) <= level and avail[l.lot_id] > 0]
-        combo = _best_pens(subset, avail, target_ui)
-        if combo is None:
-            continue
-        total = sum(avail_lot.ui_per_unit * combo.get(avail_lot.lot_id, 0) for avail_lot in subset)
-        coverage = total / target_ui
-        dentro = PRIORITY_MIN_COVERAGE - 1e-9 <= coverage <= PRIORITY_MAX_COVERAGE + 1e-9
-        key = (0 if dentro else 1, 0 if dentro else coverage, level)
-        if best is None or key < best:
-            best, best_combo = key, combo
-        if dentro:
-            break  # ya cabe con los lotes preferidos: no se amplía
-    return best_combo
-
-
-def _draw(
-    ordered: List[LotInput],
-    avail: Dict[int, int],
-    target_ui: float,
-    round_up: bool,
-) -> List[Tuple[LotInput, int]]:
-    """Saca envases para llegar a `target_ui`.
-
-    Primero los envases enteros que caben, en el orden dado (FEFO). Con `round_up`,
-    lo que falte se completa con el envase que menos sobre en vez del primero de
-    la lista, para no entregar de más (p. ej. un vial de 1.000 UI a quien le faltan 300).
-    """
-    taken: Dict[int, List] = {}
-
-    def take(lot: LotInput, n: int) -> None:
-        avail[lot.lot_id] -= n
-        taken.setdefault(lot.lot_id, [lot, 0])[1] += n
-
-    if round_up and target_ui > _EPS:
-        combo = _choose_combo(ordered, avail, target_ui)
-        if combo is not None:
-            by_id = {lot.lot_id: lot for lot in ordered}
-            for lot_id, n in combo.items():
-                take(by_id[lot_id], n)
-            return [(lot, n) for lot, n in taken.values()]
-
-    remaining = target_ui
-    for lot in ordered:
-        if remaining <= _EPS:
-            break
-        have = avail[lot.lot_id]
-        if have <= 0:
-            continue
-        n = min(math.floor(remaining / lot.ui_per_unit + 1e-9), have)
-        if n > 0:
-            take(lot, n)
-            remaining -= n * lot.ui_per_unit
-    while round_up and remaining > _EPS:
-        lot = _pick_one(ordered, avail, remaining)
-        if lot is None:
-            break
-        take(lot, 1)
-        remaining -= lot.ui_per_unit
-    return [(lot, n) for lot, n in taken.values()]
-
-
-@dataclass
-class _Deferral:
-    """Resto de una necesidad que no llenó un envase entero y queda para el final."""
-
-    pid: int
-    source: str  # insulina que el paciente usa
-    kind: str  # "own": se cubre con su propia insulina; "sub": con el sustituto
-    rem_ui: float  # en UI de la insulina que se entrega
-    order: List[LotInput]
-    rank: int  # 0 menores, 1 adultos tipo 1, 2 resto
-    rule: Optional[Substitution] = None
-
-
-DeferFn = Optional[Callable[[int, float], None]]
-
-
-def _base_draw(order: List[LotInput], avail: Dict[int, int], need: float) -> List[Tuple[LotInput, int]]:
-    """Envases enteros que caben dentro de la necesidad (sin pasarse); al menos uno."""
-    taken = _draw(order, avail, need, round_up=False)
-    if taken:
-        return taken
-    lot = _pick_one(order, avail, need)
-    if lot is None:
-        return []
-    avail[lot.lot_id] -= 1
-    return [(lot, 1)]
-
-
-def _allocate(
-    order: List[LotInput],
-    avail: Dict[int, int],
-    needs: Dict[int, float],
-    assignments: List[Assignment],
-    for_ingredient: str,
-    defer: DeferFn,
-) -> Dict[int, float]:
-    """Reparte un grupo de pacientes (todos con la misma prioridad) y devuelve UI por paciente.
-
-    Si el stock libre alcanza hay dos modos. Con `defer=None` (grupos prioritarios)
-    cada paciente recibe su tratamiento completo, con el último envase incluido.
-    Con `defer` cada uno recibe primero los envases enteros que caben en su
-    necesidad y el resto (menos de un envase) se aplaza: el envase extra solo se
-    entrega al final, con lo que sobre, para que redondear hacia arriba no le quite
-    stock a quien todavía no recibió lo suyo. Si no alcanza, se reparte en
-    proporción a la necesidad y los envases que sobran del redondeo hacia abajo van
-    a quien más le falta.
-    """
-    pids = sorted(needs)
-    if not pids or not order:
-        return {}
-    total = sum(needs.values())
-    free_ui = sum(avail[l.lot_id] * l.ui_per_unit for l in order)
-    full = total <= free_ui + _EPS
-    ratio = 1.0 if full else (free_ui / total if total else 0.0)
-    got: Dict[int, float] = {}
-    for pid in pids:
-        got[pid] = 0.0
-        if not full:
-            taken = _draw(order, avail, needs[pid] * ratio, round_up=False)
-        elif defer is None:
-            taken = _draw(order, avail, needs[pid], round_up=True)
-        else:
-            taken = _base_draw(order, avail, needs[pid])
-        for lot, n in taken:
-            ui = n * lot.ui_per_unit
-            got[pid] += ui
-            assignments.append(Assignment(pid, lot.lot_id, n, ui, for_ingredient))
-        if full and defer is not None and needs[pid] - got[pid] > _EPS:
-            defer(pid, needs[pid] - got[pid])
-    if not full:
-        for pid in sorted(pids, key=lambda x: needs[x] - got[x], reverse=True):
-            if needs[pid] - got[pid] <= _EPS:
-                break
-            for lot in order:
-                if avail[lot.lot_id] > 0:
-                    avail[lot.lot_id] -= 1
-                    got[pid] += lot.ui_per_unit
-                    assignments.append(Assignment(pid, lot.lot_id, 1, lot.ui_per_unit, for_ingredient))
-                    break
-            else:
-                break
-    return got
-
-
-def _allocate_whole(
-    order: List[LotInput],
-    avail: Dict[int, int],
-    needs: Dict[int, float],
-    assignments: List[Assignment],
-    for_ingredient: str,
-    defer: DeferFn,
-) -> Dict[int, float]:
-    """Todo o nada: cada paciente recibe su necesidad completa o no recibe nada.
-
-    Se recorre por id y se entrega a quien quepa entero en lo que queda, de modo
-    que un paciente chico todavía puede entrar después de uno que no cupo. Igual
-    que en `_allocate`, `defer=None` redondea de inmediato y con `defer` el envase
-    extra se aplaza al final.
-    """
-    got: Dict[int, float] = {}
-    for pid in sorted(needs):
-        free_ui = sum(avail[lot.lot_id] * lot.ui_per_unit for lot in order)
-        if free_ui + _EPS < needs[pid]:
-            continue
-        if defer is None:
-            trial = {lot.lot_id: avail[lot.lot_id] for lot in order}
-            taken = _draw(order, trial, needs[pid], round_up=True)
-            if sum(n * lot.ui_per_unit for lot, n in taken) + _EPS < needs[pid]:
-                continue  # no cabe entero con envases enteros
-            avail.update(trial)
-        else:
-            taken = _base_draw(order, avail, needs[pid])
-        ui = sum(n * lot.ui_per_unit for lot, n in taken)
-        if not taken:
-            continue
-        for lot, n in taken:
-            assignments.append(Assignment(pid, lot.lot_id, n, n * lot.ui_per_unit, for_ingredient))
-        got[pid] = ui
-        if defer is not None and needs[pid] - ui > _EPS:
-            defer(pid, needs[pid] - ui)
-    return got
+# --------------------------------------------------------------------------- una insulina por grupo
 
 
 def resolve_group_choices(
@@ -576,10 +551,10 @@ def resolve_group_choices(
 
     Devuelve ({paciente: {insulina: dosis diaria}}, elecciones hechas). Las fichas sin
     conflicto pasan igual. Para las que tienen dos insulinas del mismo grupo se elige la
-    que se puede cubrir: primero con stock propio, luego con una sustitución conocida,
-    y si ninguna, la de mayor dosis. La disponibilidad se mide frente a la demanda de
-    quienes no tienen duda y se va descontando a medida que se decide, en orden de
-    prioridad (menores, adultos tipo 1, resto).
+    que se puede cubrir: primero con stock propio, luego con una sustitución conocida
+    (no para menores), y si ninguna, la de mayor dosis. La disponibilidad se mide frente a
+    la demanda de quienes no tienen duda y se va descontando a medida que se decide, en
+    orden de prioridad.
     """
     usable_stock = {
         ing: sum(l.units * l.ui_per_unit for l in ls) * (1 - reserve_pct) for ing, ls in lots_by_ing.items()
@@ -609,10 +584,7 @@ def resolve_group_choices(
     surplus = {ing: usable_stock.get(ing, 0.0) - committed.get(ing, 0.0) for ing in set(usable_stock) | set(committed)}
     choices: List[GroupChoice] = []
 
-    def rank(p: PatientInput) -> int:
-        return 0 if p.is_minor else 1 if p.is_type1 else 2
-
-    for p, group, options in sorted(pending, key=lambda x: (rank(x[0]), x[0].patient_id, x[1])):
+    for p, group, options in sorted(pending, key=lambda x: (x[0].group, x[0].patient_id, x[1])):
         scored = []
         # Una premezcla nunca sustituye a una basal: si hay una basal registrada, compiten
         # solo las basales aunque la premezcla tenga más stock.
@@ -626,7 +598,7 @@ def resolve_group_choices(
             via = None
             if not direct:
                 for r in rules:
-                    if r.source != ing or (r.adults_only and p.is_minor):
+                    if r.source != ing:
                         continue
                     if surplus.get(r.target, 0.0) >= need * r.factor - _EPS:
                         via = r
@@ -635,6 +607,25 @@ def resolve_group_choices(
             # menor nivel = mejor; luego más holgura de stock y más dosis registrada
             scored.append(((level, -surplus.get(ing, 0.0), -dose, ing), ing, need, via, level))
         scored.sort(key=lambda x: x[0])
+        keep = [x for x in scored if p.is_minor and x[1] in MINOR_KEEP_INSULINS]
+        if keep:
+            # Un menor con degludec la conserva siempre, tenga o no stock, aunque haya otra basal.
+            chosen = keep[0][1]
+            need = keep[0][2]
+            surplus[chosen] = surplus.get(chosen, 0.0) - need
+            effective[p.patient_id][chosen] = options[chosen]
+            choices.append(
+                GroupChoice(
+                    patient_id=p.patient_id,
+                    group=group,
+                    options=dict(options),
+                    chosen=chosen,
+                    reason="MENOR_DEGLUDEC",
+                    substitute=None,
+                    premix_discarded=premix_discarded,
+                )
+            )
+            continue
         _key, chosen, need, via, level = scored[0]
         if level == 0:
             surplus[chosen] = surplus.get(chosen, 0.0) - need
@@ -659,6 +650,31 @@ def resolve_group_choices(
     return effective, choices
 
 
+# --------------------------------------------------------------------------- reparto
+
+
+@dataclass
+class _Entry:
+    """Una insulina de un paciente: lo que necesita y lo que ya se le dio."""
+
+    pid: int
+    ing: str
+    group: int
+    is_minor: bool
+    need: float
+    lo: float
+    hi: float
+    cap: float  # tope absoluto (MAX_COVERAGE de la necesidad)
+    daily: float = 0.0  # dosis diaria usada en el cálculo (UI/día)
+    own: float = 0.0
+    subs: Dict[str, List[float]] = field(default_factory=dict)  # destino -> [UI del destino, UI que cubre]
+    min_pen: bool = False  # recibió un envase sobre el tope porque ninguno cabía
+
+    @property
+    def covered(self) -> float:
+        return self.own + sum(v[1] for v in self.subs.values())
+
+
 def plan_distribution(
     lots: Sequence[LotInput],
     patients: Sequence[PatientInput],
@@ -668,84 +684,93 @@ def plan_distribution(
     minor_preferred_brands: Optional[Dict[str, Tuple[str, ...]]] = None,
     substitutions: Optional[Sequence[Substitution]] = None,
     minor_daily_cap_ui: Optional[float] = MINOR_DAILY_CAP_UI,
+    bands: Optional[Dict[int, Tuple[float, float]]] = None,
+    release_reserve: bool = True,
 ) -> DistributionPlan:
+    """Reparte la donación entre los pacientes. Ver el encabezado del módulo para las reglas.
+
+    La prioridad es estricta: un grupo no cede stock a otro de menor prioridad para llegar a
+    su mínimo. Si una insulina no alcanza, quedan por debajo (incluso en 0 %) los últimos.
+
+    `release_reserve`: con True, lo que haga falta de la reserva se reparte al final a los
+    tratamientos que siguen bajo su mínimo; con False la reserva no se toca. Si aun así alguien
+    queda bajo su mínimo por falta de una insulina que otros reciben como sustituto, esos
+    otros pasan a otra alternativa disponible y le dejan los envases.
+    """
     preferred_map = MINOR_PREFERRED_BRANDS if minor_preferred_brands is None else minor_preferred_brands
     rules = DEFAULT_SUBSTITUTIONS if substitutions is None else tuple(substitutions)
+    band_of = COVERAGE_BANDS if bands is None else bands
     for rule in rules:
-        if rule.target in PREMIX_INSULINS and rule.source not in PREMIX_INSULINS:
+        if (
+            rule.target in PREMIX_INSULINS
+            and rule.source not in PREMIX_INSULINS
+            and rule.source not in PREMIX_REPLACEABLE
+        ):
             raise ValueError(f"Una premezcla no puede sustituir a una basal ({rule.source} -> {rule.target})")
+    factor_of = {(r.source, r.target): r.factor for r in rules}
+    targets_of: Dict[str, List[str]] = {}
+    for r in rules:
+        targets_of.setdefault(r.source, []).append(r.target)
 
     lots_by_ing: Dict[str, List[LotInput]] = {}
     for lot in lots:
         if lot.units > 0 and lot.ui_per_unit > 0:
             lots_by_ing.setdefault(lot.ingredient, []).append(lot)
 
-    needs: Dict[str, Dict[int, float]] = {}
-    minors = {p.patient_id for p in patients if p.is_minor}
-    # Adultos con diabetes tipo 1: segundo grupo de prioridad, después de los menores.
-    type1_adults = {p.patient_id for p in patients if p.is_type1 and not p.is_minor}
-    registered: Dict[Tuple[int, str], float] = {}
-    applied: Dict[Tuple[int, str], float] = {}
     # Dos insulinas del mismo grupo es un error de la ficha: se usa una sola, la que se puede atender.
     effective, group_choices = resolve_group_choices(
-        patients,
-        lots_by_ing,
-        days=days,
-        reserve_pct=reserve_pct,
-        rules=rules,
-        minor_daily_cap_ui=minor_daily_cap_ui,
+        patients, lots_by_ing, days=days, reserve_pct=reserve_pct, rules=rules, minor_daily_cap_ui=minor_daily_cap_ui,
     )
-    for p in patients:
-        for ing, daily in effective[p.patient_id].items():
-            if daily and daily > 0:
-                registered[(p.patient_id, ing)] = daily
-                # Tope para menores de 18, sin importar la dosis registrada.
-                if (
-                    p.is_minor
-                    and minor_daily_cap_ui is not None
-                    and ing in MINOR_CAPPED_INGREDIENTS
-                    and daily > minor_daily_cap_ui
-                ):
-                    daily = minor_daily_cap_ui
-                applied[(p.patient_id, ing)] = daily
-                needs.setdefault(ing, {})[p.patient_id] = daily * days
 
+    registered: Dict[Tuple[int, str], float] = {}
+    applied: Dict[Tuple[int, str], float] = {}
+    entries: List[_Entry] = []
+    for p in patients:
+        lo_f, hi_f = band_of[p.group]
+        for ing, daily in effective[p.patient_id].items():
+            if not daily or daily <= 0:
+                continue
+            registered[(p.patient_id, ing)] = daily
+            # Tope para menores de 18, sin importar la dosis registrada.
+            if (
+                p.is_minor
+                and minor_daily_cap_ui is not None
+                and ing in MINOR_CAPPED_INGREDIENTS
+                and daily > minor_daily_cap_ui
+            ):
+                daily = minor_daily_cap_ui
+            applied[(p.patient_id, ing)] = daily
+            need = daily * days
+            entries.append(
+                _Entry(
+                    p.patient_id, ing, p.group, p.is_minor, need, need * lo_f, need * hi_f, need * MAX_COVERAGE,
+                    daily=daily,
+                )
+            )
+
+    needs_by_ing: Dict[str, float] = {}
+    for e in entries:
+        needs_by_ing[e.ing] = needs_by_ing.get(e.ing, 0.0) + e.need
     stock = {ing: sum(l.units * l.ui_per_unit for l in ls) for ing, ls in lots_by_ing.items()}
-    demand = {ing: sum(needs.get(ing, {}).values()) for ing in stock}
     total_stock = sum(stock.values())
     reserve_target = total_stock * reserve_pct
-    reserve_by_ing = _split_reserve(stock, demand, reserve_target) if stock else {}
+    reserve_by_ing = _split_reserve(stock, {k: needs_by_ing.get(k, 0.0) for k in stock}, reserve_target) if stock else {}
 
     avail: Dict[int, int] = {l.lot_id: l.units for ls in lots_by_ing.values() for l in ls}
     plan = DistributionPlan(
-        group_choices=group_choices,
-        days=days,
-        reserve_pct=reserve_pct,
-        total_stock_ui=total_stock,
-        reserve_target_ui=reserve_target,
-        reserve_ui=0.0,
-        allocated_ui=0.0,
+        days=days, reserve_pct=reserve_pct, total_stock_ui=total_stock, reserve_target_ui=reserve_target,
+        reserve_ui=0.0, allocated_ui=0.0, group_choices=group_choices,
     )
-    given: Dict[Tuple[int, str], float] = {}
-    reserve_ui_by_ing: Dict[str, float] = {}
-    all_ingredients = sorted(set(lots_by_ing) | set(needs))
-    # Insulinas cuyos adultos pasan enteros al sustituto, si el sustituto existe en stock.
-    whole_switch = {r.source for r in rules if r.whole_switch and lots_by_ing.get(r.target)}
-    adult_orders: Dict[str, List[LotInput]] = {}
-    deferrals: List[_Deferral] = []
-
-    def rank_of(pid: int) -> int:
-        return 0 if pid in minors else 1 if pid in type1_adults else 2
 
     # Reserva y orden de lotes por insulina: se fijan antes de repartir nada.
-    minor_orders: Dict[str, List[LotInput]] = {}
-    for ing in all_ingredients:
-        ing_lots = lots_by_ing.get(ing, [])
-        reserved = _take_reserve(ing_lots, reserve_by_ing.get(ing, 0.0), avail) if ing_lots else []
+    reserve_ui_by_ing: Dict[str, float] = {}
+    minor_orders: Dict[str, _Order] = {}
+    adult_orders: Dict[str, _Order] = {}
+    for ing, ing_lots in lots_by_ing.items():
+        reserved = _take_reserve(ing_lots, reserve_by_ing.get(ing, 0.0), avail, preferred_map.get(ing, ()))
         plan.reserve_lots.extend(reserved)
         reserve_ui_by_ing[ing] = sum(r.ui for r in reserved)
         plan.reserve_ui += reserve_ui_by_ing[ing]
-
         preferred = preferred_map.get(ing, ())
         base_order = sorted(ing_lots, key=_fefo_key)
         minor_class = {l.lot_id: (0 if _is_preferred(l, preferred) else 1) for l in base_order}
@@ -753,171 +778,438 @@ def plan_distribution(
         minor_orders[ing] = _Order(sorted(base_order, key=lambda l: minor_class[l.lot_id]), minor_class)
         adult_orders[ing] = _Order(sorted(base_order, key=lambda l: adult_class[l.lot_id]), adult_class)
 
-    def own_rounding(pid: int, ing: str) -> float:
-        return sum(d.rem_ui for d in deferrals if d.pid == pid and d.source == ing and d.kind == "own")
+    def order_for(entry: _Entry, ing: str) -> Sequence[LotInput]:
+        orders = minor_orders if entry.is_minor else adult_orders
+        return orders.get(ing, [])
 
-    def sub_rounding(pid: int, ing: str) -> float:
-        return sum(
-            d.rem_ui / d.rule.factor for d in deferrals if d.pid == pid and d.source == ing and d.kind == "sub"
-        )
+    def candidates(entry: _Entry) -> List[Tuple[str, float]]:
+        """Insulina propia primero y los sustitutos de la tabla en su orden."""
+        out = [(entry.ing, 1.0)]
+        if entry.is_minor and entry.ing in MINOR_KEEP_INSULINS:
+            return out  # un menor mantiene su degludec: no se sustituye
+        out += [(t, factor_of[(entry.ing, t)]) for t in targets_of.get(entry.ing, []) if t in lots_by_ing]
+        return out
 
-    substituted: Dict[Tuple[int, str], Tuple[str, float, float]] = {}  # (pid, fuente) -> (destino, UI destino, UI fuente)
-    substituted_out: Dict[str, float] = {}
-    substituted_in: Dict[str, float] = {}
-
-    # La prioridad vale entre insulinas, no solo dentro de cada una: un grupo completa
-    # TODO su tratamiento (insulina propia y sustituciones) antes de que el siguiente
-    # grupo toque el stock. Si no, los usuarios de aspart de menor prioridad dejaban sin
-    # aspart sustituto a un menor con glulisina.
-    for rank in (0, 1, 2):
-        # A) Cada paciente del grupo recibe su propia insulina.
-        for ing in all_ingredients:
-            ing_needs = needs.get(ing, {})
-            tier_needs = {pid: n for pid, n in ing_needs.items() if rank_of(pid) == rank}
-            if not tier_needs:
-                continue
-            order = minor_orders[ing] if rank == 0 else adult_orders[ing]
-            allocate = _allocate_whole if (rank != 0 and ing in whole_switch) else _allocate
-
-            def defer_own(pid, rem, ing=ing, order=order, rank=rank):
-                deferrals.append(_Deferral(pid, ing, "own", rem, order, rank))
-
-            # Menores y adultos tipo 1 reciben su tratamiento completo de inmediato;
-            # el redondeo del resto de adultos se aplaza.
-            defer = defer_own if rank == 2 else None
-            for pid, ui in allocate(order, avail, tier_needs, plan.assignments, ing, defer).items():
-                given[(pid, ing)] = ui
-
-        # B) Lo que les falta se completa con el sustituto, solo con stock libre (la
-        #    reserva no se toca).
-        for rule in rules:
-            target_lots = sorted(lots_by_ing.get(rule.target, []), key=_fefo_key)
-            pending = {}
-            for pid, need in needs.get(rule.source, {}).items():
-                if rank_of(pid) != rank or (rule.adults_only and pid in minors):
-                    continue
-                missing = need - given.get((pid, rule.source), 0.0) - own_rounding(pid, rule.source)
-                if missing > _EPS:
-                    pending[pid] = missing * rule.factor
-            if not pending or not target_lots:
-                continue
-
-            def defer_sub(pid, rem, rule=rule, order=target_lots, rank=rank):
-                deferrals.append(_Deferral(pid, rule.source, "sub", rem, order, rank, rule))
-
-            defer = defer_sub if rank == 2 else None
-            for pid, ui in _allocate(target_lots, avail, pending, plan.assignments, rule.source, defer).items():
-                if ui <= 0:
-                    continue
-                equiv = ui / rule.factor
-                substituted[(pid, rule.source)] = (rule.target, ui, equiv)
-                substituted_out[rule.source] = substituted_out.get(rule.source, 0.0) + equiv
-                substituted_in[rule.target] = substituted_in.get(rule.target, 0.0) + ui
-
-        # C) Si el sustituto de un cambio completo no alcanzó, la glargina que sobró se
-        #    reparte entre los adultos del grupo que quedaron sin cubrir (mejor parcial
-        #    que nada).
-        if rank == 0:
-            continue
-        for rule in rules:
-            if rule.source not in whole_switch or not rule.whole_switch:
-                continue
-            unmet = {}
-            for pid, need in needs.get(rule.source, {}).items():
-                if rank_of(pid) != rank:
-                    continue
-                missing = (
-                    need
-                    - given.get((pid, rule.source), 0.0)
-                    - substituted.get((pid, rule.source), ("", 0.0, 0.0))[2]
-                    - own_rounding(pid, rule.source)
-                    - sub_rounding(pid, rule.source)
-                )
-                if missing > _EPS:
-                    unmet[pid] = missing
-            if not unmet:
-                continue
-
-            def defer_rescue(pid, rem, rule=rule, rank=rank):
-                deferrals.append(_Deferral(pid, rule.source, "own", rem, adult_orders[rule.source], rank))
-
-            defer = defer_rescue if rank == 2 else None
-            for pid, ui in _allocate(
-                adult_orders[rule.source], avail, unmet, plan.assignments, rule.source, defer
-            ).items():
-                if ui > 0:
-                    given[(pid, rule.source)] = given.get((pid, rule.source), 0.0) + ui
-
-    # Último paso: el envase extra del redondeo, solo con el stock que sobró y en orden de prioridad.
-    for d in sorted(deferrals, key=lambda x: (x.rank, x.pid, x.source, x.kind)):
-        taken = _draw(d.order, avail, d.rem_ui, round_up=True)
-        ui = sum(n * lot.ui_per_unit for lot, n in taken)
-        if ui <= 0:
-            continue
-        for lot, n in taken:
-            plan.assignments.append(Assignment(d.pid, lot.lot_id, n, n * lot.ui_per_unit, d.source))
-        if d.kind == "own":
-            given[(d.pid, d.source)] = given.get((d.pid, d.source), 0.0) + ui
+    def apply(entry: _Entry, ing: str, factor: float, combo: Dict[int, int]) -> float:
+        """Entrega un combo y devuelve las UI de la insulina propia que cubre."""
+        by_id = {l.lot_id: l for l in lots_by_ing.get(ing, [])}
+        total = 0.0
+        for lot_id, n in combo.items():
+            lot = by_id[lot_id]
+            avail[lot_id] -= n
+            ui = n * lot.ui_per_unit
+            total += ui
+            plan.assignments.append(Assignment(entry.pid, lot_id, n, ui, entry.ing))
+        equiv = total / factor
+        if ing == entry.ing:
+            entry.own += equiv
         else:
-            target, prev_ui, prev_equiv = substituted[(d.pid, d.source)]
-            extra_equiv = ui / d.rule.factor
-            substituted[(d.pid, d.source)] = (target, prev_ui + ui, prev_equiv + extra_equiv)
-            substituted_out[d.source] = substituted_out.get(d.source, 0.0) + extra_equiv
-            substituted_in[target] = substituted_in.get(target, 0.0) + ui
+            slot = entry.subs.setdefault(ing, [0.0, 0.0])
+            slot[0] += total
+            slot[1] += equiv
+        return equiv
 
-    # Un mismo paciente puede recibir del mismo lote en varias pasadas: se junta en una fila.
-    merged: Dict[Tuple[int, int, str], Assignment] = {}
-    for a in plan.assignments:
-        key = (a.patient_id, a.lot_id, a.for_ingredient)
-        if key in merged:
-            merged[key].units += a.units
-            merged[key].ui += a.ui
-        else:
-            merged[key] = Assignment(a.patient_id, a.lot_id, a.units, a.ui, a.for_ingredient)
-    plan.assignments = list(merged.values())
+    # Envase más chico de cada insulina en toda la donación (para la excepción del tope).
+    min_size = {ing: min(l.ui_per_unit for l in ls) for ing, ls in lots_by_ing.items()}
 
-    # Resúmenes por insulina con el stock ya definitivo.
-    for ing in all_ingredients:
-        ing_lots = lots_by_ing.get(ing, [])
-        ing_needs = needs.get(ing, {})
-        own_ui = sum(ui for (pid, i), ui in given.items() if i == ing)
-        covered_by_other = substituted_out.get(ing, 0.0)
-        unmet_patients = sum(
-            1
-            for pid, need in ing_needs.items()
-            if need - given.get((pid, ing), 0.0) - substituted.get((pid, ing), ("", 0.0, 0.0))[2] > _EPS
+    def smallest_pen_exception(entry: _Entry) -> None:
+        """Dosis tan baja que ningún envase de la donación cabe en el 120 %: un solo envase, el más chico.
+
+        Solo aplica si ningún tamaño de envase de su insulina ni de sus sustitutos cabe en el
+        tope; si hay envases que caben pero se agotaron, no se entrega uno más grande.
+        """
+        if entry.covered > _EPS:
+            return
+        cands = [(ing, f) for ing, f in candidates(entry) if ing in min_size]
+        if not cands or any(min_size[ing] / f <= entry.cap + _EPS for ing, f in cands):
+            return
+        for ing, factor in cands:
+            size = min_size[ing]
+            lot = next((l for l in order_for(entry, ing) if avail[l.lot_id] > 0 and l.ui_per_unit == size), None)
+            if lot is not None:
+                apply(entry, ing, factor, {lot.lot_id: 1})
+                entry.min_pen = True
+                return
+
+    def one_pen(entry: _Entry) -> None:
+        """Un envase para quien sigue en 0 %: de su insulina o del primer sustituto, sin pasar del 120 %."""
+        if entry.covered > _EPS:
+            return
+        for ing, factor in candidates(entry):
+            lot = _pick_one(order_for(entry, ing), avail, entry.lo * factor, entry.cap * factor)
+            if lot is not None:
+                apply(entry, ing, factor, {lot.lot_id: 1})
+                return
+        smallest_pen_exception(entry)
+
+    def reach_min(entry: _Entry, in_band_only: bool = False) -> None:
+        """Lleva la cobertura hasta el mínimo de la banda, sin pasar del máximo si se puede.
+
+        Con `in_band_only` solo aplica las soluciones que caen dentro de la banda; las que
+        pasan del máximo o se quedan cortas se dejan para una pasada posterior.
+        """
+        lo_x = entry.lo - entry.covered
+        if lo_x <= _EPS:
+            return
+        hi_x = entry.hi - entry.covered
+        cands = candidates(entry)
+        # 1) una sola insulina que lo cubre dentro de la banda. Un menor conserva su insulina
+        #    específica todo lo posible: solo ella en este paso y, si no alcanza, se completa abajo.
+        for ing, factor in (cands[:1] if entry.is_minor else cands):
+            res = _band_pick(order_for(entry, ing), avail, lo_x * factor, hi_x * factor, lo_x * factor)
+            if res and res[2] == "in":
+                apply(entry, ing, factor, res[0])
+                return
+        # 2) combinando insulinas (propia + sustituto) sin salirse de la banda: de cada una se
+        #    toma lo que cabe y la última cierra dentro de la banda
+        sim = dict(avail)
+        steps: List[Tuple[str, float, Dict[int, int]]] = []
+        rem_lo, rem_hi = lo_x, hi_x
+        for ing, factor in cands:
+            if rem_lo <= _EPS:
+                break
+            order = order_for(entry, ing)
+            res = _band_pick(order, sim, rem_lo * factor, rem_hi * factor, rem_lo * factor)
+            if res and res[2] != "in":
+                res = None
+            if res is None:
+                # sola no alcanza la banda: se toma lo más grande que cabe bajo el máximo
+                res = _band_pick(order, sim, 0.0, rem_hi * factor, rem_hi * factor)
+                if res is None or res[2] != "in" or res[1] <= _EPS:
+                    continue
+            combo, total, _kind = res
+            for lot_id, n in combo.items():
+                sim[lot_id] -= n
+            steps.append((ing, factor, combo))
+            rem_lo -= total / factor
+            rem_hi -= total / factor
+        if rem_lo <= _EPS and steps:
+            for ing, factor, combo in steps:
+                apply(entry, ing, factor, combo)
+            return
+        if in_band_only:
+            return
+        # 3) una sola insulina que lo cubre aunque pase del máximo: gana la garantía del mínimo,
+        #    pero nunca por encima del tope absoluto (120 %)
+        cap_x = entry.cap - entry.covered
+        above = []
+        for ing, factor in cands:
+            res = _band_pick(order_for(entry, ing), avail, lo_x * factor, hi_x * factor, lo_x * factor)
+            if res and res[2] == "above" and res[1] / factor <= cap_x + _EPS:
+                above.append((res[1] / factor, ing, factor, res[0]))
+        if above:
+            _t, ing, factor, combo = min(above, key=lambda x: x[0])
+            apply(entry, ing, factor, combo)
+            return
+        # 3b) menores: si ninguna combinación cae entre su mínimo y el 120 %, se elige lo más
+        #     cercano al 100 %: quedarse corto o el envase de más (aunque pase del 120 %).
+        if entry.is_minor:
+            over = None
+            for ing, factor in cands:
+                res = _band_pick(order_for(entry, ing), avail, lo_x * factor, hi_x * factor, lo_x * factor)
+                if res and res[2] == "above" and (over is None or res[1] / factor < over[0]):
+                    over = (res[1] / factor, ing, factor, res[0])
+            if over is not None:
+                sim = dict(avail)
+                short, rem_hi = 0.0, hi_x
+                for ing, factor in cands:
+                    if short >= lo_x - _EPS:
+                        break
+                    res = _band_pick(order_for(entry, ing), sim, 0.0, rem_hi * factor, (lo_x - short) * factor)
+                    if res and res[2] == "in":
+                        for lot_id, n in res[0].items():
+                            sim[lot_id] -= n
+                        short += res[1] / factor
+                        rem_hi -= res[1] / factor
+                if abs(entry.covered + over[0] - entry.need) < abs(entry.covered + short - entry.need) - _EPS:
+                    _t, ing, factor, combo = over
+                    apply(entry, ing, factor, combo)
+                    return
+        # 4) mejor esfuerzo con lo que haya, en el orden de la tabla
+        rem_lo, rem_hi = lo_x, hi_x
+        for ing, factor in cands:
+            if rem_lo <= _EPS:
+                break
+            res = _band_pick(order_for(entry, ing), avail, 0.0, rem_hi * factor, rem_lo * factor)
+            if res and res[2] == "in":
+                got = apply(entry, ing, factor, res[0])
+                rem_lo -= got
+                rem_hi -= got
+        smallest_pen_exception(entry)
+
+    def top_up(entry: _Entry) -> None:
+        """Con lo que sobra, acerca la cobertura al 100 % sin pasar del máximo."""
+        gap = entry.need - entry.covered
+        if gap <= _EPS:
+            return
+        room = entry.hi - entry.covered
+        cands = candidates(entry)
+        # Un tratamiento ya iniciado se completa con las insulinas que ya usa: no se agrega otra
+        # solo para acercarlo al 100 %.
+        used = {ing for ing in entry.subs} | ({entry.ing} if entry.own > _EPS else set())
+        if used:
+            cands = [(ing, f) for ing, f in cands if ing in used]
+        for ing, factor in cands:
+            res = _band_pick(order_for(entry, ing), avail, 0.0, room * factor, gap * factor)
+            if not res or res[2] != "in":  # lo que sobra no se usa para pasar del máximo
+                continue
+            combo, total, _kind = res
+            added = total / factor
+            if added > _EPS and abs(entry.covered + added - entry.need) < abs(entry.covered - entry.need) - _EPS:
+                apply(entry, ing, factor, combo)
+            return
+
+    def vial_phase() -> None:
+        """Antes que nada: un vial a cada tratamiento de insulina rápida con 14-20 UI/día.
+
+        Va en orden de prioridad (menores, tipo 1, mayores, resto) y, dentro del grupo, primero
+        a quien el vial le queda más cerca del 100 %. Se usa la insulina propia y, si no hay
+        vial de ella, los sustitutos de la tabla (glulisina y regular no traen viales propios).
+        Nunca se entrega un vial que lleve a alguien por encima del 120 %.
+        """
+        lo_dose, hi_dose = VIAL_DOSE_RANGE
+        rapid = INSULIN_GROUPS[GROUP_RAPID]
+        cands = [e for e in entries if e.ing in rapid and lo_dose - _EPS <= e.daily <= hi_dose + _EPS]
+        cands.sort(key=lambda e: (e.group, abs(VIAL_MIN_UI / e.need - 1.0), e.pid, e.ing))
+        for e in cands:
+            for ing, factor in candidates(e):
+                vials = [
+                    l for l in order_for(e, ing) if avail[l.lot_id] > 0 and l.ui_per_unit >= VIAL_MIN_UI - _EPS
+                ]
+                for lot in vials:
+                    if lot.ui_per_unit / factor <= e.cap + _EPS:
+                        apply(e, ing, factor, {lot.lot_id: 1})
+                        break
+                else:
+                    continue
+                break
+
+    vial_phase()
+
+    def below_min_cause(entry: _Entry) -> Tuple[float, Optional[str]]:
+        """UI que le faltan para su mínimo y la causa (con el stock que quedó al final)."""
+        gap = entry.lo - entry.covered
+        if gap <= 1e-6:
+            return 0.0, None
+        pens = [
+            l.ui_per_unit / f
+            for ing, f in candidates(entry)
+            for l in lots_by_ing.get(ing, [])
+            if avail[l.lot_id] + reserve_units.get(l.lot_id, 0) > 0  # libre o guardado en la reserva
+        ]
+        if not pens:
+            return gap, "STOCK"
+        if entry.covered + min(pens) > entry.cap + _EPS:
+            return gap, "ENVASE"
+        return gap, "OTRO"
+
+    by_group: Dict[int, List[_Entry]] = {}
+    for e in entries:
+        by_group.setdefault(e.group, []).append(e)
+    for members in by_group.values():
+        members.sort(key=lambda e: (e.need, e.pid, e.ing))
+    groups = sorted(by_group)
+
+    reserve_units = {r.lot_id: r.units for r in plan.reserve_lots}
+    lot_ingredient = {l.lot_id: ing for ing, ls in lots_by_ing.items() for l in ls}
+
+    def resource_holder(holder: _Entry, given: str) -> bool:
+        """Cambia a `holder` a otra insulina para liberar los envases de `given` que recibía como sustituto.
+
+        Solo si queda dentro de su banda con lo que haya (libre o de la reserva) de una sola de
+        sus otras alternativas. Devuelve True si el cambio se hizo.
+        """
+        factor_given = factor_of.get((holder.ing, given))
+        if factor_given is None:
+            return False
+        taken = [
+            a for a in plan.assignments
+            if a.patient_id == holder.pid and a.for_ingredient == holder.ing and lot_ingredient.get(a.lot_id) == given
+        ]
+        if not taken:
+            return False
+        equiv = sum(a.ui for a in taken) / factor_given
+        base = holder.covered - equiv
+        lo_eq = max(0.0, holder.lo - base)
+        hi_eq = max(holder.hi, holder.covered) - base
+        if hi_eq <= _EPS:
+            return False
+        for ing2, f2 in candidates(holder):
+            if ing2 == given:
+                continue
+            res = _band_pick(order_for(holder, ing2), avail, lo_eq * f2, hi_eq * f2, equiv * f2)
+            if not res or res[2] != "in":
+                continue
+            for a in taken:
+                avail[a.lot_id] += a.units
+                plan.assignments.remove(a)
+            holder.subs.pop(given, None)
+            apply(holder, ing2, f2, res[0])
+            return True
+        return False
+
+    def rescue_by_resourcing(entry: _Entry) -> None:
+        """Quien sigue bajo su mínimo por falta de una insulina que otros reciben como sustituto.
+
+        Los que la reciben como sustituto pasan a otra alternativa que sí hay (p. ej. detemir de la
+        reserva) y sus envases quedan para este tratamiento. Nadie sale de su banda."""
+        # Si ni el envase más chico cabe bajo el tope, mover envases de otros no sirve de nada.
+        pens = [
+            l.ui_per_unit / f
+            for ing, f in candidates(entry)
+            for l in lots_by_ing.get(ing, [])
+        ]
+        if not pens or entry.covered + min(pens) > entry.cap + _EPS:
+            return
+        saved = (
+            dict(avail),
+            list(plan.assignments),
+            [(x, x.own, {k: list(v) for k, v in x.subs.items()}, x.min_pen) for x in entries],
         )
-        delivered = own_ui + substituted_in.get(ing, 0.0)
+        for ing_x, _f in candidates(entry):
+            holders = [h for h in entries if h is not entry and ing_x in h.subs and h.ing != ing_x]
+            holders.sort(key=lambda h: (-h.group, -(h.covered - h.lo), h.pid))
+            for h in holders:
+                if entry.covered >= entry.lo - _EPS:
+                    return
+                if resource_holder(h, ing_x):
+                    reach_min(entry)
+        if entry.covered < entry.lo - _EPS:
+            # No alcanzó: se deshace todo para no gastar reserva en cambios que no ayudan.
+            avail.clear()
+            avail.update(saved[0])
+            plan.assignments[:] = saved[1]
+            for x, own, subs, min_pen in saved[2]:
+                x.own, x.subs, x.min_pen = own, subs, min_pen
+
+    def release_reserve_phase() -> None:
+        """Al final del reparto: la reserva cubre lo que falta para llegar al mínimo de cada banda.
+
+        Solo reparte a quien sigue bajo su mínimo (en orden de prioridad) y con el menor número de
+        envases; usa primero lo libre y recién después la reserva. Lo que no se usa vuelve a
+        quedar guardado. Si falta una insulina que otros reciben como sustituto, ellos pasan a otra
+        alternativa. No se completa hasta el 100 %: eso es `top_up`, que no toca la reserva.
+        """
+        if not release_reserve:
+            return
+        pending = [e for g in groups for e in by_group[g] if e.covered < e.lo - _EPS]
+        if not pending:
+            return
+        for lot_id, n in reserve_units.items():
+            avail[lot_id] += n
+        for e in pending:
+            reach_min(e)
+        for e in pending:
+            if e.covered < e.lo - _EPS:
+                rescue_by_resourcing(e)
+        for lot_id, n in reserve_units.items():
+            keep = min(n, avail[lot_id])  # lo libre se gasta primero; la reserva es lo último
+            avail[lot_id] -= keep
+            reserve_units[lot_id] = keep
+
+    # Menores y tipo 1: se les garantiza su banda completa, en ese orden, antes que a nadie más.
+    top = [g for g in groups if g <= PRIORITY_TYPE1]
+    rest = [g for g in groups if g > PRIORITY_TYPE1]
+    for g in top:
+        for e in by_group[g]:
+            reach_min(e)
+        if g == PRIORITY_MINOR:
+            # La degludec de los menores se completa de una vez (hasta el 100 %, sin pasar del
+            # máximo): así los demás grupos no la toman como sustituto antes de que la reciban entera.
+            for e in by_group[g]:
+                if e.ing in MINOR_KEEP_INSULINS:
+                    top_up(e)
+    # Resto de los grupos: primero a quien le cabe dentro de la banda, luego un envase a cada uno
+    # (nadie queda en 0 % mientras haya envases) y solo después las garantías que obligan a pasar
+    # del máximo o a repartir lo poco que queda.
+    for g in rest:
+        for e in by_group[g]:
+            reach_min(e, in_band_only=True)
+    for g in rest:
+        for e in by_group[g]:
+            one_pen(e)
+    for g in rest:
+        for e in by_group[g]:
+            reach_min(e)
+    release_reserve_phase()
+    # Con lo que sobra, acercar a cada uno al 100 % (sin pasar del máximo), también en orden de prioridad.
+    for g in groups:
+        for e in by_group[g]:
+            top_up(e)
+
+    # ------------------------------------------------------------------ resultados
+    subs_in: Dict[str, float] = {}
+    subs_out: Dict[str, float] = {}
+    needs_per_ing: Dict[str, Dict[int, float]] = {}
+    unmet_count: Dict[str, int] = {}
+    own_total: Dict[str, float] = {}
+    for e in entries:
+        lo_f, hi_f = band_of[e.group]
+        cov = e.covered
+        outside = cov < e.lo - 1e-6 or cov > e.hi + 1e-6
+        names = list(e.subs)
+        shortfall, cause = below_min_cause(e)
+        plan.patients.setdefault(e.pid, []).append(
+            PatientIngredientResult(
+                ingredient=e.ing,
+                need_ui=e.need,
+                given_ui=e.own,
+                substitute=" + ".join(names) if names else None,
+                substitute_ui=sum(v[0] for v in e.subs.values()),
+                substitute_equiv_ui=sum(v[1] for v in e.subs.values()),
+                daily_registered=registered.get((e.pid, e.ing), 0.0),
+                daily_applied=applied.get((e.pid, e.ing), 0.0),
+                group=e.group,
+                band_min=lo_f,
+                band_max=hi_f,
+                outside_band=outside,
+                min_pen_exception=e.min_pen,
+                min_shortfall_ui=shortfall,
+                min_shortfall_cause=cause,
+            )
+        )
+        needs_per_ing.setdefault(e.ing, {})[e.pid] = e.need
+        own_total[e.ing] = own_total.get(e.ing, 0.0) + e.own
+        for target, (ui, equiv) in e.subs.items():
+            subs_in[target] = subs_in.get(target, 0.0) + ui
+            subs_out[e.ing] = subs_out.get(e.ing, 0.0) + equiv
+        if cov < e.lo - 1e-6:
+            unmet_count[e.ing] = unmet_count.get(e.ing, 0) + 1
+
+    for ing in sorted(set(lots_by_ing) | set(needs_per_ing)):
+        demand = sum(needs_per_ing.get(ing, {}).values())
+        own = own_total.get(ing, 0.0)
+        delivered = own + subs_in.get(ing, 0.0)
         plan.allocated_ui += delivered
         plan.ingredients.append(
             IngredientSummary(
                 ingredient=ing,
                 stock_ui=stock.get(ing, 0.0),
-                demand_ui=sum(ing_needs.values()),
+                demand_ui=demand,
                 reserve_ui=reserve_ui_by_ing.get(ing, 0.0),
                 allocated_ui=delivered,
-                unmet_ui=max(0.0, sum(ing_needs.values()) - own_ui - covered_by_other),
-                leftover_ui=max(0.0, sum(avail[l.lot_id] * l.ui_per_unit for l in ing_lots)),
-                patients_with_need=len(ing_needs),
-                patients_unmet=unmet_patients,
-                substituted_out_ui=covered_by_other,
-                substituted_in_ui=substituted_in.get(ing, 0.0),
+                unmet_ui=max(0.0, demand - own - subs_out.get(ing, 0.0)),
+                leftover_ui=max(0.0, sum(avail[l.lot_id] * l.ui_per_unit for l in lots_by_ing.get(ing, []))),
+                patients_with_need=len(needs_per_ing.get(ing, {})),
+                patients_unmet=unmet_count.get(ing, 0),
+                substituted_out_ui=subs_out.get(ing, 0.0),
+                substituted_in_ui=subs_in.get(ing, 0.0),
             )
         )
-
-    for ing, per_patient in needs.items():
-        for pid, need in per_patient.items():
-            target, ui, equiv = substituted.get((pid, ing), (None, 0.0, 0.0))
-            plan.patients.setdefault(pid, []).append(
-                PatientIngredientResult(
-                    ing,
-                    need,
-                    given.get((pid, ing), 0.0),
-                    target,
-                    ui,
-                    equiv,
-                    registered.get((pid, ing), 0.0),
-                    applied.get((pid, ing), 0.0),
-                )
-            )
+    # Reserva que quedó guardada (la liberada ya se repartió a los tratamientos bajo su mínimo).
+    released_by_ing: Dict[str, float] = {}
+    kept_lots: List[ReserveLot] = []
+    for r in plan.reserve_lots:
+        keep = reserve_units.get(r.lot_id, r.units)
+        per_unit = r.ui / r.units if r.units else 0.0
+        released_by_ing[r.ingredient] = released_by_ing.get(r.ingredient, 0.0) + (r.units - keep) * per_unit
+        if keep > 0:
+            kept_lots.append(ReserveLot(r.lot_id, r.ingredient, r.label, keep, keep * per_unit))
+    plan.reserve_lots = kept_lots
+    plan.reserve_ui = sum(r.ui for r in kept_lots)
+    plan.reserve_released_ui = sum(released_by_ing.values())
+    for item in plan.ingredients:
+        item.reserve_ui = sum(r.ui for r in kept_lots if r.ingredient == item.ingredient)
+        item.reserve_released_ui = released_by_ing.get(item.ingredient, 0.0)
+    plan.remaining_units = dict(avail)
     return plan

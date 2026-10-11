@@ -18,7 +18,6 @@ from app.core.donation_excel import DonationExcelError, parse_donation_excel
 from app.core.insulin_catalog import normalize_insulin_name
 from app.core.insulin_distribution import (
     DISTRIBUTION_DAYS,
-    PRIORITY_MAX_COVERAGE,
     LotInput as InsulinLotInput,
     plan_distribution as plan_insulin_distribution,
 )
@@ -354,13 +353,6 @@ async def insulin_distribution_report(
     plan = plan_insulin_distribution(lot_inputs, patient_inputs, days=DISTRIBUTION_DAYS)
     grouped = dist.group_assignments(plan)
     pacientes = dist.plan_patient_items(plan, patient_inputs, info, lot_meta)
-    sobre_tope = sum(
-        1
-        for p in pacientes
-        if p.es_menor or p.es_tipo1
-        for i in p.insulinas
-        if i.cobertura_pct > PRIORITY_MAX_COVERAGE * 100 + 0.05
-    )
 
     return schemas.DistributionReportResult(
         guardado=False,
@@ -369,6 +361,7 @@ async def insulin_distribution_report(
         stock_total_ui=plan.total_stock_ui,
         reserva_objetivo_ui=plan.reserve_target_ui,
         reserva_ui=plan.reserve_ui,
+        reserva_liberada_ui=plan.reserve_released_ui,
         asignado_ui=plan.allocated_ui,
         lotes_considerados=len(lot_inputs),
         lotes_excluidos_consolidados=0,
@@ -378,7 +371,8 @@ async def insulin_distribution_report(
         insulinas=dist.plan_ingredient_items(plan),
         reserva=dist.plan_reserve_items(plan, lot_meta),
         pacientes=pacientes,
-        prioritarios_sobre_120=sobre_tope,
+        prioridades=dist.plan_priority_bands(pacientes),
+        bajo_minimo=dist.plan_below_min_items(pacientes),
         excluded_patients=excluded,
         registros_por_corregir=dist.group_choice_issues(plan, info),
         archivo=filename,

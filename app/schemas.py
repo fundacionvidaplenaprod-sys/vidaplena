@@ -603,6 +603,18 @@ class DistributionPatientInsulin(BaseModel):
     dosis_diaria_registrada: float = 0.0
     dosis_diaria_aplicada: float = 0.0
     dosis_limitada: bool = False
+    # Margen de cobertura que debe respetar este tratamiento según su grupo de prioridad
+    # y si el reparto lo respetó (por envases enteros o por escasez puede quedar fuera).
+    margen_min_pct: float = 0.0
+    margen_max_pct: float = 100.0
+    fuera_de_margen: bool = False
+    # Ningún envase cabía en el 120 %: se entregó uno solo, el más chico (dosis muy baja).
+    envase_minimo: bool = False
+    # Si quedó bajo el mínimo de su margen: UI de su insulina que le faltan y la causa
+    # (STOCK = no queda envase de su insulina ni de sus sustitutos; ENVASE = el envase que
+    # queda pasaría del 120 %).
+    falta_minimo_ui: float = 0.0
+    motivo_bajo_minimo: Optional[str] = None
     lotes: List[DistributionLotItem] = []
 
 
@@ -611,6 +623,9 @@ class DistributionPatientItem(BaseModel):
     nombre_completo: str
     es_menor: bool
     es_tipo1: bool = False
+    # 1 menores de 18, 2 tipo 1, 3 adultos mayores tipo 2, 4 tipo 2 y resto.
+    grupo_prioridad: int = 4
+    grupo_prioridad_nombre: str = ""
     insulinas: List[DistributionPatientInsulin]
 
 
@@ -636,6 +651,7 @@ class DistributionIngredientSummary(BaseModel):
     pacientes_sin_cubrir: int
     sustituido_ui: float = 0.0  # necesidad cubierta con otra insulina
     entregado_como_sustituto_ui: float = 0.0  # UI entregadas en lugar de otra insulina
+    reserva_liberada_ui: float = 0.0  # UI de la reserva que se repartieron para llegar a los mínimos
 
 
 class DistributionReserveItem(BaseModel):
@@ -679,6 +695,8 @@ class DistributionPlanResult(BaseModel):
     stock_total_ui: float
     reserva_objetivo_ui: float
     reserva_ui: float
+    # Parte de la reserva que se liberó y se repartió para que nadie quede bajo su mínimo.
+    reserva_liberada_ui: float = 0.0
     asignado_ui: float
     lotes_considerados: int
     lotes_excluidos_consolidados: int
@@ -1354,14 +1372,53 @@ class DonationExcelRowError(BaseModel):
     mensaje: str
 
 
+class DistributionPriorityBand(BaseModel):
+    """Resumen de un grupo de prioridad: su margen y cómo quedó el reparto."""
+
+    grupo: int
+    nombre: str
+    margen_min_pct: float
+    margen_max_pct: float
+    beneficiarios: int
+    tratamientos: int
+    cobertura_pct: float
+    en_margen: int
+    bajo_minimo: int
+    sobre_maximo: int
+    en_cero: int
+
+
+class DistributionBelowMinItem(BaseModel):
+    """Tratamiento que quedó por debajo del mínimo de su margen, con lo que le falta."""
+
+    patient_id: int
+    nombre_completo: str
+    ci: Optional[str] = None
+    estado: Optional[str] = None
+    grupo_prioridad: int
+    grupo_prioridad_nombre: str
+    insulina: str
+    sustituto: Optional[str] = None
+    dosis_diaria: float
+    necesidad_ui: float
+    entregado_ui: float
+    cobertura_pct: float
+    margen_min_pct: float
+    falta_ui: float
+    # Envases de 300 UI que habría que sumar para llegar al mínimo (referencia).
+    envases_faltantes: int
+    motivo: str
+
+
 class DistributionReportResult(DistributionPlanResult):
     archivo: str
     filas_leidas: int
     filas_con_error: List[DonationExcelRowError] = []
     donacion: List[DonationExcelLine] = []
     estados_considerados: List[str] = []
-    # Menores y adultos tipo 1 que por el tamaño del envase pasan del 120 % (la garantía
-    # del 100 % manda sobre el tope).
-    prioritarios_sobre_120: int = 0
+    # Un resumen por grupo de prioridad (menores, tipo 1, adulto mayor tipo 2, tipo 2).
+    prioridades: List[DistributionPriorityBand] = []
+    # Tratamientos que quedaron bajo el mínimo de su margen y qué les falta.
+    bajo_minimo: List[DistributionBelowMinItem] = []
     pacientes: List[DistributionReportPatient] = []
 

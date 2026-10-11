@@ -22,7 +22,24 @@ const report = () => ({
   lotes_sin_catalogo: 0,
   asignaciones_generadas: 3,
   archivo: 'donacion.xlsx',
-  prioritarios_sobre_120: 2,
+  prioridades: [
+    { grupo: 1, nombre: 'Menores de 18 años', margen_min_pct: 90, margen_max_pct: 120, beneficiarios: 1, tratamientos: 1,
+      cobertura_pct: 100, en_margen: 1, bajo_minimo: 0, sobre_maximo: 0, en_cero: 0 },
+    { grupo: 2, nombre: 'Diabéticos tipo 1', margen_min_pct: 80, margen_max_pct: 110, beneficiarios: 1, tratamientos: 1,
+      cobertura_pct: 100, en_margen: 1, bajo_minimo: 0, sobre_maximo: 0, en_cero: 0 },
+    { grupo: 3, nombre: 'Adultos mayores con diabetes tipo 2', margen_min_pct: 75, margen_max_pct: 100, beneficiarios: 0,
+      tratamientos: 0, cobertura_pct: 0, en_margen: 0, bajo_minimo: 0, sobre_maximo: 0, en_cero: 0 },
+    { grupo: 4, nombre: 'Diabéticos tipo 2', margen_min_pct: 75, margen_max_pct: 100, beneficiarios: 1, tratamientos: 1,
+      cobertura_pct: 50, en_margen: 0, bajo_minimo: 1, sobre_maximo: 0, en_cero: 0 },
+  ],
+  bajo_minimo: [
+    {
+      patient_id: 40, nombre_completo: 'Carla BajoMinimo', ci: '444', estado: 'HABILITADO', grupo_prioridad: 4,
+      grupo_prioridad_nombre: 'Diabéticos tipo 2', insulina: 'Glargina', sustituto: null, dosis_diaria: 20,
+      necesidad_ui: 1200, entregado_ui: 600, cobertura_pct: 50, margen_min_pct: 65, falta_ui: 180,
+      envases_faltantes: 1, motivo: 'STOCK',
+    },
+  ],
   registros_por_corregir: [
     {
       patient_id: 50, nombre_completo: 'Eva DosRapidas', ci: '555', estado: 'ACTIVO', es_menor: true,
@@ -51,23 +68,32 @@ const report = () => ({
   pacientes: [
     {
       patient_id: 1, nombre_completo: 'Ana Menor', es_menor: true, es_tipo1: true, ci: '111', estado: 'PENDIENTE_DOC',
+      grupo_prioridad: 1, grupo_prioridad_nombre: 'Menores de 18 años',
       insulinas: [{
         insulina: 'Glargina', necesidad_ui: 1200, entregado_ui: 1200, cobertura_pct: 100,
+        margen_min_pct: 90, margen_max_pct: 120, fuera_de_margen: false,
         dosis_diaria_registrada: 48, dosis_diaria_aplicada: 20, dosis_limitada: true,
-        lotes: [{ lot_id: 3, producto: 'Lantus SoloStar', unidades: 4, ui: 1200, lote: 'L-LANTUS' }],
+        lotes: [
+          { lot_id: 3, producto: 'Lantus SoloStar', unidades: 3, ui: 900, lote: 'L-LANTUS' },
+          { lot_id: 4, producto: 'Lantus SoloStar', unidades: 1, ui: 300, lote: 'L-LANTUS-2' },
+        ],
       }],
     },
     {
       patient_id: 2, nombre_completo: 'Beto Adulto', es_menor: false, es_tipo1: false, ci: '222', estado: 'HABILITADO',
+      grupo_prioridad: 4, grupo_prioridad_nombre: 'Diabéticos tipo 2',
       insulinas: [{
         insulina: 'Glargina', necesidad_ui: 1200, entregado_ui: 600, cobertura_pct: 50,
+        margen_min_pct: 75, margen_max_pct: 100, fuera_de_margen: true,
         lotes: [{ lot_id: 7, producto: 'Abasaglar', unidades: 2, ui: 600, lote: 'LOTE-ABA' }],
       }],
     },
     {
       patient_id: 3, nombre_completo: 'Dora Sustituida', es_menor: false, es_tipo1: true, ci: '333', estado: 'ACTIVO',
+      grupo_prioridad: 2, grupo_prioridad_nombre: 'Diabéticos tipo 1',
       insulinas: [{
         insulina: 'Glargina', necesidad_ui: 600, entregado_ui: 600, cobertura_pct: 100, sustituto: 'Detemir', sustituto_ui: 600,
+        margen_min_pct: 80, margen_max_pct: 110, fuera_de_margen: false,
         lotes: [{ lot_id: 8, producto: 'Levemir Penfill', unidades: 2, ui: 600, lote: 'L-LEV' }],
       }],
     },
@@ -108,7 +134,12 @@ describe('InsulinDistributionReport', () => {
     // Cada estado aparece en la tabla y en el selector de estados.
     expect(screen.getAllByText('Pendiente de documentos').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Habilitado').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('4 × Lantus SoloStar (lote L-LANTUS)')).toBeInTheDocument();
+    // Cada envase muestra sus UI: un «3 ml» puede tener 300 UI (U100) o 900 UI (U300).
+    expect(screen.getByText('4 × Lantus SoloStar · 300 UI c/u')).toBeInTheDocument();
+    // El reporte no muestra el número de lote: confundía.
+    // (el mismo producto de dos lotes se suma: 3 + 1 = 4 envases)
+    expect(screen.queryByText(/L-LANTUS|LOTE-ABA|L-LEV/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/lote/i, { selector: 'th' })).not.toBeInTheDocument();
     expect(screen.getByText('+ Detemir')).toBeInTheDocument();
     // La cobertura se explica en días (50 % de 60 días = 30 días) y con una leyenda.
     expect(screen.getByText('≈ 30 de 60 días')).toBeInTheDocument();
@@ -116,8 +147,16 @@ describe('InsulinDistributionReport', () => {
     // Tope de 30 UI/día para menores: se ve la dosis registrada y la usada.
     expect(screen.getByText('dosis limitada a 20 UI/día')).toBeInTheDocument();
     expect(screen.getByText('48 → 20 UI/día')).toBeInTheDocument();
-    expect(screen.getByText(/2 tratamientos en este reporte/)).toBeInTheDocument();
+    // Cada grupo de prioridad con su margen, y el tratamiento fuera de margen se avisa.
+    expect(screen.getByText('Prioridades y márgenes de cobertura')).toBeInTheDocument();
+    expect(screen.getByText('3. Adultos mayores con diabetes tipo 2')).toBeInTheDocument();
+    expect(screen.getByText('90–120 %')).toBeInTheDocument();
+    expect(screen.getByText('bajo el mínimo de 75 %')).toBeInTheDocument();
     // Fichas con dos insulinas del mismo grupo: se avisan para corregirlas.
+    // Tratamientos bajo el mínimo: con lo que les falta y por qué.
+    expect(screen.getByText('Por debajo del mínimo de su margen (1)')).toBeInTheDocument();
+    expect(screen.getByText('≈ 1 pens de 300 UI')).toBeInTheDocument();
+    expect(screen.getByText('falta stock de su insulina y de sus sustitutos')).toBeInTheDocument();
     expect(screen.getByText('Fichas por corregir (1)')).toBeInTheDocument();
     expect(screen.getByText('Eva DosRapidas')).toBeInTheDocument();
     expect(screen.getByText('Lispro (28 UI/día) + Aspart (28 UI/día)')).toBeInTheDocument();
@@ -150,6 +189,11 @@ describe('InsulinDistributionReport', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tipo 1' }));
     expect(screen.getByText('Ana Menor')).toBeInTheDocument();
     expect(screen.queryByText('Beto Adulto')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fuera de margen' }));
+    expect(screen.getByText('Beto Adulto')).toBeInTheDocument();
+    expect(screen.queryByText('Ana Menor')).not.toBeInTheDocument();
+    expect(screen.queryByText('Dora Sustituida')).not.toBeInTheDocument();
   });
 
   it('busca por CI y filtra por estado', async () => {

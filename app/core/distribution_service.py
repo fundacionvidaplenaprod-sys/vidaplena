@@ -16,10 +16,13 @@ from app import models, schemas
 from app.core.contributions import current_periodo, is_patient_current_on_contribution
 from app.core.insulin_catalog import normalize_insulin_name
 from app.core.insulin_distribution import (
+    COVERAGE_BANDS,
     GROUP_LABELS,
     MINOR_AGE,
+    PRIORITY_NAMES,
     PatientInput as InsulinPatientInput,
     is_type1_diabetes,
+    priority_group_for,
 )
 
 
@@ -91,6 +94,7 @@ async def load_distribution_patients(
                 is_minor=patient.edad_calc < MINOR_AGE,
                 daily_ui=daily,
                 is_type1=is_type1_diabetes(tipo_diabetes),
+                priority_group=priority_group_for(patient.edad_calc, tipo_diabetes),
             )
         )
         info[patient.id] = {
@@ -110,6 +114,7 @@ def group_choice_issues(plan, info: dict) -> List[schemas.DistributionRecordIssu
         "STOCK": "es la que tiene stock disponible en esta donación",
         "SUSTITUTO": "no hay stock propio, pero se cubre con {sustituto} según las reglas de sustitución",
         "SIN_STOCK": "ninguna tiene stock ni sustituto en esta donación; se tomó la de mayor dosis registrada",
+        "MENOR_DEGLUDEC": "es menor y mantiene siempre la degludec",
     }
     out: List[schemas.DistributionRecordIssue] = []
     for c in plan.group_choices:
@@ -170,6 +175,7 @@ def plan_patient_items(plan, patient_inputs, info: dict, lot_meta: dict) -> List
 
     minors = {p.patient_id for p in patient_inputs if p.is_minor}
     type1 = {p.patient_id for p in patient_inputs if p.is_type1}
+    groups = {p.patient_id: p.group for p in patient_inputs}
     items = []
     for patient_id, results in plan.patients.items():
         data = info[patient_id]
@@ -179,6 +185,8 @@ def plan_patient_items(plan, patient_inputs, info: dict, lot_meta: dict) -> List
                 nombre_completo=data["nombre"],
                 es_menor=patient_id in minors,
                 es_tipo1=patient_id in type1,
+                grupo_prioridad=groups.get(patient_id, 4),
+                grupo_prioridad_nombre=PRIORITY_NAMES.get(groups.get(patient_id, 4), ""),
                 ci=data.get("ci"),
                 estado=data.get("estado"),
                 depto=data.get("depto"),
@@ -199,15 +207,82 @@ def plan_patient_items(plan, patient_inputs, info: dict, lot_meta: dict) -> List
                         dosis_diaria_registrada=round(r.daily_registered, 1),
                         dosis_diaria_aplicada=round(r.daily_applied, 1),
                         dosis_limitada=r.daily_applied + 1e-9 < r.daily_registered,
+                        margen_min_pct=round(100 * r.band_min, 1),
+                        margen_max_pct=round(100 * r.band_max, 1),
+                        fuera_de_margen=r.outside_band,
+                        envase_minimo=r.min_pen_exception,
+                        falta_minimo_ui=round(r.min_shortfall_ui, 1),
+                        motivo_bajo_minimo=r.min_shortfall_cause,
                         lotes=lots_by_patient_ing.get((patient_id, r.ingredient), []),
                     )
                     for r in results
                 ],
             )
         )
-    # Mismo orden de prioridad que el reparto: menores, adultos tipo 1, resto.
-    items.sort(key=lambda item: (0 if item.es_menor else 1 if item.es_tipo1 else 2, item.nombre_completo))
+    # Mismo orden de prioridad que el reparto.
+    items.sort(key=lambda item: (item.grupo_prioridad, item.nombre_completo))
     return items
+
+
+def plan_below_min_items(pacientes: Sequence[schemas.DistributionReportPatient]) -> List[schemas.DistributionBelowMinItem]:
+    """Tratamientos bajo el mínimo de su margen, del más afectado al menos, con lo que les falta."""
+    out: List[schemas.DistributionBelowMinItem] = []
+    for p in pacientes:
+        for i in p.insulinas:
+            if i.cobertura_pct >= i.margen_min_pct - 0.05 or i.falta_minimo_ui <= 0:
+                continue
+            out.append(
+                schemas.DistributionBelowMinItem(
+                    patient_id=p.patient_id,
+                    nombre_completo=p.nombre_completo,
+                    ci=p.ci,
+                    estado=p.estado,
+                    grupo_prioridad=p.grupo_prioridad,
+                    grupo_prioridad_nombre=p.grupo_prioridad_nombre,
+                    insulina=i.insulina,
+                    sustituto=i.sustituto,
+                    dosis_diaria=i.dosis_diaria_aplicada,
+                    necesidad_ui=i.necesidad_ui,
+                    entregado_ui=i.entregado_ui,
+                    cobertura_pct=i.cobertura_pct,
+                    margen_min_pct=i.margen_min_pct,
+                    falta_ui=i.falta_minimo_ui,
+                    envases_faltantes=int(-(-i.falta_minimo_ui // 300)),
+                    motivo=i.motivo_bajo_minimo or "OTRO",
+                )
+            )
+    out.sort(key=lambda x: (x.cobertura_pct, x.grupo_prioridad, x.nombre_completo))
+    return out
+
+
+def plan_priority_bands(pacientes: Sequence[schemas.DistributionReportPatient]) -> List[schemas.DistributionPriorityBand]:
+    """Por grupo de prioridad: cuántos tratamientos quedaron dentro, bajo el mínimo o sobre el máximo."""
+    out: List[schemas.DistributionPriorityBand] = []
+    for group in sorted(COVERAGE_BANDS):
+        lo, hi = COVERAGE_BANDS[group]
+        members = [p for p in pacientes if p.grupo_prioridad == group]
+        rows = [i for p in members for i in p.insulinas]
+        need = sum(i.necesidad_ui for i in rows)
+        got = sum(i.entregado_ui for i in rows)
+        eps = 0.05  # los porcentajes del esquema van redondeados a 1 decimal
+        bajo = sum(1 for i in rows if i.cobertura_pct < lo * 100 - eps)
+        sobre = sum(1 for i in rows if i.cobertura_pct > hi * 100 + eps)
+        out.append(
+            schemas.DistributionPriorityBand(
+                grupo=group,
+                nombre=PRIORITY_NAMES[group],
+                margen_min_pct=round(lo * 100, 1),
+                margen_max_pct=round(hi * 100, 1),
+                beneficiarios=len(members),
+                tratamientos=len(rows),
+                cobertura_pct=round(100 * got / need, 1) if need else 0.0,
+                en_margen=len(rows) - bajo - sobre,
+                bajo_minimo=bajo,
+                sobre_maximo=sobre,
+                en_cero=sum(1 for i in rows if i.cobertura_pct < 0.05),
+            )
+        )
+    return out
 
 
 def plan_ingredient_items(plan) -> List[schemas.DistributionIngredientSummary]:
@@ -217,6 +292,7 @@ def plan_ingredient_items(plan) -> List[schemas.DistributionIngredientSummary]:
             stock_ui=s.stock_ui,
             necesidad_ui=s.demand_ui,
             reserva_ui=s.reserve_ui,
+            reserva_liberada_ui=s.reserve_released_ui,
             asignado_ui=s.allocated_ui,
             faltante_ui=s.unmet_ui,
             sobrante_ui=s.leftover_ui,
