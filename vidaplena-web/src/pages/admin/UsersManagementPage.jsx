@@ -364,7 +364,9 @@ export default function UsersManagementPage() {
                                                             ? 'bg-orange-100 text-orange-700 border-orange-200'
                                                             : user.role === 'COORDINADOR_NACIONAL'
                                                                 ? 'bg-indigo-100 text-indigo-700 border-indigo-200'
-                                                                : 'bg-blue-100 text-blue-700 border-blue-200'
+                                                                : user.role === 'PACIENTE'
+                                                                    ? 'bg-green-100 text-green-700 border-green-200'
+                                                                    : 'bg-blue-100 text-blue-700 border-blue-200'
                                             }`}>
                                                 {user.role.replace(/_/g, ' ')}
                                             </span>
@@ -545,16 +547,24 @@ export default function UsersManagementPage() {
                                 <div className="relative">
                                     <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                     <select
+                                        aria-label="Rol"
                                         className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-vida-primary outline-none bg-white"
                                         value={formData.role}
                                         onChange={(e) => setFormData({...formData, role: e.target.value})}
                                     >
+                                        {/* La cuenta de un beneficiario conserva su rol al editarla (p. ej. para
+                                            restablecer su contraseña). Sin esta opción el selector mostraba
+                                            REGISTRADOR, el primero de la lista. No se ofrece al crear ni al
+                                            editar personal: un paciente sin ficha dejaría una cuenta rota; los
+                                            pacientes se crean por su propio flujo de registro. */}
+                                        {editingUser?.role === 'PACIENTE' && (
+                                            <option value="PACIENTE">PACIENTE (Beneficiario)</option>
+                                        )}
                                         <option value="REGISTRADOR">REGISTRADOR (Operativo)</option>
                                         <option value="EVALUADOR_SOCIAL">EVALUADOR SOCIAL</option>
                                         <option value="RESPONSABLE_DEPARTAMENTAL">RESPONSABLE DEPARTAMENTAL</option>
                                         <option value="COORDINADOR_NACIONAL">COORDINADOR NACIONAL</option>
                                         <option value="SUPER_ADMIN">SUPER ADMIN (Total)</option>
-                                        {/* No permitimos crear pacientes aquí, eso es otro flujo */}
                                     </select>
                                 </div>
                             </div>

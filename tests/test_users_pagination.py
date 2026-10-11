@@ -120,3 +120,19 @@ async def test_search_combines_with_grupo(client, superuser_token, db_session):
 async def test_list_users_requires_super_admin(client, db_session):
     res = await client.get("/users/")
     assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_resetting_a_patient_password_keeps_the_patient_role(client, superuser_token, db_session):
+    """Restablecer la contraseña de un beneficiario no cambia su rol y puede iniciar sesión."""
+    user = await _seed_user(db_session, "PACIENTE")
+
+    res = await client.put(
+        f"/users/{user.id}",
+        json={"email": user.email, "role": "PACIENTE", "password": "NuevaClave2026!"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["role"] == "PACIENTE"
+
+    login = await client.post("/login/access-token", data={"username": user.email, "password": "NuevaClave2026!"})
+    assert login.status_code == 200, login.text
