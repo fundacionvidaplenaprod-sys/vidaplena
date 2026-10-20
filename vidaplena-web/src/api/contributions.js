@@ -6,27 +6,47 @@ export const getMyContributions = async () => {
   return response.data;
 };
 
-export const getContributionsReview = async ({ estado, periodo } = {}) => {
-  const params = { estado: estado || undefined, periodo: periodo || undefined };
+// Parámetros de filtro por periodo y departamento: un mes (`periodo`), un rango (`desde` / `hasta`,
+// formato AAAA-MM) y/o un departamento.
+const periodParams = ({ periodo, desde, hasta, depto } = {}) => ({
+  periodo: periodo || undefined,
+  periodo_desde: desde || undefined,
+  periodo_hasta: hasta || undefined,
+  depto: depto || undefined,
+});
+
+// Etiqueta corta del filtro para nombres de archivo: «2026-04_a_2026-10», «2026-04» o «TODOS».
+export const periodLabel = ({ periodo, desde, hasta } = {}) => {
+  if (periodo) return periodo;
+  if (desde && hasta) return desde === hasta ? desde : `${desde}_a_${hasta}`;
+  if (desde) return `desde_${desde}`;
+  if (hasta) return `hasta_${hasta}`;
+  return 'TODOS';
+};
+
+export const getContributionsReview = async ({ estado, ...filters } = {}) => {
+  const params = { estado: estado || undefined, ...periodParams(filters) };
   const response = await client.get('/contributions/review', { params });
   return response.data;
 };
 
 /**
  * Descarga el PDF de "Control de Vouchers" (Reportes): lista general de
- * TODOS los beneficiarios con la captura del comprobante, nombre y fecha de
- * pago. `periodo` (YYYY-MM) es opcional — sin él trae todos los periodos.
+ * TODOS los beneficiarios con la captura del comprobante, nombre, departamento,
+ * periodo y fecha de pago. Acepta un mes (`periodo`), un rango (`desde` / `hasta`,
+ * AAAA-MM) y un `depto`; sin filtros trae todos los periodos. También se acepta el
+ * mes suelto como texto, por compatibilidad.
  */
-export const downloadVouchersControlPdf = async (periodo) => {
-  const params = periodo ? { periodo } : {};
+export const downloadVouchersControlPdf = async (filters = {}) => {
+  const normalized = typeof filters === 'string' ? { periodo: filters } : filters || {};
   const response = await client.get('/contributions/vouchers/export.pdf', {
-    params,
+    params: periodParams(normalized),
     responseType: 'blob',
   });
   const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
   const link = document.createElement('a');
   link.href = url;
-  link.setAttribute('download', `Control_Vouchers_${periodo || 'TODOS'}.pdf`);
+  link.setAttribute('download', `Control_Vouchers_${periodLabel(normalized)}.pdf`);
   document.body.appendChild(link);
   link.click();
   link.remove();

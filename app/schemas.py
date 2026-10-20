@@ -454,6 +454,7 @@ class ContributionReviewResponse(BaseModel):
     patient_id: int
     patient_nombre: str
     patient_ci: Optional[str] = None
+    depto: Optional[str] = None
     periodo: str
     fecha_pago: date
     monto: float
@@ -713,6 +714,11 @@ class DistributionPlanResult(BaseModel):
 #   9. SCHEMAS MÓDULO DIRECTORA
 # ==========================================
 
+# Presentaciones físicas en las que se entrega la insulina en campo. Lista fija acordada con la
+# Fundación — si se agrega una nueva presentación hay que ampliar este Literal y su espejo en
+# vidaplena-web/src/constants/insulins.js.
+PresentacionInsulina = Literal["Frasco 10ml", "Cartucho 3ml", "Pen 3ml"]
+
 class DirectorDeliveryCreate(BaseModel):
     patient_nombres: str
     patient_ap_paterno: str
@@ -720,6 +726,10 @@ class DirectorDeliveryCreate(BaseModel):
     insulin_type: str
     quantity: str
     delivery_date: Optional[date] = None
+    # Opcionales: cuaderno estructurado (beneficiario de la lista, presentación y marca).
+    patient_id: Optional[int] = Field(None, gt=0)
+    presentacion: Optional[PresentacionInsulina] = None
+    marca: Optional[str] = Field(None, max_length=60)
 
 class DirectorDeliveryResponse(BaseModel):
     id: int
@@ -731,9 +741,59 @@ class DirectorDeliveryResponse(BaseModel):
     delivery_date: date
     recorded_by_id: Optional[int]
     created_at: datetime
+    patient_id: Optional[int] = None
+    presentacion: Optional[str] = None
+    marca: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+class DirectorDeliveryBatchItem(BaseModel):
+    """Una insulina de la visita: tipo, presentación, marca y cantidad (a criterio de la Directora)."""
+
+    insulin_type: str = Field(..., min_length=1, max_length=200)
+    presentacion: Optional[PresentacionInsulina] = None
+    marca: Optional[str] = Field(None, max_length=60)
+    quantity: str = Field(..., min_length=1, max_length=100)
+
+class DirectorDeliveryBatchCreate(BaseModel):
+    """Entrega de una visita con una o varias insulinas, en una sola operación."""
+
+    # Beneficiario de la lista; si no viene, se piden los nombres (persona fuera del padrón).
+    patient_id: Optional[int] = Field(None, gt=0)
+    patient_nombres: Optional[str] = None
+    patient_ap_paterno: Optional[str] = None
+    patient_ap_materno: Optional[str] = None
+    delivery_date: Optional[date] = None
+    items: List[DirectorDeliveryBatchItem] = Field(..., min_length=1)
+
+class DirectorBeneficiaryTreatment(BaseModel):
+    nombre: str  # como está en la ficha
+    insulina: Optional[str] = None  # insulina canónica (Glargina, Lispro, ...) si se reconoce
+    dosis_diaria: float = 0.0
+
+class DirectorBeneficiaryItem(BaseModel):
+    id: int
+    nombres: str
+    ap_paterno: Optional[str] = None
+    ap_materno: Optional[str] = None
+    ci: Optional[str] = None
+    depto: Optional[str] = None
+    estado: str
+    edad: Optional[int] = None
+    tratamientos: List[DirectorBeneficiaryTreatment] = []
+    ultima_entrega: Optional[DirectorDeliveryResponse] = None
+
+class DirectorDeliveryReportItem(DirectorDeliveryResponse):
+    """Fila del reporte del cuaderno: la entrega más los datos del beneficiario vinculado."""
+
+    patient_ci: Optional[str] = None
+    patient_depto: Optional[str] = None
+    registrado_por: Optional[str] = None
+
+class DirectorDeliveryReport(BaseModel):
+    total: int
+    items: List[DirectorDeliveryReportItem]
 
 class DirectorPinUpdate(BaseModel):
     pin: str
@@ -796,11 +856,6 @@ class DepartmentalPendingDocItem(BaseModel):
 class PaginatedDepartmentalPendingDocResponse(BaseModel):
     total: int
     items: List[DepartmentalPendingDocItem]
-
-# Presentaciones físicas en las que se entrega la insulina en campo. Lista
-# fija acordada con la Fundación — si se agrega una nueva presentación hay
-# que ampliar este Literal y su espejo en vidaplena-web/src/constants/insulins.js.
-PresentacionInsulina = Literal["Frasco 10ml", "Cartucho 3ml", "Pen 3ml"]
 
 class DepartmentalInsulinDeliveryItem(BaseModel):
     insulin_type: str = Field(..., min_length=1, max_length=200)

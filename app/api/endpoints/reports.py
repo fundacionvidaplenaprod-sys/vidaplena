@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, List
+from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +11,7 @@ from app import models, schemas
 from app.db import get_db
 from app.api import deps
 from app.core.config import settings
-from app.core.contributions import periodo_anterior
+from app.core.contributions import normalize_periodo_range, periodo_anterior
 from app.core.text_normalize import normalize_name
 from app.core import distribution_service as dist
 from app.core.donation_excel import DonationExcelError, parse_donation_excel
@@ -229,24 +229,43 @@ async def get_audit_logs(
     ]
 
 # --- D. HISTORIAL DE APORTES SOLIDARIOS POR PERIODO ---
-@router.get("/contributions", summary="Historial de aportes solidarios de un periodo (mes) elegido")
+@router.get("/contributions", summary="Historial de aportes solidarios de un periodo (mes) o de un rango de periodos")
 async def get_contributions_report(
-    periodo: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="Periodo en formato YYYY-MM"),
+    periodo: Optional[str] = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="Un solo mes, formato YYYY-MM"),
+    periodo_desde: Optional[str] = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="Primer mes del rango (YYYY-MM)"),
+    periodo_hasta: Optional[str] = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="Último mes del rango (YYYY-MM)"),
+    depto: Optional[str] = Query(None, description="Departamento del beneficiario"),
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_staff_user),
 ):
     """
-    Responde: ¿quién hizo su aporte solidario en tal mes, y cuántos van?
-    `total_aceptados` es el número principal para control (aportes ya
-    validados); `total_declarados`/`total_observados` dan contexto de lo
-    que aún está pendiente de revisión o fue rechazado ese mismo periodo.
+    Responde: ¿quién hizo su aporte solidario en tal mes (o entre tal y tal
+    mes), y cuántos van? `total_aceptados` es el número principal para
+    control (aportes ya validados); `total_declarados`/`total_observados`
+    dan contexto de lo que aún está pendiente de revisión o fue rechazado
+    en ese mismo rango.
+
+    Hay una fila por voucher (aporte), con el periodo al que pertenece y el
+    departamento del beneficiario, para poder filtrar y ordenar en Excel.
     """
+    if not (periodo or periodo_desde or periodo_hasta):
+        raise HTTPException(status_code=400, detail="Indique un periodo o un rango de periodos (desde / hasta).")
+    try:
+        desde, hasta = normalize_periodo_range(periodo, periodo_desde, periodo_hasta)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     query = (
         select(models.MonthlyContribution, models.Patient)
         .join(models.Patient, models.Patient.id == models.MonthlyContribution.patient_id)
-        .where(models.MonthlyContribution.periodo == periodo)
-        .order_by(models.Patient.nombres, models.Patient.ap_paterno)
+        .order_by(models.Patient.nombres, models.Patient.ap_paterno, models.MonthlyContribution.periodo)
     )
+    if desde:
+        query = query.where(models.MonthlyContribution.periodo >= desde)
+    if hasta:
+        query = query.where(models.MonthlyContribution.periodo <= hasta)
+    if depto:
+        query = query.where(func.lower(models.Patient.depto) == depto.strip().lower())
     rows = (await db.execute(query)).all()
 
     items = []
@@ -254,10 +273,12 @@ async def get_contributions_report(
     for contrib, patient in rows:
         counts[contrib.estado] = counts.get(contrib.estado, 0) + 1
         items.append({
+            "id": contrib.id,
             "patient_id": patient.id,
             "patient_nombre": f"{patient.nombres} {patient.ap_paterno} {patient.ap_materno or ''}".strip(),
             "patient_ci": patient.ci,
             "depto": patient.depto,
+            "periodo": contrib.periodo,
             "monto": float(contrib.monto),
             "fecha_pago": contrib.fecha_pago,
             "metodo_pago": contrib.metodo_pago,
@@ -265,10 +286,14 @@ async def get_contributions_report(
         })
 
     return {
-        "periodo": periodo,
+        "periodo": periodo or (desde if desde == hasta else None),
+        "periodo_desde": desde,
+        "periodo_hasta": hasta,
+        "depto": depto,
         "total_aceptados": counts.get("ACEPTADO", 0),
         "total_declarados": counts.get("DECLARADO", 0),
         "total_observados": counts.get("OBSERVADO", 0),
+        "total_beneficiarios": len({i["patient_id"] for i in items}),
         "items": items,
     }
 

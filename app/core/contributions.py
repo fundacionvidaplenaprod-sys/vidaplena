@@ -15,6 +15,25 @@ def current_periodo(ref_date: Optional[date] = None) -> str:
     return f"{d.year}-{d.month:02d}"
 
 
+def normalize_periodo_range(
+    periodo: Optional[str] = None,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Rango de periodos (YYYY-MM) a partir de un mes suelto o de un «desde / hasta».
+
+    - `periodo` fija ambos extremos (un solo mes).
+    - Si solo viene `desde` o solo `hasta`, el otro extremo queda abierto.
+    - Sin ninguno devuelve (None, None): todos los periodos.
+    Lanza ValueError si «desde» es posterior a «hasta».
+    """
+    if periodo:
+        return periodo, periodo
+    if desde and hasta and desde > hasta:
+        raise ValueError("El periodo «desde» no puede ser posterior a «hasta».")
+    return desde or None, hasta or None
+
+
 def periodo_anterior(ref_date: Optional[date] = None) -> str:
     """Periodo del mes anterior a `ref_date` (por defecto hoy), formato 'YYYY-MM'."""
     d = ref_date or date.today()

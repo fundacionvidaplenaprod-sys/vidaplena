@@ -38,3 +38,28 @@ export const PRESENTACION_OPTIONS = [
   { value: 'Cartucho 3ml', label: 'Cartucho 3ml' },
   { value: 'Pen 3ml', label: 'Pen 3ml' },
 ];
+
+// Marcas comerciales seleccionables por insulina (cuaderno de la Directora). Salen de las marcas
+// que llegan en las donaciones y de las que ella anota. «Otra» cubre lo que no esté en la lista.
+export const INSULIN_BRANDS = {
+  Glargina: ['Lantus', 'Toujeo', 'Abasaglar', 'Semglee'],
+  Lispro: ['Humalog', 'Liprolog', 'Lyumjev'],
+  Aspart: ['NovoRapid', 'Fiasp'],
+  Glulisina: ['Apidra'],
+  NPH: ['Insulatard', 'Protaphane', 'Huminsulin Basal', 'Humulin Basal'],
+  Protamina: ['Humalog Mix 25', 'Humalog Mix 50', 'NovoMix 30', 'Actraphane 30'],
+  Detemir: ['Levemir'],
+  Degludec: ['Tresiba'],
+  Regular: ['Actrapid', 'Huminsulin Normal', 'Humulin R'],
+};
+
+export const MARCA_OTRA = 'Otra';
+
+// Marcas de una insulina (canónica) más «Otra».
+export const brandOptions = (insulin) => [...(INSULIN_BRANDS[insulin] || []), MARCA_OTRA];
+
+// Si el nombre anotado en la ficha ya es una marca («Lantus», «Toujeo 300»), la sugiere.
+export const guessBrand = (insulin, fichaNombre) => {
+  const texto = String(fichaNombre || '').toLowerCase();
+  return (INSULIN_BRANDS[insulin] || []).find((brand) => texto.includes(brand.toLowerCase().split(' ')[0])) || '';
+};

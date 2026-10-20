@@ -31,14 +31,23 @@ export const getAuditLogsReport = async (limit = 50) => {
 };
 
 /**
- * Historial de aportes solidarios de un periodo (mes) elegido: cuántos
- * beneficiarios hicieron su aporte ese mes (aceptados/declarados/observados)
- * y el listado completo.
- * @param {string} periodo - Formato "YYYY-MM"
+ * Historial de aportes solidarios de un mes o de un rango de meses: cuántos
+ * vouchers hay (aceptados/declarados/observados) y el listado completo, con una
+ * fila por voucher, su periodo y el departamento del beneficiario.
+ * @param {string|{periodo?: string, desde?: string, hasta?: string, depto?: string}} filters
+ *   Un mes "YYYY-MM" o un objeto con `desde` / `hasta` (formato "YYYY-MM") y `depto` opcional.
  */
-export const getContributionsReport = async (periodo) => {
+export const getContributionsReport = async (filters) => {
+  const { periodo, desde, hasta, depto } = typeof filters === 'string' ? { periodo: filters } : filters || {};
   try {
-    const response = await client.get('/reports/contributions', { params: { periodo } });
+    const response = await client.get('/reports/contributions', {
+      params: {
+        periodo: periodo || undefined,
+        periodo_desde: desde || undefined,
+        periodo_hasta: hasta || undefined,
+        depto: depto || undefined,
+      },
+    });
     return response.data;
   } catch (error) {
     console.error('Error al cargar historial de aportes:', error);

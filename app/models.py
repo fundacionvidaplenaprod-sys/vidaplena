@@ -393,8 +393,23 @@ class DirectorInsulinDelivery(Base):
     delivery_date = Column(Date, nullable=False, default=func.current_date())
     recorded_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Cuaderno estructurado: cuando la Directora elige al beneficiario de la lista queda ligado a
+    # su ficha (los nombres siguen guardándose como foto del momento). Las entregas anteriores y
+    # las de personas fuera del padrón quedan sin vínculo.
+    patient_id = Column(BigInteger, ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
+    # Presentación entregada ('Frasco 10ml' | 'Cartucho 3ml' | 'Pen 3ml') y marca (Lantus, Toujeo, ...).
+    presentacion = Column(String(20), nullable=True)
+    marca = Column(String(60), nullable=True)
 
     recorded_by = relationship("User")
+    patient = relationship("Patient")
+
+    __table_args__ = (
+        CheckConstraint(
+            "presentacion IS NULL OR presentacion IN ('Frasco 10ml','Cartucho 3ml','Pen 3ml')",
+            name="ck_director_delivery_presentacion",
+        ),
+    )
 
 
 class DepartmentalInsulinDelivery(Base):

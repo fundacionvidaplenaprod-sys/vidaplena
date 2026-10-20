@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import List, Optional, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, status, File, UploadFile, Form
 from pydantic import Field
 from fastapi.responses import StreamingResponse
 from PIL import Image as PILImage
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import letter
@@ -22,6 +22,7 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 from app import models, schemas
 from app.api import deps
 from app.db import get_db
+from app.core.contributions import normalize_periodo_range
 from app.core.firebase import upload_file_to_firebase
 from app.core.ocr import extract_receipt_data
 
@@ -279,8 +280,34 @@ async def read_my_contributions(
     result = await db.execute(query)
     return result.scalars().all()
 
+PERIODO_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
+
+
+def _periodo_range_or_400(periodo: Optional[str], desde: Optional[str], hasta: Optional[str]):
+    try:
+        return normalize_periodo_range(periodo, desde, hasta)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+def _periodo_label(desde: Optional[str], hasta: Optional[str]) -> str:
+    if desde and hasta:
+        return desde if desde == hasta else f"{desde} a {hasta}"
+    if desde:
+        return f"desde {desde}"
+    if hasta:
+        return f"hasta {hasta}"
+    return "Todos los periodos"
+
+
 async def _fetch_contributions_for_review(
-    db: AsyncSession, estado: Optional[str], patient_id: Optional[int] = None, periodo: Optional[str] = None
+    db: AsyncSession,
+    estado: Optional[str],
+    patient_id: Optional[int] = None,
+    periodo: Optional[str] = None,
+    periodo_desde: Optional[str] = None,
+    periodo_hasta: Optional[str] = None,
+    depto: Optional[str] = None,
 ) -> List[schemas.ContributionReviewResponse]:
     query = (
         select(models.MonthlyContribution, models.Patient)
@@ -294,8 +321,13 @@ async def _fetch_contributions_for_review(
         query = query.where(models.MonthlyContribution.estado == estado)
     if patient_id:
         query = query.where(models.MonthlyContribution.patient_id == patient_id)
-    if periodo:
-        query = query.where(models.MonthlyContribution.periodo == periodo)
+    desde, hasta = normalize_periodo_range(periodo, periodo_desde, periodo_hasta)
+    if desde:
+        query = query.where(models.MonthlyContribution.periodo >= desde)
+    if hasta:
+        query = query.where(models.MonthlyContribution.periodo <= hasta)
+    if depto:
+        query = query.where(func.lower(models.Patient.depto) == depto.strip().lower())
 
     result = await db.execute(query)
     rows = result.all()
@@ -305,6 +337,7 @@ async def _fetch_contributions_for_review(
             patient_id=patient.id,
             patient_nombre=f"{patient.nombres} {patient.ap_paterno} {patient.ap_materno or ''}".strip(),
             patient_ci=patient.ci,
+            depto=patient.depto,
             periodo=contrib.periodo,
             fecha_pago=contrib.fecha_pago,
             monto=float(contrib.monto),
@@ -323,13 +356,19 @@ async def _fetch_contributions_for_review(
 async def read_contributions_for_review(
     estado: Optional[Literal["DECLARADO", "OBSERVADO", "ACEPTADO"]] = None,
     periodo: Optional[str] = None,
+    periodo_desde: Optional[str] = Query(None, pattern=PERIODO_PATTERN),
+    periodo_hasta: Optional[str] = Query(None, pattern=PERIODO_PATTERN),
+    depto: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user),
 ):
     if current_user.role not in ["SUPER_ADMIN", "REGISTRADOR"]:
         raise HTTPException(status_code=403, detail="No tiene permisos para revisar aportes.")
 
-    return await _fetch_contributions_for_review(db, estado, periodo=periodo)
+    desde, hasta = _periodo_range_or_400(periodo, periodo_desde, periodo_hasta)
+    return await _fetch_contributions_for_review(
+        db, estado, periodo_desde=desde, periodo_hasta=hasta, depto=depto
+    )
 
 
 @router.get("/patient/{patient_id}", response_model=List[schemas.ContributionReviewResponse])
@@ -411,11 +450,13 @@ async def export_contributions_report_pdf(
     generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
 
     METODO_LABELS = {"VOUCHER": "Voucher/QR", "EFECTIVO": "Efectivo"}
-    table_data = [["Nombre del beneficiario", "C.I.", "Periodo", "Fecha de pago", "Monto (Bs.)", "Método", "Estado"]]
+    style_small = ParagraphStyle("SmallStyle", parent=styles["Normal"], fontSize=8, leading=10)
+    table_data = [["Nombre del beneficiario", "C.I.", "Departamento", "Periodo", "Fecha de pago", "Monto (Bs.)", "Método", "Estado"]]
     for item in items:
         table_data.append([
-            Paragraph(item.patient_nombre, styles["Normal"]),
+            Paragraph(item.patient_nombre, style_small),
             item.patient_ci or "Sin CI",
+            Paragraph(item.depto or "-", style_small),
             item.periodo,
             item.fecha_pago.strftime("%d/%m/%Y"),
             f"{item.monto:.2f}",
@@ -425,14 +466,14 @@ async def export_contributions_report_pdf(
 
     report_table = Table(
         table_data,
-        colWidths=[130, 60, 50, 70, 55, 60, 55],
+        colWidths=[104, 52, 62, 42, 56, 44, 50, 48],
         repeatRows=1,
     )
     report_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F3D1E")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#E9F5EC")]),
@@ -515,6 +556,9 @@ async def _fetch_voucher_thumbnail(http_client: httpx.AsyncClient, semaphore: as
 @router.get("/vouchers/export.pdf")
 async def export_vouchers_control_report_pdf(
     periodo: Optional[str] = None,
+    periodo_desde: Optional[str] = Query(None, pattern=PERIODO_PATTERN),
+    periodo_hasta: Optional[str] = Query(None, pattern=PERIODO_PATTERN),
+    depto: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user),
 ):
@@ -524,13 +568,20 @@ async def export_vouchers_control_report_pdf(
     del reporte de vouchers sin imagen (/review/export.pdf, usado en
     Revisión de Aportes), este incrusta la captura de cada comprobante
     junto al nombre del beneficiario y la fecha de pago, para TODOS los
-    beneficiarios. `periodo` (YYYY-MM) es opcional — sin él trae todos los
-    periodos, lo que puede ser un PDF grande/lento si hay muchos vouchers.
+    beneficiarios. Se puede acotar a un mes (`periodo`, YYYY-MM) o a un rango
+    (`periodo_desde` / `periodo_hasta`) y a un departamento; sin filtros trae
+    todos los periodos, lo que puede ser un PDF grande/lento si hay muchos
+    vouchers. Cada fila lleva su departamento y el periodo al que pertenece.
     """
     if current_user.role not in ["SUPER_ADMIN", "REGISTRADOR"]:
         raise HTTPException(status_code=403, detail="No tiene permisos para ver este reporte.")
 
-    items = await _fetch_contributions_for_review(db, estado=None, periodo=periodo)
+    desde, hasta = _periodo_range_or_400(periodo, periodo_desde, periodo_hasta)
+    items = await _fetch_contributions_for_review(
+        db, estado=None, periodo_desde=desde, periodo_hasta=hasta, depto=depto
+    )
+    # Con rango, cada beneficiario junto y sus periodos en orden
+    items = sorted(items, key=lambda i: (i.patient_nombre.lower(), i.periodo))
 
     semaphore = asyncio.Semaphore(VOUCHER_FETCH_CONCURRENCY)
     async with httpx.AsyncClient() as http_client:
@@ -582,10 +633,11 @@ async def export_vouchers_control_report_pdf(
         ("LEFTPADDING", (0, 0), (0, 0), 0),
     ]))
 
-    periodo_label = periodo or "Todos los periodos"
+    periodo_label = _periodo_label(desde, hasta)
+    depto_label = f" &nbsp;|&nbsp; Departamento: {depto}" if depto else ""
     generated_at = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    table_data = [["Captura", "Beneficiario", "C.I.", "Fecha de pago"]]
+    table_data = [["Captura", "Beneficiario", "C.I.", "Departamento", "Periodo", "Fecha de pago"]]
     for item, thumb in zip(items, thumbnails):
         if thumb is not None:
             captura_cell = thumb
@@ -597,12 +649,14 @@ async def export_vouchers_control_report_pdf(
             captura_cell,
             Paragraph(item.patient_nombre, style_cell),
             item.patient_ci or "Sin CI",
+            Paragraph(item.depto or "-", style_cell),
+            item.periodo,
             item.fecha_pago.strftime("%d/%m/%Y"),
         ])
 
     report_table = Table(
         table_data,
-        colWidths=[65, 200, 65, 80],
+        colWidths=[62, 150, 62, 80, 50, 70],
         repeatRows=1,
     )
     report_table.setStyle(TableStyle([
@@ -623,13 +677,14 @@ async def export_vouchers_control_report_pdf(
         header_table,
         Spacer(1, 14),
         Paragraph("Control de Vouchers", style_title),
-        Paragraph(f"Periodo: {periodo_label} &nbsp;|&nbsp; Generado: {generated_at} &nbsp;|&nbsp; Total: {len(items)}", style_meta),
+        Paragraph(f"Periodo: {periodo_label}{depto_label} &nbsp;|&nbsp; Generado: {generated_at} &nbsp;|&nbsp; Total: {len(items)}", style_meta),
         report_table if items else Paragraph("No hay vouchers para el filtro seleccionado.", styles["Normal"]),
     ]
 
     doc.build(story)
     buffer.seek(0)
-    filename = f"Control_Vouchers_{(periodo or 'TODOS')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    sufijo = _periodo_label(desde, hasta).replace(" a ", "_a_").replace("Todos los periodos", "TODOS").replace(" ", "_")
+    filename = f"Control_Vouchers_{sufijo}_{datetime.now().strftime('%Y%m%d')}.pdf"
     return StreamingResponse(
         buffer, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},

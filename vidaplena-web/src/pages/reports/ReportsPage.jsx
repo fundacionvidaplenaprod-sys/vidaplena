@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity, Wallet, ReceiptText, UserX, Syringe } from 'lucide-react';
+import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity, Wallet, ReceiptText, UserX, Syringe, BookOpen } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { getAuditLogsReport, getInventoryReport, getPopulationReport } from '../../api/reports';
 import { toast } from 'react-hot-toast';
@@ -8,6 +8,7 @@ import ContributionsHistoryReport from './ContributionsHistoryReport';
 import VoucherControlReport from './VoucherControlReport';
 import MorososReport from './MorososReport';
 import InsulinDistributionReport from './InsulinDistributionReport';
+import DirectorNotebookReport from './DirectorNotebookReport';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ReportsPage() {
@@ -116,6 +117,18 @@ export default function ReportsPage() {
         >
           <UserX size={18} /> Morosos
         </button>
+        {isSuperAdmin && (
+          <button
+            onClick={() => setActiveTab('cuaderno')}
+            className={`flex items-center gap-2 px-6 py-3 font-semibold text-sm transition-colors whitespace-nowrap border-b-2 ${
+              activeTab === 'cuaderno'
+                ? 'border-vida-main text-vida-main bg-vida-main/5'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <BookOpen size={18} /> Cuaderno de la Directora
+          </button>
+        )}
         {isSuperAdmin && (
           <button
             onClick={() => setActiveTab('insulina')}
@@ -380,6 +393,10 @@ export default function ReportsPage() {
       ) : activeTab === 'morosos' ? (
         <div className="animate-fadeIn">
           <MorososReport />
+        </div>
+      ) : activeTab === 'cuaderno' && isSuperAdmin ? (
+        <div className="animate-fadeIn">
+          <DirectorNotebookReport />
         </div>
       ) : activeTab === 'insulina' && isSuperAdmin ? (
         <div className="animate-fadeIn">
