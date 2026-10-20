@@ -299,6 +299,11 @@ export default function MyDocumentsPage() {
     const bajaAprobada = socialEvaluation?.estado_revision === 'APROBADO' && socialEvaluation?.categoria_final === 'BAJA';
     const sinExoneracionAprobada = mediaAprobada || bajaAprobada;
     const currentPeriodContribution = contributions.find((item) => item.periodo === currentPeriod);
+    // Exonerado del aporte mensual (por vulnerabilidad o por cargo): nunca debe verse como «pendiente».
+    const exoneradoAporte = Boolean(patientProfile?.exonerado_aporte || patientProfile?.exonerado_por_cargo);
+    const exoneradoMotivo = patientProfile?.exonerado_aporte
+        ? 'Exonerado del aporte mensual por vulnerabilidad acreditada.'
+        : 'Exonerado del aporte mensual por su cargo en la fundación.';
     const todayDoseTotal = (patientProfile?.treatments || []).reduce((acc, treatment) => {
         return acc + Number(treatment.dosis_diaria || 0);
     }, 0);
@@ -417,13 +422,15 @@ export default function MyDocumentsPage() {
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                                 <p className="text-xs text-gray-500 font-semibold uppercase">Aporte {currentPeriod}</p>
-                                <p className={`text-xl font-bold mt-1 ${currentPeriodContribution?.estado === 'ACEPTADO' ? 'text-green-700' : 'text-orange-600'}`}>
-                                    {currentPeriodContribution?.estado || 'SIN REGISTRO'}
+                                <p className={`text-xl font-bold mt-1 ${exoneradoAporte || currentPeriodContribution?.estado === 'ACEPTADO' ? 'text-green-700' : 'text-orange-600'}`}>
+                                    {exoneradoAporte ? 'EXONERADO' : currentPeriodContribution?.estado || 'SIN REGISTRO'}
                                 </p>
                                 <p className="text-xs text-gray-500 mt-1">
-                                    {currentPeriodContribution?.estado === 'ACEPTADO'
-                                        ? 'Su aporte del periodo ya fue validado.'
-                                        : 'Puede adelantar el voucher para agilizar su activacion.'}
+                                    {exoneradoAporte
+                                        ? exoneradoMotivo
+                                        : currentPeriodContribution?.estado === 'ACEPTADO'
+                                            ? 'Su aporte del periodo ya fue validado.'
+                                            : 'Puede adelantar el voucher para agilizar su activacion.'}
                                 </p>
                             </div>
                         </div>
@@ -443,7 +450,7 @@ export default function MyDocumentsPage() {
                                 </ul>
                             </div>
 
-                            {currentPeriodContribution?.estado !== 'ACEPTADO' && (
+                            {!exoneradoAporte && currentPeriodContribution?.estado !== 'ACEPTADO' && (
                                 <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r">
                                     <p className="text-sm text-yellow-800">
                                         Recomendacion: cargue o regularice su aporte mensual para evitar bloqueos en la dotacion una vez activado.
@@ -525,13 +532,15 @@ export default function MyDocumentsPage() {
                                 <p className="text-xs text-gray-500 font-semibold uppercase flex items-center gap-2">
                                     <Wallet size={14} /> Aporte {currentPeriod}
                                 </p>
-                                <p className={`text-xl font-bold mt-1 ${currentPeriodContribution?.estado === 'ACEPTADO' ? 'text-green-700' : 'text-orange-600'}`}>
-                                    {currentPeriodContribution?.estado || 'PENDIENTE'}
+                                <p className={`text-xl font-bold mt-1 ${exoneradoAporte || currentPeriodContribution?.estado === 'ACEPTADO' ? 'text-green-700' : 'text-orange-600'}`}>
+                                    {exoneradoAporte ? 'EXONERADO' : currentPeriodContribution?.estado || 'PENDIENTE'}
                                 </p>
                                 <p className="text-xs text-gray-500 mt-1">
-                                    {currentPeriodContribution?.estado === 'ACEPTADO'
-                                        ? 'Apto para distribución del periodo.'
-                                        : 'Suba su voucher para habilitar su beneficio.'}
+                                    {exoneradoAporte
+                                        ? exoneradoMotivo
+                                        : currentPeriodContribution?.estado === 'ACEPTADO'
+                                            ? 'Apto para distribución del periodo.'
+                                            : 'Suba su voucher para habilitar su beneficio.'}
                                 </p>
                             </div>
                         </div>
