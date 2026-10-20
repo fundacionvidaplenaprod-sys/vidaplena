@@ -34,6 +34,31 @@ def normalize_periodo_range(
     return desde or None, hasta or None
 
 
+# Más meses que esto vuelven ilegible la tabla del reporte (una columna por mes).
+MAX_MESES_REPORTE = 4
+
+
+def periodos_en_rango(desde: Optional[str], hasta: Optional[str]) -> list[str]:
+    """Los periodos (YYYY-MM) de `desde` a `hasta`, ambos incluidos.
+
+    Lanza ValueError si falta un extremo o si el rango pasa de MAX_MESES_REPORTE meses.
+    """
+    if not desde or not hasta:
+        raise ValueError("Indique los dos extremos del rango: «desde» y «hasta».")
+    anio, mes = int(desde[:4]), int(desde[5:7])
+    periodos = []
+    actual = desde
+    while actual <= hasta:
+        periodos.append(actual)
+        if len(periodos) > MAX_MESES_REPORTE:
+            raise ValueError(f"El rango puede abarcar como máximo {MAX_MESES_REPORTE} meses.")
+        mes += 1
+        if mes > 12:
+            anio, mes = anio + 1, 1
+        actual = f"{anio}-{mes:02d}"
+    return periodos
+
+
 def periodo_anterior(ref_date: Optional[date] = None) -> str:
     """Periodo del mes anterior a `ref_date` (por defecto hoy), formato 'YYYY-MM'."""
     d = ref_date or date.today()

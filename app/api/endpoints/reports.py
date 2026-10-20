@@ -11,7 +11,13 @@ from app import models, schemas
 from app.db import get_db
 from app.api import deps
 from app.core.config import settings
-from app.core.contributions import normalize_periodo_range, periodo_anterior
+from app.core.contributions import (
+    MAX_MESES_REPORTE,
+    esta_exonerado,
+    normalize_periodo_range,
+    periodo_anterior,
+    periodos_en_rango,
+)
 from app.core.text_normalize import normalize_name
 from app.core import distribution_service as dist
 from app.core.donation_excel import DonationExcelError, parse_donation_excel
@@ -245,13 +251,21 @@ async def get_contributions_report(
     dan contexto de lo que aún está pendiente de revisión o fue rechazado
     en ese mismo rango.
 
-    Hay una fila por voucher (aporte), con el periodo al que pertenece y el
-    departamento del beneficiario, para poder filtrar y ordenar en Excel.
+    Sin periodo se devuelve todo el historial: una fila por voucher
+    (`items`), con su periodo y el departamento del beneficiario.
+
+    Con un periodo, o un rango de hasta `MAX_MESES_REPORTE` meses, además se
+    arma `beneficiarios`: una fila por beneficiario con una columna por mes
+    (`meses`), cuyo valor es el estado de su aporte ese mes (ACEPTADO,
+    DECLARADO, OBSERVADO) o NO_REGISTRADO si no hay voucher. Entran los
+    beneficiarios ACTIVOS y quien tenga algún voucher en el rango. Los
+    exonerados del aporte (por vulnerabilidad o por cargo) también aparecen,
+    porque pueden aportar igual: con voucher figura su estado y, en un mes
+    sin voucher, EXONERADO (no NO_REGISTRADO).
     """
-    if not (periodo or periodo_desde or periodo_hasta):
-        raise HTTPException(status_code=400, detail="Indique un periodo o un rango de periodos (desde / hasta).")
     try:
         desde, hasta = normalize_periodo_range(periodo, periodo_desde, periodo_hasta)
+        meses = periodos_en_rango(desde, hasta) if (desde or hasta) else []
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -285,17 +299,58 @@ async def get_contributions_report(
             "estado": contrib.estado,
         })
 
+    beneficiarios = await _aportes_por_beneficiario(db, rows, meses, depto) if meses else []
+
     return {
         "periodo": periodo or (desde if desde == hasta else None),
         "periodo_desde": desde,
         "periodo_hasta": hasta,
         "depto": depto,
+        "meses": meses,
         "total_aceptados": counts.get("ACEPTADO", 0),
         "total_declarados": counts.get("DECLARADO", 0),
         "total_observados": counts.get("OBSERVADO", 0),
         "total_beneficiarios": len({i["patient_id"] for i in items}),
         "items": items,
+        "beneficiarios": beneficiarios,
     }
+
+
+async def _aportes_por_beneficiario(db: AsyncSession, rows, meses: list[str], depto: Optional[str]) -> list[dict]:
+    """Una fila por beneficiario con el estado de su aporte en cada mes de `meses`."""
+    por_paciente: dict[int, dict] = {}
+    for contrib, patient in rows:
+        fila = por_paciente.setdefault(patient.id, {"patient": patient, "aportes": {}})
+        fila["aportes"][contrib.periodo] = contrib
+
+    activos = select(models.Patient).where(models.Patient.estado == "ACTIVO")
+    if depto:
+        activos = activos.where(func.lower(models.Patient.depto) == depto.strip().lower())
+    for patient in (await db.execute(activos)).scalars().all():
+        por_paciente.setdefault(patient.id, {"patient": patient, "aportes": {}})
+
+    resultado = []
+    for fila in por_paciente.values():
+        patient, aportes = fila["patient"], fila["aportes"]
+        exonerado = esta_exonerado(patient)
+        # Monto, fecha y método de pago: los del voucher más reciente del rango.
+        ultimo = aportes[max(aportes)] if aportes else None
+        resultado.append({
+            "patient_id": patient.id,
+            "patient_nombre": f"{patient.nombres} {patient.ap_paterno or ''} {patient.ap_materno or ''}".strip(),
+            "patient_ci": patient.ci,
+            "depto": patient.depto,
+            "monto": float(ultimo.monto) if ultimo else None,
+            "fecha_pago": ultimo.fecha_pago if ultimo else None,
+            "metodo_pago": ultimo.metodo_pago if ultimo else None,
+            "exonerado": exonerado,
+            "meses": {
+                mes: aportes[mes].estado if mes in aportes else ("EXONERADO" if exonerado else "NO_REGISTRADO")
+                for mes in meses
+            },
+        })
+    resultado.sort(key=lambda r: normalize_name(r["patient_nombre"]))
+    return resultado
 
 
 # --- Distribución de insulina a partir del Excel de una donación ---------------

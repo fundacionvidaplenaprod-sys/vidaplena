@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { CheckCircle, Clock, AlertTriangle, Wallet, Download, FileSpreadsheet } from 'lucide-react';
+import { CheckCircle, Clock, AlertTriangle, Wallet, Download, FileSpreadsheet, CircleSlash } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import { getContributionsReport } from '../../api/reports';
@@ -16,10 +16,39 @@ const ESTADO_STYLES = {
     OBSERVADO: 'bg-red-100 text-red-700 border-red-200',
 };
 
+// Con un periodo elegido la tabla pasa a una columna por mes; más meses que esto la vuelven ilegible.
+const MAX_MESES = 4;
+
+// Estado del aporte de un beneficiario en un mes (celdas de las columnas de los meses).
+const ESTADO_MES_LABELS = {
+    ACEPTADO: 'Aceptado',
+    DECLARADO: 'Declarado',
+    OBSERVADO: 'Observado',
+    NO_REGISTRADO: 'No Registrado',
+    EXONERADO: 'Exonerado',
+};
+
+const ESTADO_MES_STYLES = {
+    ...ESTADO_STYLES,
+    NO_REGISTRADO: 'bg-gray-100 text-gray-600 border-gray-200',
+    EXONERADO: 'bg-blue-100 text-blue-700 border-blue-200',
+};
+
+// Color del texto en el PDF (RGB) para cada estado.
+const ESTADO_MES_PDF_COLOR = {
+    ACEPTADO: [21, 128, 61],
+    DECLARADO: [161, 98, 7],
+    OBSERVADO: [185, 28, 28],
+    NO_REGISTRADO: [100, 116, 139],
+    EXONERADO: [29, 78, 216],
+};
+
 const METODO_LABELS = {
     EFECTIVO: 'Efectivo',
     VOUCHER: 'Voucher/QR',
 };
+
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
 
@@ -29,10 +58,24 @@ const monthLabel = (periodo) => {
     return new Date(Number(year), Number(month) - 1, 1).toLocaleDateString('es-BO', { month: 'long', year: 'numeric' });
 };
 
+// «2026-08» -> «Agosto 2026» (cabecera de la columna de ese mes)
+const monthHeader = (periodo) => {
+    const [year, month] = periodo.split('-');
+    return `${MESES[Number(month) - 1]} ${year}`;
+};
+
+// Cantidad de meses de un rango «YYYY-MM» (ambos extremos incluidos).
+const monthSpan = (desde, hasta) => {
+    const [y1, m1] = desde.split('-').map(Number);
+    const [y2, m2] = hasta.split('-').map(Number);
+    return (y2 - y1) * 12 + (m2 - m1) + 1;
+};
+
 export default function ContributionsHistoryReport() {
     const [desde, setDesde] = useState(currentPeriod());
     const [hasta, setHasta] = useState(currentPeriod());
     const [depto, setDepto] = useState('');
+    const [todosLosPeriodos, setTodosLosPeriodos] = useState(false);
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState(null);
     const [logoBase64, setLogoBase64] = useState(null);
@@ -44,14 +87,20 @@ export default function ContributionsHistoryReport() {
     }, []);
 
     const load = async () => {
-        if (!desde || !hasta) return;
-        if (desde > hasta) {
-            toast.error('El mes «Desde» no puede ser posterior a «Hasta».');
-            return;
+        if (!todosLosPeriodos) {
+            if (!desde || !hasta) return;
+            if (desde > hasta) {
+                toast.error('El mes «Desde» no puede ser posterior a «Hasta».');
+                return;
+            }
+            if (monthSpan(desde, hasta) > MAX_MESES) {
+                toast.error(`El rango puede abarcar como máximo ${MAX_MESES} meses.`);
+                return;
+            }
         }
         try {
             setLoading(true);
-            const result = await getContributionsReport({ desde, hasta, depto });
+            const result = await getContributionsReport(todosLosPeriodos ? { depto } : { desde, hasta, depto });
             setData(result);
         } catch (error) {
             toast.error(typeof error === 'string' ? error : 'No se pudo cargar el historial de aportes.');
@@ -64,14 +113,40 @@ export default function ContributionsHistoryReport() {
     useEffect(() => {
         load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [desde, hasta, depto]);
+    }, [todosLosPeriodos, desde, hasta, depto]);
 
     const sameMonth = desde === hasta;
-    const periodoLabel = sameMonth ? monthLabel(desde) : `${monthLabel(desde)} a ${monthLabel(hasta)}`;
-    const fileSuffix = `${sameMonth ? desde : `${desde}_a_${hasta}`}${depto ? `_${depto.replace(/\s+/g, '_')}` : ''}`;
+    const periodoLabel = todosLosPeriodos
+        ? 'todos los periodos'
+        : sameMonth ? monthLabel(desde) : `${monthLabel(desde)} a ${monthLabel(hasta)}`;
+    const periodoSuffix = todosLosPeriodos ? 'TODOS' : sameMonth ? desde : `${desde}_a_${hasta}`;
+    const fileSuffix = `${periodoSuffix}${depto ? `_${depto.replace(/\s+/g, '_')}` : ''}`;
+
+    // Con un periodo elegido: una fila por beneficiario y una columna por mes.
+    // Sin periodo: una fila por voucher, con su estado y su periodo.
+    const meses = data?.meses || [];
+    const porMes = meses.length > 0;
+    const filas = (porMes ? data?.beneficiarios : data?.items) || [];
+    const sinDatos = filas.length === 0;
+    const noRegistrados = porMes
+        ? filas.reduce((acc, f) => acc + meses.filter((mes) => f.meses[mes] === 'NO_REGISTRADO').length, 0)
+        : 0;
+
+    const cabecerasPorMes = () => [
+        'Beneficiario', 'CI', 'Departamento', 'Monto (Bs.)', 'Fecha de pago', 'Método', ...meses.map(monthHeader),
+    ];
+    const celdasPorMes = (f) => [
+        f.patient_nombre,
+        f.patient_ci || 'Sin CI',
+        f.depto || '-',
+        f.monto == null ? '-' : f.monto.toFixed(2),
+        f.fecha_pago || '-',
+        f.metodo_pago ? (METODO_LABELS[f.metodo_pago] || f.metodo_pago) : '-',
+        ...meses.map((mes) => ESTADO_MES_LABELS[f.meses[mes]] || f.meses[mes]),
+    ];
 
     const exportPDF = () => {
-        if (!data || data.items.length === 0) {
+        if (!data || sinDatos) {
             toast.error('No hay aportes registrados en este periodo para descargar.');
             return;
         }
@@ -104,18 +179,31 @@ export default function ContributionsHistoryReport() {
             );
         };
 
+        const tabla = porMes
+            ? { head: [cabecerasPorMes()], body: filas.map(celdasPorMes) }
+            : {
+                head: [['Beneficiario', 'CI', 'Departamento', 'Monto (Bs.)', 'Fecha de pago', 'Método', 'Estado', 'Periodo']],
+                body: filas.map((item) => [
+                    item.patient_nombre,
+                    item.patient_ci || 'Sin CI',
+                    item.depto || '-',
+                    item.monto.toFixed(2),
+                    item.fecha_pago,
+                    METODO_LABELS[item.metodo_pago] || item.metodo_pago,
+                    item.estado,
+                    item.periodo,
+                ]),
+            };
+
         autoTable(doc, {
-            head: [['Beneficiario', 'CI', 'Departamento', 'Monto (Bs.)', 'Fecha de pago', 'Método', 'Estado', 'Periodo']],
-            body: data.items.map((item) => [
-                item.patient_nombre,
-                item.patient_ci || 'Sin CI',
-                item.depto || '-',
-                item.monto.toFixed(2),
-                item.fecha_pago,
-                METODO_LABELS[item.metodo_pago] || item.metodo_pago,
-                item.estado,
-                item.periodo,
-            ]),
+            ...tabla,
+            // En las columnas de los meses, el estado va en negrita y con su color.
+            didParseCell: (hook) => {
+                if (!porMes || hook.section !== 'body' || hook.column.index < 6) return;
+                const estado = filas[hook.row.index]?.meses[meses[hook.column.index - 6]];
+                hook.cell.styles.textColor = ESTADO_MES_PDF_COLOR[estado] || [30, 41, 59];
+                hook.cell.styles.fontStyle = 'bold';
+            },
             startY: 40,
             margin: { top: 40, left: margin, right: margin, bottom: 20 },
             styles: { fontSize: 8, cellPadding: 3, font: 'helvetica' },
@@ -135,22 +223,31 @@ export default function ContributionsHistoryReport() {
     };
 
     const exportXLS = () => {
-        if (!data || data.items.length === 0) {
+        if (!data || sinDatos) {
             toast.error('No hay aportes registrados en este periodo para descargar.');
             return;
         }
-        const rows = data.items.map((item) => ({
-            Beneficiario: item.patient_nombre,
-            CI: item.patient_ci || 'Sin CI',
-            Departamento: item.depto || '-',
-            'Monto (Bs.)': item.monto,
-            'Fecha de pago': item.fecha_pago,
-            Método: METODO_LABELS[item.metodo_pago] || item.metodo_pago,
-            Estado: item.estado,
-            // A la derecha de los datos del beneficiario: a qué periodo pertenece el voucher de la fila.
-            Periodo: item.periodo,
-            Mes: monthLabel(item.periodo),
-        }));
+        let rows;
+        if (porMes) {
+            const encabezados = cabecerasPorMes();
+            rows = filas.map((f) => {
+                const celdas = celdasPorMes(f);
+                return Object.fromEntries(encabezados.map((titulo, i) => [titulo, celdas[i]]));
+            });
+        } else {
+            rows = filas.map((item) => ({
+                Beneficiario: item.patient_nombre,
+                CI: item.patient_ci || 'Sin CI',
+                Departamento: item.depto || '-',
+                'Monto (Bs.)': item.monto,
+                'Fecha de pago': item.fecha_pago,
+                Método: METODO_LABELS[item.metodo_pago] || item.metodo_pago,
+                Estado: item.estado,
+                // A la derecha de los datos del beneficiario: a qué periodo pertenece el voucher de la fila.
+                Periodo: item.periodo,
+                Mes: monthLabel(item.periodo),
+            }));
+        }
         const worksheet = XLSX.utils.json_to_sheet(rows);
         worksheet['!autofilter'] = { ref: worksheet['!ref'] };
         const workbook = XLSX.utils.book_new();
@@ -158,6 +255,8 @@ export default function ContributionsHistoryReport() {
         XLSX.writeFile(workbook, `Historial_Aportes_${fileSuffix}.xlsx`);
         toast.success('Reporte descargado exitosamente');
     };
+
+    const thClass = 'px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider';
 
     return (
         <div>
@@ -167,7 +266,8 @@ export default function ContributionsHistoryReport() {
                         <Wallet size={22} /> Historial de Aportes Solidarios
                     </h2>
                     <p className="text-sm text-gray-500">
-                        Elija un mes, o un rango de meses (por ejemplo, abril a octubre), para ver los vouchers de aporte de cada beneficiario.
+                        Elija un mes, o un rango de hasta {MAX_MESES} meses, para ver el estado del aporte de cada beneficiario mes por mes.
+                        Con «Todos los periodos» se lista cada voucher registrado.
                     </p>
                 </div>
                 <div className="flex items-end gap-2 flex-wrap">
@@ -179,7 +279,8 @@ export default function ContributionsHistoryReport() {
                             value={desde}
                             max={hasta || undefined}
                             onChange={(e) => setDesde(e.target.value)}
-                            className="border rounded-lg px-3 py-2 text-sm bg-white"
+                            disabled={todosLosPeriodos}
+                            className="border rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
                         />
                     </div>
                     <div>
@@ -190,9 +291,18 @@ export default function ContributionsHistoryReport() {
                             value={hasta}
                             min={desde || undefined}
                             onChange={(e) => setHasta(e.target.value)}
-                            className="border rounded-lg px-3 py-2 text-sm bg-white"
+                            disabled={todosLosPeriodos}
+                            className="border rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
                         />
                     </div>
+                    <label className="flex items-center gap-2 text-sm text-gray-700 pb-2">
+                        <input
+                            type="checkbox"
+                            checked={todosLosPeriodos}
+                            onChange={(e) => setTodosLosPeriodos(e.target.checked)}
+                        />
+                        Todos los periodos
+                    </label>
                     <div>
                         <label className="block text-xs font-semibold text-gray-700 mb-1" htmlFor="aportes-depto">Departamento</label>
                         <select
@@ -209,7 +319,7 @@ export default function ContributionsHistoryReport() {
                     </div>
                     <Button
                         onClick={exportPDF}
-                        disabled={loading || !data || data.items.length === 0}
+                        disabled={loading || !data || sinDatos}
                         className="bg-green-600 hover:bg-green-700 text-white w-auto justify-center"
                     >
                         <Download size={18} />
@@ -217,7 +327,7 @@ export default function ContributionsHistoryReport() {
                     </Button>
                     <Button
                         onClick={exportXLS}
-                        disabled={loading || !data || data.items.length === 0}
+                        disabled={loading || !data || sinDatos}
                         className="bg-emerald-700 hover:bg-emerald-800 text-white w-auto justify-center"
                     >
                         <FileSpreadsheet size={18} />
@@ -234,7 +344,7 @@ export default function ContributionsHistoryReport() {
                 </div>
             ) : (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className={`grid grid-cols-1 ${porMes ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-4 mb-6`}>
                         <div className="bg-white rounded-2xl border border-green-100 shadow-sm p-4">
                             <p className="text-xs text-green-700 uppercase font-semibold flex items-center gap-1">
                                 <CheckCircle size={14} /> Aportes aceptados
@@ -256,32 +366,81 @@ export default function ContributionsHistoryReport() {
                             <p className="text-3xl font-bold text-red-700 mt-1">{data.total_observados}</p>
                             <p className="text-xs text-gray-400 mt-1">Rechazados / con observación</p>
                         </div>
+                        {porMes && (
+                            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+                                <p className="text-xs text-gray-600 uppercase font-semibold flex items-center gap-1">
+                                    <CircleSlash size={14} /> No registrados
+                                </p>
+                                <p className="text-3xl font-bold text-gray-600 mt-1">{noRegistrados}</p>
+                                <p className="text-xs text-gray-400 mt-1">Meses sin voucher (beneficiario × mes)</p>
+                            </div>
+                        )}
                     </div>
 
+                    {porMes && (
+                        <p className="text-xs text-gray-500 mb-2">
+                            Estado del aporte en cada mes:{' '}
+                            {['ACEPTADO', 'DECLARADO', 'OBSERVADO', 'NO_REGISTRADO', 'EXONERADO'].map((estado) => (
+                                <span
+                                    key={estado}
+                                    className={`inline-flex items-center px-2 py-0.5 mr-1 rounded-full font-bold border ${ESTADO_MES_STYLES[estado]}`}
+                                >
+                                    {ESTADO_MES_LABELS[estado]}
+                                </span>
+                            ))}
+                            «Exonerado» aparece en los meses sin voucher de quien está exonerado del aporte.
+                        </p>
+                    )}
                     <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
                         <div className="overflow-x-auto">
                             <table className="w-full">
                                 <thead className="bg-gray-50 border-b border-gray-100">
                                     <tr>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Beneficiario</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">CI</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Departamento</th>
-                                        <th className="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Monto (Bs.)</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Fecha de pago</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Método</th>
-                                        <th className="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Estado</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Periodo</th>
+                                        <th className={thClass}>Beneficiario</th>
+                                        <th className={thClass}>CI</th>
+                                        <th className={thClass}>Departamento</th>
+                                        <th className={`${thClass} text-right`}>Monto (Bs.)</th>
+                                        <th className={thClass}>Fecha de pago</th>
+                                        <th className={thClass}>Método</th>
+                                        {porMes ? (
+                                            meses.map((mes) => (
+                                                <th key={mes} className={`${thClass} text-center whitespace-nowrap`}>{monthHeader(mes)}</th>
+                                            ))
+                                        ) : (
+                                            <>
+                                                <th className={`${thClass} text-right`}>Estado</th>
+                                                <th className={thClass}>Periodo</th>
+                                            </>
+                                        )}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {data.items.length === 0 ? (
+                                    {sinDatos ? (
                                         <tr>
-                                            <td colSpan="8" className="px-4 py-6 text-center text-gray-400 capitalize">
+                                            <td colSpan={6 + (porMes ? meses.length : 2)} className="px-4 py-6 text-center text-gray-400 capitalize">
                                                 Nadie registró aportes en {periodoLabel}.
                                             </td>
                                         </tr>
+                                    ) : porMes ? (
+                                        filas.map((f) => (
+                                            <tr key={f.patient_id} className="hover:bg-gray-50/70 transition-colors">
+                                                <td className="px-4 py-3 text-sm text-gray-800 font-medium">{f.patient_nombre}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-600">{f.patient_ci || 'Sin CI'}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-600">{f.depto || '-'}</td>
+                                                <td className="px-4 py-3 text-sm text-right text-gray-700">{f.monto == null ? '-' : f.monto.toFixed(2)}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-600">{f.fecha_pago || '-'}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-600">{f.metodo_pago ? (METODO_LABELS[f.metodo_pago] || f.metodo_pago) : '-'}</td>
+                                                {meses.map((mes) => (
+                                                    <td key={mes} className="px-4 py-3 text-sm text-center whitespace-nowrap">
+                                                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold border ${ESTADO_MES_STYLES[f.meses[mes]] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                                                            {ESTADO_MES_LABELS[f.meses[mes]] || f.meses[mes]}
+                                                        </span>
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))
                                     ) : (
-                                        data.items.map((item) => (
+                                        filas.map((item) => (
                                             <tr key={item.id} className="hover:bg-gray-50/70 transition-colors">
                                                 <td className="px-4 py-3 text-sm text-gray-800 font-medium">{item.patient_nombre}</td>
                                                 <td className="px-4 py-3 text-sm text-gray-600">{item.patient_ci || 'Sin CI'}</td>
