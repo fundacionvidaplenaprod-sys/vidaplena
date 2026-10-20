@@ -11,6 +11,7 @@ from app import models, schemas
 from app.api.deps import get_db, get_current_user
 from app.core.insulin_catalog import normalize_insulin_name
 from app.core.security import hash_password
+from app.core.text_normalize import fold_sql, normalize_name
 
 router = APIRouter()
 
@@ -166,20 +167,34 @@ async def search_beneficiaries(
     y su última entrega en el cuaderno (para avisar de una posible entrega duplicada)."""
     _require_cuaderno_role(current_user)
 
+    # La búsqueda no distingue mayúsculas ni tildes («Jose» encuentra «José») y cada
+    # palabra se busca por separado en el nombre completo, en cualquier orden.
+    nombre_completo = fold_sql(
+        func.concat_ws(
+            " ",
+            models.Patient.nombres,
+            models.Patient.ap_paterno,
+            models.Patient.ap_materno,
+        )
+    )
+    tokens = normalize_name(q).split()
+    if not tokens:
+        return []
     query = select(models.Patient).options(selectinload(models.Patient.treatments))
-    for token in q.split():
-        like = f"%{token}%"
+    for token in tokens:
         query = query.where(
             or_(
-                models.Patient.nombres.ilike(like),
-                models.Patient.ap_paterno.ilike(like),
-                models.Patient.ap_materno.ilike(like),
-                models.Patient.ci.ilike(like),
+                nombre_completo.contains(token, autoescape=True),
+                models.Patient.ci.icontains(token, autoescape=True),
             )
         )
-    # Los activos primero; los inactivos solo si no hay más coincidencias.
+    # Primero quien empieza por lo escrito («José Diego…»), luego los activos; los
+    # inactivos solo si no hay más coincidencias.
     query = query.order_by(
-        (models.Patient.estado == "INACTIVO"), models.Patient.ap_paterno, models.Patient.nombres
+        nombre_completo.startswith(" ".join(tokens), autoescape=True).desc(),
+        (models.Patient.estado == "INACTIVO"),
+        models.Patient.ap_paterno,
+        models.Patient.nombres,
     ).limit(15)
     patients = (await db.execute(query)).scalars().unique().all()
 
@@ -233,16 +248,16 @@ async def list_director_deliveries(
             query = query.where(D.delivery_date >= desde)
         if hasta:
             query = query.where(D.delivery_date <= hasta)
-        for token in (q or "").split():
-            like = f"%{token}%"
+        nombre_completo = fold_sql(
+            func.concat_ws(" ", D.patient_nombres, D.patient_ap_paterno, D.patient_ap_materno)
+        )
+        for token in normalize_name(q).split():
             query = query.where(
                 or_(
-                    D.patient_nombres.ilike(like),
-                    D.patient_ap_paterno.ilike(like),
-                    D.patient_ap_materno.ilike(like),
-                    D.insulin_type.ilike(like),
-                    D.marca.ilike(like),
-                    models.Patient.ci.ilike(like),
+                    nombre_completo.contains(token, autoescape=True),
+                    fold_sql(D.insulin_type).contains(token, autoescape=True),
+                    fold_sql(D.marca).contains(token, autoescape=True),
+                    models.Patient.ci.icontains(token, autoescape=True),
                 )
             )
         return query

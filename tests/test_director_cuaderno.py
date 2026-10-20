@@ -226,3 +226,41 @@ async def test_las_entregas_anteriores_sin_vinculo_siguen_apareciendo_en_el_repo
     [fila] = reporte.json()["items"]
     assert (fila["patient_id"], fila["presentacion"], fila["marca"], fila["patient_ci"]) == (None, None, None, None)
     assert fila["insulin_type"] == "TOUJEO LYUMJEV"
+
+
+@pytest.mark.asyncio
+async def test_la_busqueda_ignora_tildes_mayusculas_y_el_orden_de_las_palabras(client, superuser_token, db_session):
+    patient, sufijo = await _beneficiario(db_session, nombre="José Diego")
+    apellido = f"cuaderno{sufijo}"
+
+    for texto in (
+        f"José Diego {apellido}",
+        f"jose diego {apellido}",
+        f"JOSÉ  DIEGO   {apellido.upper()}",
+        f"{apellido} diego jose",
+        f"Jose Diego {apellido} Quispe",
+        "José Dieg " + apellido,
+        "José Diego " + apellido,  # tilde escrita como letra + acento combinado
+    ):
+        resp = await client.get(f"{URL}/beneficiaries", params={"q": texto})
+        assert resp.status_code == 200, resp.text
+        assert [i["id"] for i in resp.json()] == [patient.id], texto
+
+    otro = await client.get(f"{URL}/beneficiaries", params={"q": f"Jose Diego Perez {apellido}"})
+    assert otro.json() == []
+
+
+@pytest.mark.asyncio
+async def test_el_reporte_del_cuaderno_tambien_busca_sin_tildes(client, superuser_token, db_session):
+    patient, sufijo = await _beneficiario(db_session, nombre="José Diego")
+    visita = await client.post(
+        f"{URL}/batch",
+        json={
+            "patient_id": patient.id,
+            "items": [{"insulin_type": "Glargina", "presentacion": "Pen 3ml", "marca": "Lantus", "quantity": "2"}],
+        },
+    )
+    assert visita.status_code in (200, 201), visita.text
+    resp = await client.get(f"{URL}/", params={"q": f"jose diego cuaderno{sufijo}"})
+    assert resp.status_code == 200
+    assert resp.json()["total"] >= 1
