@@ -9,6 +9,7 @@ import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import logoUrl from '../../assets/logo.png';
 import { imageToBase64 } from '../../utils/imageToBase64';
+import { formatComplications, formatEvolutionTime, formatTreatments } from '../../utils/beneficiaryFormat';
 
 const ALL_COLUMNS = [
   { id: 'nombres', label: 'Nombres', getValue: p => p.nombres },
@@ -28,6 +29,13 @@ const ALL_COLUMNS = [
   { id: 'tipo_sangre', label: 'Tipo Sangre', getValue: p => p.tipo_sangre || '-' },
   { id: 'tipo_diabetes', label: 'Tipo Diabetes', getValue: p => p.medical?.tipo_diabetes || '-' },
   { id: 'tutor_nombres', label: 'Tutor', getValue: p => p.tutor ? `${p.tutor.nombres} ${p.tutor.apellidos}` : '-' },
+  { id: 'tutor_ci', label: 'C.I. Tutor', getValue: p => p.tutor?.ci || '-' },
+  // Un tratamiento por línea: «Glargina: 40 UI al día».
+  { id: 'tratamiento', label: 'Tratamiento', multiline: true, getValue: p => formatTreatments(p.treatments) },
+  // Años con la diabetes, como se registraron («8 años»).
+  { id: 'tiempo_evolucion', label: 'Tiempo de Evolución', getValue: p => formatEvolutionTime(p.medical) },
+  // Una complicación por línea.
+  { id: 'complicaciones', label: 'Complicaciones/Otros', multiline: true, getValue: p => formatComplications(p.complications) },
   { id: 'estado', label: 'Estado', getValue: p => p.estado || '-' },
   { id: 'aporte_estado', label: 'Estado Aporte', getValue: p => p._aporteEstado || 'NO REALIZADO' },
 ];
@@ -358,7 +366,10 @@ export default function DynamicBeneficiaryReport() {
               paginatedPatients.map((patient) => (
                 <tr key={patient.id} className="hover:bg-gray-50/50 transition-colors">
                   {activeColumns.map(col => (
-                    <td key={`${patient.id}-${col.id}`} className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                    <td
+                      key={`${patient.id}-${col.id}`}
+                      className={`px-4 py-3 text-sm text-gray-700 ${col.multiline ? 'whitespace-pre-line' : 'whitespace-nowrap'}`}
+                    >
                       {col.getValue(patient)}
                     </td>
                   ))}
