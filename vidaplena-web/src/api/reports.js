@@ -92,3 +92,17 @@ export const getMorososReport = async (periodo, depto) => {
     throw error.response?.data?.detail || 'Error al cargar el reporte de morosos';
   }
 };
+
+/**
+ * Cantidades de insulina requeridas para 60 días de tratamiento (todos los beneficiarios
+ * registrados) y perfil de la población. Solo SUPER_ADMIN.
+ */
+export const getDonationRequestReport = async () => {
+  try {
+    const response = await client.get('/reports/donation-request');
+    return response.data;
+  } catch (error) {
+    console.error('Error al cargar la solicitud de donación:', error);
+    throw error.response?.data?.detail || 'Error al cargar la solicitud de donación';
+  }
+};

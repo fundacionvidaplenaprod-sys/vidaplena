@@ -5,7 +5,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, desc, and_, or_
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, selectinload
 
 from app import models, schemas
 from app.db import get_db
@@ -20,6 +20,7 @@ from app.core.contributions import (
 )
 from app.core.text_normalize import normalize_name
 from app.core import distribution_service as dist
+from app.core.donation_request import DONATION_REQUEST_ESTADOS, build_donation_request
 from app.core.donation_excel import DonationExcelError, parse_donation_excel
 from app.core.insulin_catalog import normalize_insulin_name
 from app.core.insulin_distribution import (
@@ -351,6 +352,26 @@ async def _aportes_por_beneficiario(db: AsyncSession, rows, meses: list[str], de
         })
     resultado.sort(key=lambda r: normalize_name(r["patient_nombre"]))
     return resultado
+
+
+# --- Solicitud de cantidades requeridas de donación -----------------------------
+@router.get("/donation-request", summary="Cantidades de insulina requeridas para 60 días de tratamiento")
+async def get_donation_request_report(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Cuánta insulina pedir en una donación: la dosis diaria de todos los
+    beneficiarios registrados, por tipo de insulina, por 60 días. No filtra por
+    aporte al día ni por documentos pendientes. Incluye el perfil de la
+    población (menores de 18, mayores de 65, tipo 1 y tipo 2) sobre el total.
+    """
+    result = await db.execute(
+        select(models.Patient)
+        .options(selectinload(models.Patient.treatments), selectinload(models.Patient.medical))
+        .where(models.Patient.estado.in_(DONATION_REQUEST_ESTADOS))
+    )
+    return build_donation_request(result.scalars().unique().all())
 
 
 # --- Distribución de insulina a partir del Excel de una donación ---------------

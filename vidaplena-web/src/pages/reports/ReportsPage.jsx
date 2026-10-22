@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity, Wallet, ReceiptText, UserX, Syringe, BookOpen } from 'lucide-react';
+import { BarChart3, AlertTriangle, ClipboardList, RefreshCcw, ShieldCheck, Clock, User, FileText, Activity, Wallet, ReceiptText, UserX, Syringe, BookOpen, HandHeart } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { getAuditLogsReport, getInventoryReport, getPopulationReport } from '../../api/reports';
 import { toast } from 'react-hot-toast';
@@ -9,6 +9,7 @@ import VoucherControlReport from './VoucherControlReport';
 import MorososReport from './MorososReport';
 import InsulinDistributionReport from './InsulinDistributionReport';
 import DirectorNotebookReport from './DirectorNotebookReport';
+import DonationRequestReport from './DonationRequestReport';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ReportsPage() {
@@ -139,6 +140,18 @@ export default function ReportsPage() {
             }`}
           >
             <Syringe size={18} /> Distribución de insulina
+          </button>
+        )}
+        {isSuperAdmin && (
+          <button
+            onClick={() => setActiveTab('solicitud')}
+            className={`flex items-center gap-2 px-6 py-3 font-semibold text-sm transition-colors whitespace-nowrap border-b-2 ${
+              activeTab === 'solicitud'
+                ? 'border-vida-main text-vida-main bg-vida-main/5'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <HandHeart size={18} /> Solicitud de donación
           </button>
         )}
       </div>
@@ -401,6 +414,10 @@ export default function ReportsPage() {
       ) : activeTab === 'insulina' && isSuperAdmin ? (
         <div className="animate-fadeIn">
           <InsulinDistributionReport />
+        </div>
+      ) : activeTab === 'solicitud' && isSuperAdmin ? (
+        <div className="animate-fadeIn">
+          <DonationRequestReport />
         </div>
       ) : (
         <div className="animate-fadeIn">
