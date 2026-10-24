@@ -19,7 +19,9 @@ from app.core.insulin_distribution import (
 
 # Se cuentan los mismos estados que el reporte de distribución de insulina.
 DONATION_REQUEST_ESTADOS = ("ACTIVO", "PENDIENTE_DOC", "HABILITADO")
-OLDER_ADULT_AGE = 65
+# Rangos de edad del reporte: menores de 18, de 18 a 60 y de 61 en adelante.
+ADULT_MAX_AGE = 60
+OLDER_ADULT_AGE = ADULT_MAX_AGE + 1
 SIN_CLASIFICAR = "Otras (sin clasificar)"
 
 
@@ -39,15 +41,15 @@ def build_donation_request(patients: Iterable, days: int = DISTRIBUTION_DAYS) ->
     ui_per_insulin: dict[str, float] = {}
     patients_per_insulin: dict[str, set] = {}
     sin_insulina = 0
-    menores = mayores = tipo1 = tipo2 = 0
+    menores = adultos = mayores = tipo1 = tipo2 = 0
 
     for patient in patients:
         age = _age(patient)
         tipo = patient.medical.tipo_diabetes if patient.medical else None
         menores += age is not None and age < MINOR_AGE
+        adultos += age is not None and MINOR_AGE <= age <= ADULT_MAX_AGE
         mayores += age is not None and age >= OLDER_ADULT_AGE
         tipo1 += is_type1_diabetes(tipo)
-        tipo2 += is_type2_diabetes(tipo)
 
         tiene_dosis = False
         for tx in patient.treatments:
@@ -61,6 +63,8 @@ def build_donation_request(patients: Iterable, days: int = DISTRIBUTION_DAYS) ->
             ui_per_insulin[insulina] = ui_per_insulin.get(insulina, 0.0) + daily * days
             patients_per_insulin.setdefault(insulina, set()).add(patient.id)
         sin_insulina += not tiene_dosis
+        # Tipo 2 «insulino requirente»: el que usa insulina (tiene una dosis diaria registrada).
+        tipo2 += is_type2_diabetes(tipo) and tiene_dosis
 
     insulinas = [
         {
@@ -78,7 +82,8 @@ def build_donation_request(patients: Iterable, days: int = DISTRIBUTION_DAYS) ->
         "sin_insulina_registrada": sin_insulina,
         "insulinas": insulinas,
         "menores_18": {"cantidad": menores, "porcentaje": _pct(menores, total)},
-        "mayores_65": {"cantidad": mayores, "porcentaje": _pct(mayores, total)},
+        "entre_18_y_60": {"cantidad": adultos, "porcentaje": _pct(adultos, total)},
+        "mayores_61": {"cantidad": mayores, "porcentaje": _pct(mayores, total)},
         "diabeticos_tipo_1": {"cantidad": tipo1, "porcentaje": _pct(tipo1, total)},
         "diabeticos_tipo_2": {"cantidad": tipo2, "porcentaje": _pct(tipo2, total)},
     }

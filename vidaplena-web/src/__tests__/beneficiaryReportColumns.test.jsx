@@ -142,7 +142,8 @@ const solicitud = () => ({
     { insulina: 'Lispro', cantidad_ui: 48000, beneficiarios: 40 },
   ],
   menores_18: { cantidad: 30, porcentaje: 14.4 },
-  mayores_65: { cantidad: 21, porcentaje: 10.1 },
+  entre_18_y_60: { cantidad: 140, porcentaje: 67.3 },
+  mayores_61: { cantidad: 38, porcentaje: 18.3 },
   diabeticos_tipo_1: { cantidad: 134, porcentaje: 64.4 },
   diabeticos_tipo_2: { cantidad: 73, porcentaje: 35.1 },
 });
@@ -158,12 +159,18 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
     expect(screen.getByText(`${(125400).toLocaleString('es-BO')} UI`)).toBeInTheDocument();
     expect(screen.getByText('Lispro')).toBeInTheDocument();
 
+    // dos bloques con título: rango etario y tipo de diabetes
+    expect(screen.getByText('Porcentajes por Rango Etario')).toBeInTheDocument();
+    expect(screen.getByText('Porcentaje por Tipo de Diabetes')).toBeInTheDocument();
     const dato = (etiqueta) => screen.getByText(etiqueta).nextSibling.textContent;
     expect(dato('Porcentaje de beneficiarios menores de 18 años')).toMatch(/^14,4\s?%$/);
-    expect(dato('Porcentaje de adultos mayores de 65 años')).toMatch(/^10,1\s?%$/);
+    expect(dato('Porcentaje de beneficiarios entre 18 y 60 años')).toMatch(/^67,3\s?%$/);
+    expect(dato('Porcentaje de adultos mayores de 61 años en adelante')).toMatch(/^18,3\s?%$/);
     expect(dato('Porcentaje de diabéticos tipo 1')).toMatch(/^64,4\s?%$/);
-    expect(dato('Porcentaje de diabéticos tipo 2')).toMatch(/^35,1\s?%$/);
+    expect(dato('Porcentaje de diabéticos tipo 2 insulino requirentes')).toMatch(/^35,1\s?%$/);
     expect(dato('Total de beneficiarios')).toBe('208');
+    // el texto aclaratorio sobre aporte y documentos ya no va en el encabezado
+    expect(screen.queryByText(/estén o no al día/)).toBeNull();
   });
 
   it('el Excel trae el cuadro, una fila en blanco y los datos finales con el total al final', async () => {
@@ -177,6 +184,9 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
     expect(filas[0]).toEqual(['Tipo de insulina', 'Cantidad requerida (60 días)']);
     expect(filas[1]).toEqual(['Glargina', 125400]);
     expect(filas[3]).toEqual([]);
+    expect(filas[4]).toEqual(['Porcentajes por Rango Etario']);
+    expect(filas[7]).toEqual(['Porcentaje de adultos mayores de 61 años en adelante', expect.stringMatching(/^18,3\s?%$/)]);
+    expect(filas[8]).toEqual(['Porcentaje por Tipo de Diabetes']);
     expect(filas[filas.length - 1]).toEqual(['Total de beneficiarios', '208']);
     expect(xlsx.writeFile.mock.calls[0][1]).toMatch(/^Solicitud_Donacion_.*\.xlsx$/);
   });

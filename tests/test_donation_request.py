@@ -30,7 +30,7 @@ def test_suma_la_dosis_diaria_por_60_dias_y_por_tipo_de_insulina():
     fichas = [
         _ficha(1, 10, "Tipo 1", [("Glargina", 20), ("Lispro", 10)]),
         _ficha(2, 40, "Tipo 1", [("Lantus", 30)]),  # nombre comercial: cuenta como Glargina
-        _ficha(3, 70, "Tipo 2", [("Protamina", 40), ("Glargina", 0)]),  # dosis 0: no cuenta
+        _ficha(3, 70, "Tipo 2", [("Mixta", 40), ("Glargina", 0)]),  # dosis 0: no cuenta
         _ficha(4, 30, "Tipo 2", []),  # sin insulina: cuenta en el total y en el perfil
     ]
     reporte = build_donation_request(fichas)
@@ -40,29 +40,42 @@ def test_suma_la_dosis_diaria_por_60_dias_y_por_tipo_de_insulina():
     assert por_insulina["Glargina"]["cantidad_ui"] == (20 + 30) * 60
     assert por_insulina["Glargina"]["beneficiarios"] == 2
     assert por_insulina["Lispro"]["cantidad_ui"] == 10 * 60
-    assert por_insulina["Protamina"]["cantidad_ui"] == 40 * 60
+    assert por_insulina["Mixta"]["cantidad_ui"] == 40 * 60
     # mayor cantidad primero
-    assert [i["insulina"] for i in reporte["insulinas"]] == ["Glargina", "Protamina", "Lispro"]
+    assert [i["insulina"] for i in reporte["insulinas"]] == ["Glargina", "Mixta", "Lispro"]
     assert reporte["sin_insulina_registrada"] == 1
 
 
-def test_porcentajes_sobre_el_total_de_beneficiarios():
+def test_porcentajes_por_rango_etario_y_tipo_de_diabetes_sobre_el_total():
     fichas = [
         _ficha(1, 10, "Tipo 1", [("Glargina", 20)]),   # menor
         _ficha(2, 17, "Tipo 1", [("Glargina", 20)]),   # menor
         _ficha(3, 40, "Tipo 2", [("Glargina", 20)]),
-        _ficha(4, 65, "Tipo 2", [("Glargina", 20)]),   # mayor de 65 (65 cuenta)
-        _ficha(5, 64, "Tipo 2", [("Glargina", 20)]),   # 64: aún no
-        _ficha(6, 80, "Otra", [("Glargina", 20)]),     # mayor, de otro tipo
+        _ficha(4, 60, "Tipo 2", [("Glargina", 20)]),   # 60: todavía entre 18 y 60
+        _ficha(5, 61, "Tipo 2", [("Glargina", 20)]),   # 61: adulto mayor
+        _ficha(6, 80, "Otra", [("Glargina", 20)]),     # adulto mayor, de otro tipo
         _ficha(7, 18, None, [("Glargina", 20)]),       # 18: ya no es menor; sin tipo
         _ficha(8, 30, "tipo 1", [("Glargina", 20)]),
+        _ficha(9, 50, "Tipo 2", []),                   # tipo 2 sin insulina: no es «insulino requirente»
     ]
     reporte = build_donation_request(fichas)
-    assert reporte["total_beneficiarios"] == 8
-    assert reporte["menores_18"] == {"cantidad": 2, "porcentaje": 25.0}
-    assert reporte["mayores_65"] == {"cantidad": 2, "porcentaje": 25.0}
-    assert reporte["diabeticos_tipo_1"] == {"cantidad": 3, "porcentaje": 37.5}
-    assert reporte["diabeticos_tipo_2"] == {"cantidad": 3, "porcentaje": 37.5}
+    assert reporte["total_beneficiarios"] == 9
+    assert reporte["menores_18"] == {"cantidad": 2, "porcentaje": 22.2}
+    assert reporte["entre_18_y_60"] == {"cantidad": 5, "porcentaje": 55.6}
+    assert reporte["mayores_61"] == {"cantidad": 2, "porcentaje": 22.2}
+    assert reporte["diabeticos_tipo_1"] == {"cantidad": 3, "porcentaje": 33.3}
+    assert reporte["diabeticos_tipo_2"] == {"cantidad": 3, "porcentaje": 33.3}  # sin la ficha 9
+    # los tres rangos de edad cubren a todos
+    assert reporte["menores_18"]["cantidad"] + reporte["entre_18_y_60"]["cantidad"] + reporte["mayores_61"]["cantidad"] == 9
+
+
+def test_la_protamina_pasa_a_llamarse_mixta_y_el_nombre_anterior_se_sigue_reconociendo():
+    from app.core.insulin_catalog import normalize_insulin_name
+
+    for nombre in ("Mixta", "Protamina", "protamina", "Humalog Mix 25", "Insulina bifásica"):
+        assert normalize_insulin_name(nombre) == "Mixta", nombre
+    reporte = build_donation_request([_ficha(1, 30, "Tipo 1", [("Protamina", 10)])])  # ficha anterior a la migración
+    assert [i["insulina"] for i in reporte["insulinas"]] == ["Mixta"]
 
 
 def test_una_insulina_fuera_del_catalogo_se_cuenta_aparte_y_sin_beneficiarios_no_divide_por_cero():
@@ -113,7 +126,8 @@ async def test_el_endpoint_cuenta_a_todos_sin_mirar_aporte_ni_documentos_pero_no
     assert nuevo["Degludec"] - base.get("Degludec", 0.0) == 3 * 5 * 60  # el inactivo no suma
     assert despues["total_beneficiarios"] - antes["total_beneficiarios"] == 3
     assert despues["menores_18"]["cantidad"] - antes["menores_18"]["cantidad"] == 1
-    assert despues["mayores_65"]["cantidad"] - antes["mayores_65"]["cantidad"] == 1
+    assert despues["entre_18_y_60"]["cantidad"] - antes["entre_18_y_60"]["cantidad"] == 1
+    assert despues["mayores_61"]["cantidad"] - antes["mayores_61"]["cantidad"] == 1
     assert despues["diabeticos_tipo_1"]["cantidad"] - antes["diabeticos_tipo_1"]["cantidad"] == 1
     assert despues["diabeticos_tipo_2"]["cantidad"] - antes["diabeticos_tipo_2"]["cantidad"] == 2
 

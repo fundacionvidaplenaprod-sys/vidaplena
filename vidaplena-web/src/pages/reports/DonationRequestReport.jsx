@@ -12,12 +12,16 @@ import { imageToBase64 } from '../../utils/imageToBase64';
 const formatUi = (value) => `${Number(value).toLocaleString('es-BO')} UI`;
 const formatPct = (value) => `${Number(value).toLocaleString('es-BO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
 
-// Los datos de abajo del cuadro: porcentajes de la población y, al final, el total.
+// Los datos de abajo del cuadro, en dos bloques (rango etario y tipo de diabetes) y, al final, el total.
+// Cada fila es [etiqueta, valor]; una fila con un solo elemento es el título de un bloque.
 const resumenDe = (data) => [
+  ['Porcentajes por Rango Etario'],
   ['Porcentaje de beneficiarios menores de 18 años', formatPct(data.menores_18.porcentaje)],
-  ['Porcentaje de adultos mayores de 65 años', formatPct(data.mayores_65.porcentaje)],
+  ['Porcentaje de beneficiarios entre 18 y 60 años', formatPct(data.entre_18_y_60.porcentaje)],
+  ['Porcentaje de adultos mayores de 61 años en adelante', formatPct(data.mayores_61.porcentaje)],
+  ['Porcentaje por Tipo de Diabetes'],
   ['Porcentaje de diabéticos tipo 1', formatPct(data.diabeticos_tipo_1.porcentaje)],
-  ['Porcentaje de diabéticos tipo 2', formatPct(data.diabeticos_tipo_2.porcentaje)],
+  ['Porcentaje de diabéticos tipo 2 insulino requirentes', formatPct(data.diabeticos_tipo_2.porcentaje)],
   ['Total de beneficiarios', String(data.total_beneficiarios)],
 ];
 
@@ -83,8 +87,9 @@ export default function DonationRequestReport() {
       columnStyles: { 1: { halign: 'right' } },
     });
 
+    const resumen = resumenDe(data);
     autoTable(doc, {
-      body: resumenDe(data),
+      body: resumen.map((fila) => (fila.length === 1 ? [{ content: fila[0], colSpan: 2 }] : fila)),
       startY: doc.lastAutoTable.finalY + 8,
       margin: { left: margin, right: margin },
       theme: 'plain',
@@ -92,7 +97,10 @@ export default function DonationRequestReport() {
       columnStyles: { 0: { cellWidth: 120 }, 1: { fontStyle: 'bold', halign: 'right' } },
       // El total va al final, resaltado.
       didParseCell: (hook) => {
-        if (hook.section === 'body' && hook.row.index === 4) hook.cell.styles.fontStyle = 'bold';
+        const fila = resumen[hook.row.index];
+        if (hook.section !== 'body' || !fila) return;
+        // Títulos de bloque y total, en negrita.
+        if (fila.length === 1 || hook.row.index === resumen.length - 1) hook.cell.styles.fontStyle = 'bold';
       },
     });
 
@@ -123,8 +131,7 @@ export default function DonationRequestReport() {
             <HandHeart size={22} /> Solicitud de cantidades requeridas de donación
           </h2>
           <p className="text-sm text-gray-500">
-            Insulina necesaria para 60 días de tratamiento, sumando la dosis diaria de todos los beneficiarios registrados
-            (estén o no al día con su aporte o les falten documentos).
+            Insulina necesaria para 60 días de tratamiento, sumando la dosis diaria de todos los beneficiarios registrados.
           </p>
         </div>
         <div className="flex gap-2">
@@ -184,15 +191,21 @@ export default function DonationRequestReport() {
           </table>
 
           <dl className="border-t border-gray-100 px-4 py-4 space-y-2 text-sm">
-            {resumenDe(data).map(([label, value], index, all) => (
-              <div
-                key={label}
-                className={`flex justify-between gap-4 ${index === all.length - 1 ? 'pt-2 border-t border-gray-100 font-bold text-gray-900' : 'text-gray-700'}`}
-              >
-                <dt>{label}</dt>
-                <dd className="font-semibold">{value}</dd>
-              </div>
-            ))}
+            {resumenDe(data).map(([label, value], index, all) =>
+              value === undefined ? (
+                <div key={label} className="pt-2 font-bold text-gray-900 border-b border-gray-100 pb-1">
+                  {label}
+                </div>
+              ) : (
+                <div
+                  key={label}
+                  className={`flex justify-between gap-4 ${index === all.length - 1 ? 'pt-2 border-t border-gray-100 font-bold text-gray-900' : 'text-gray-700'}`}
+                >
+                  <dt>{label}</dt>
+                  <dd className="font-semibold">{value}</dd>
+                </div>
+              ),
+            )}
           </dl>
           {data.sin_insulina_registrada > 0 && (
             <p className="px-4 pb-4 text-xs text-gray-400">
