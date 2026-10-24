@@ -38,7 +38,7 @@ Reglas:
   * Tope de dosis para menores de 18: en glargina, lispro, glulisina, aspart, detemir y
     degludec la dosis diaria no pasa de 30 UI sin importar lo registrado.
   * Un beneficiario usa como máximo UNA insulina de cada grupo: rápidas (lispro,
-    aspart, glulisina, regular) y basales/intermedias (glargina, protamina, NPH,
+    aspart, glulisina, regular) y basales/intermedias (glargina, mixta, NPH,
     detemir, degludec). Si la ficha trae dos del mismo grupo es un error de carga y
     se usa UNA, la que mejor se puede atender (con stock, luego con sustitución,
     luego la de mayor dosis); el caso se informa (`resolve_group_choices`).
@@ -111,13 +111,13 @@ GROUP_RAPID = "RAPIDA"
 GROUP_BASAL = "BASAL"
 INSULIN_GROUPS: Dict[str, frozenset] = {
     GROUP_RAPID: frozenset({"Lispro", "Aspart", "Glulisina", "Regular"}),
-    GROUP_BASAL: frozenset({"Glargina", "Protamina", "NPH", "Detemir", "Degludec"}),
+    GROUP_BASAL: frozenset({"Glargina", "Mixta", "NPH", "Detemir", "Degludec"}),
 }
 # Insulinas que un menor conserva siempre: nunca se sustituyen y se prefieren sobre otra basal
 # registrada en su ficha.
 MINOR_KEEP_INSULINS = frozenset({"Degludec"})
 # Premezclas: nunca reemplazan a una basal análoga (glargina, detemir, degludec).
-PREMIX_INSULINS = frozenset({"Protamina"})
+PREMIX_INSULINS = frozenset({"Mixta"})
 # Excepción: la NPH (intermedia) sí puede reemplazarse por una premezcla cuando falta.
 PREMIX_REPLACEABLE = frozenset({"NPH"})
 GROUP_LABELS = {GROUP_RAPID: "rápidas", GROUP_BASAL: "basales / intermedias / premezclas"}
@@ -141,13 +141,13 @@ class Substitution:
 # Tabla de sustituciones de la Fundación (en el orden de preferencia en que se escribió).
 # «X → Y → Z» = si falta X se le da Y y, si Y no alcanza, Z. Los factores 1:1 son
 # provisionales y los debe validar el equipo médico; son el único dato clínico que hay
-# que cambiar aquí. Una premezcla (Protamina) solo es destino de la NPH, nunca de una basal.
+# que cambiar aquí. Una premezcla (Mixta) solo es destino de la NPH, nunca de una basal.
 #
 #   Glargina  → Detemir → Degludec        Glulisina → Aspart → Lispro
 #   Detemir   → Glargina → Degludec       Lispro    → Aspart → Glulisina
 #   Degludec  → Glargina                  Aspart    → Lispro → Glulisina
 #   NPH       → Degludec → Detemir        Regular   → Aspart → Lispro
-#               → Protamina (premezcla)
+#               → Mixta (premezcla)
 SUBSTITUTION_TABLE: Dict[str, Tuple[str, ...]] = {
     "Glargina": ("Detemir", "Degludec"),
     "Detemir": ("Glargina", "Degludec"),
@@ -156,7 +156,7 @@ SUBSTITUTION_TABLE: Dict[str, Tuple[str, ...]] = {
     "Lispro": ("Aspart", "Glulisina"),
     "Aspart": ("Lispro", "Glulisina"),
     "Regular": ("Aspart", "Lispro"),
-    "NPH": ("Degludec", "Detemir", "Protamina"),
+    "NPH": ("Degludec", "Detemir", "Mixta"),
 }
 
 DEFAULT_SUBSTITUTIONS: Tuple[Substitution, ...] = tuple(

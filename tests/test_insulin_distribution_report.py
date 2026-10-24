@@ -327,7 +327,7 @@ async def test_report_uses_one_insulin_per_group_and_flags_the_record(client, ai
 async def test_report_never_uses_a_premix_in_place_of_a_basal(client, aislado):
     # Glargina + premezcla (Mix): la premezcla tiene todo el stock, la glargina casi nada.
     p = await _paciente(aislado, edad=40, estado="ACTIVO", glargina_ui=20.0)
-    aislado.add(models.PatientTreatment(patient_id=p.id, nombre="Protamina", dosis_diaria=18.0))
+    aislado.add(models.PatientTreatment(patient_id=p.id, nombre="Mixta", dosis_diaria=18.0))
     await aislado.flush()
     await _solo(aislado, p)
 

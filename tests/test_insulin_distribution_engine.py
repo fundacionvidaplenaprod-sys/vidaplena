@@ -599,10 +599,10 @@ def test_minors_daily_dose_is_capped_at_30_in_the_six_insulins_whatever_is_regis
 
 
 def test_cap_does_not_apply_to_other_insulins_adults_or_doses_below_30():
-    lots = [_lot(1, "NPH", "Insulatard", 300, 100), _lot(2, "Protamina", "Mix", 300, 100), _lot(3, "Regular", "Actrapid", 300, 100), _lot(4, "Aspart", "NovoRapid", 300, 100)]
+    lots = [_lot(1, "NPH", "Insulatard", 300, 100), _lot(2, "Mixta", "Mix", 300, 100), _lot(3, "Regular", "Actrapid", 300, 100), _lot(4, "Aspart", "NovoRapid", 300, 100)]
     pats = [
         PatientInput(1, True, {"NPH": 45.0, "Aspart": 25.0}),  # menor: basal sin tope + rápida bajo 30
-        PatientInput(4, True, {"Protamina": 40.0, "Regular": 50.0}),  # menor: premezcla y regular sin tope
+        PatientInput(4, True, {"Mixta": 40.0, "Regular": 50.0}),  # menor: premezcla y regular sin tope
         PatientInput(2, False, {"Aspart": 45.0}),  # adulto
         PatientInput(3, False, {"Aspart": 45.0}, is_type1=True),  # adulto tipo 1
     ]
@@ -611,7 +611,7 @@ def test_cap_does_not_apply_to_other_insulins_adults_or_doses_below_30():
     assert menor["NPH"].need_ui == 45 * DAYS
     assert menor["Aspart"].need_ui == 25 * DAYS and menor["Aspart"].daily_applied == 25.0
     otro = {r.ingredient: r for r in plan.patients[4]}
-    assert otro["Protamina"].need_ui == 40 * DAYS
+    assert otro["Mixta"].need_ui == 40 * DAYS
     assert otro["Regular"].need_ui == 50 * DAYS
     assert plan.patients[2][0].need_ui == 45 * DAYS and plan.patients[3][0].need_ui == 45 * DAYS
 
@@ -701,7 +701,7 @@ def test_default_substitutions_are_exactly_the_foundation_table():
         ("Regular", "Lispro"),
         ("NPH", "Degludec"),
         ("NPH", "Detemir"),
-        ("NPH", "Protamina"),
+        ("NPH", "Mixta"),
     ]
 
 
@@ -710,7 +710,7 @@ def test_default_substitutions_are_exactly_the_foundation_table():
 
 def test_groups_are_the_two_defined_ones():
     assert INSULIN_GROUPS["RAPIDA"] == {"Lispro", "Aspart", "Glulisina", "Regular"}
-    assert INSULIN_GROUPS["BASAL"] == {"Glargina", "Protamina", "NPH", "Detemir", "Degludec"}
+    assert INSULIN_GROUPS["BASAL"] == {"Glargina", "Mixta", "NPH", "Detemir", "Degludec"}
     assert insulin_group("Aspart") == "RAPIDA" and insulin_group("Degludec") == "BASAL"
     assert insulin_group("Otra") is None
 
@@ -892,13 +892,13 @@ def test_the_minor_decides_before_the_adult_when_both_want_the_same_insulin():
 
 
 def test_premix_set_is_protamina():
-    assert PREMIX_INSULINS == {"Protamina"}
+    assert PREMIX_INSULINS == {"Mixta"}
 
 
 def test_a_premix_registered_next_to_a_basal_is_discarded_even_with_more_stock():
     # Glargina sin stock; la premezcla tiene de sobra. La basal manda: la premezcla no la sustituye.
-    lots = [_lot(1, "Protamina", "Humalog Mix 25", 300, 100)]
-    pats = [PatientInput(1, False, {"Glargina": 20.0, "Protamina": 18.0})]
+    lots = [_lot(1, "Mixta", "Humalog Mix 25", 300, 100)]
+    pats = [PatientInput(1, False, {"Glargina": 20.0, "Mixta": 18.0})]
     plan = plan_distribution(lots, pats, reserve_pct=0)
     c = _choice(plan, 1, "BASAL")
     assert c.chosen == "Glargina" and c.premix_discarded is True and c.reason == "SIN_STOCK"
@@ -908,33 +908,33 @@ def test_a_premix_registered_next_to_a_basal_is_discarded_even_with_more_stock()
 
 def test_premix_loses_against_every_basal_in_its_group():
     for basal in ("Glargina", "NPH", "Detemir", "Degludec"):
-        lots = [_lot(1, "Protamina", "Mix", 300, 100), _lot(2, basal, "Basal", 300, 100)]
-        plan = plan_distribution(lots, [PatientInput(1, False, {basal: 10.0, "Protamina": 30.0})], reserve_pct=0)
+        lots = [_lot(1, "Mixta", "Mix", 300, 100), _lot(2, basal, "Basal", 300, 100)]
+        plan = plan_distribution(lots, [PatientInput(1, False, {basal: 10.0, "Mixta": 30.0})], reserve_pct=0)
         assert _choice(plan, 1, "BASAL").chosen == basal, basal
         assert _choice(plan, 1, "BASAL").premix_discarded
 
 
 def test_with_a_premix_and_two_basals_only_the_basals_compete():
     lots = [
-        _lot(1, "Protamina", "Mix", 300, 500),  # muchísimo stock
+        _lot(1, "Mixta", "Mix", 300, 500),  # muchísimo stock
         _lot(2, "NPH", "Insulatard", 300, 1),  # casi nada
         _lot(3, "Detemir", "Levemir", 300, 100),
     ]
-    pats = [PatientInput(1, False, {"NPH": 20.0, "Detemir": 20.0, "Protamina": 20.0})]
+    pats = [PatientInput(1, False, {"NPH": 20.0, "Detemir": 20.0, "Mixta": 20.0})]
     plan = plan_distribution(lots, pats, reserve_pct=0, substitutions=())
     assert _choice(plan, 1, "BASAL").chosen == "Detemir"
 
 
 def test_a_premix_alone_is_the_patients_own_insulin_and_is_distributed():
-    lots = [_lot(1, "Protamina", "Humalog Mix 25", 300, 20)]
-    plan = plan_distribution(lots, [PatientInput(1, False, {"Protamina": 10.0})], reserve_pct=0)
+    lots = [_lot(1, "Mixta", "Humalog Mix 25", 300, 20)]
+    plan = plan_distribution(lots, [PatientInput(1, False, {"Mixta": 10.0})], reserve_pct=0)
     assert plan.group_choices == []
-    assert _given(plan, 1, "Protamina") == 10 * DAYS
+    assert _given(plan, 1, "Mixta") == 10 * DAYS
 
 
 def test_a_premix_never_covers_a_missing_basal_through_substitution():
     # Glargina sin stock ni detemir; sobran premezclas: el adulto queda sin cubrir.
-    lots = [_lot(1, "Protamina", "Mix", 300, 100), _lot(2, "NPH", "Insulatard", 300, 100)]
+    lots = [_lot(1, "Mixta", "Mix", 300, 100), _lot(2, "NPH", "Insulatard", 300, 100)]
     plan = plan_distribution(lots, [PatientInput(1, False, {"Glargina": 20.0})], reserve_pct=0)
     assert plan.assignments == []
     assert plan.patients[1][0].substitute is None
@@ -943,9 +943,9 @@ def test_a_premix_never_covers_a_missing_basal_through_substitution():
 def test_a_substitution_rule_with_a_premix_as_target_is_rejected():
     from app.core.insulin_distribution import Substitution
 
-    bad = [Substitution("Glargina", "Protamina", factor=1.0)]
+    bad = [Substitution("Glargina", "Mixta", factor=1.0)]
     try:
-        plan_distribution([_lot(1, "Protamina", "Mix", 300, 10)], [PatientInput(1, False, {"Glargina": 10.0})], substitutions=bad)
+        plan_distribution([_lot(1, "Mixta", "Mix", 300, 10)], [PatientInput(1, False, {"Glargina": 10.0})], substitutions=bad)
     except ValueError as exc:
         assert "premezcla" in str(exc).lower()
     else:
@@ -1000,7 +1000,7 @@ def test_each_row_of_the_table_substitutes_with_every_listed_insulin():
         "Lispro": ("Aspart", "Glulisina"),
         "Aspart": ("Lispro", "Glulisina"),
         "Regular": ("Aspart", "Lispro"),
-        "NPH": ("Degludec", "Detemir", "Protamina"),
+        "NPH": ("Degludec", "Detemir", "Mixta"),
     }
     for source, targets in tabla.items():
         for target in targets:
@@ -1010,9 +1010,9 @@ def test_each_row_of_the_table_substitutes_with_every_listed_insulin():
 
 def test_insulins_outside_the_table_are_never_used_as_substitutes():
     nada_en_la_tabla = {
-        "Degludec": ["Detemir", "NPH", "Protamina", "Aspart"],  # degludec solo por glargina
-        "Glargina": ["NPH", "Protamina", "Aspart"],
-        "Detemir": ["NPH", "Protamina", "Lispro"],
+        "Degludec": ["Detemir", "NPH", "Mixta", "Aspart"],  # degludec solo por glargina
+        "Glargina": ["NPH", "Mixta", "Aspart"],
+        "Detemir": ["NPH", "Mixta", "Lispro"],
         "Glulisina": ["Regular", "Glargina", "NPH"],
         "Lispro": ["Regular", "Glargina", "Detemir"],
         "Aspart": ["Regular", "Glargina", "NPH"],
@@ -1065,7 +1065,7 @@ def test_regular_prefers_aspart_then_lispro():
 def test_a_premix_is_only_a_substitute_of_nph_in_the_table():
     from app.core.insulin_distribution import DEFAULT_SUBSTITUTIONS, PREMIX_INSULINS
 
-    assert [(r.source, r.target) for r in DEFAULT_SUBSTITUTIONS if r.target in PREMIX_INSULINS] == [("NPH", "Protamina")]
+    assert [(r.source, r.target) for r in DEFAULT_SUBSTITUTIONS if r.target in PREMIX_INSULINS] == [("NPH", "Mixta")]
     assert all(r.source not in PREMIX_INSULINS for r in DEFAULT_SUBSTITUTIONS)  # y una premezcla no se sustituye
 
 
@@ -1328,47 +1328,47 @@ def test_patients_unmet_counts_treatments_below_their_band_minimum():
     assert nph.leftover_ui == 0
 
 
-# --- NPH reemplazable por la premezcla (Protamina) ----------------------------------------------
+# --- NPH reemplazable por la premezcla (Mixta) ----------------------------------------------
 
 
 def test_nph_is_replaced_by_the_premix_when_there_is_no_nph():
-    lots = [_lot(1, "Protamina", "Mixtard 30", 300, 50)]
+    lots = [_lot(1, "Mixta", "Mixtard 30", 300, 50)]
     plan = plan_distribution(lots, [PatientInput(1, False, {"NPH": 600 / DAYS})], reserve_pct=0)
     r = plan.patients[1][0]
     assert r.ingredient == "NPH" and r.given_ui == 0
-    assert r.substitute == "Protamina" and r.substitute_ui == 600 and r.substitute_equiv_ui == 600
+    assert r.substitute == "Mixta" and r.substitute_ui == 600 and r.substitute_equiv_ui == 600
     assert _by_for(plan, 1, "NPH") == [(1, 2)]
 
 
 def test_nph_uses_its_own_insulin_first_and_only_the_missing_part_comes_from_the_premix():
-    lots = [_lot(1, "NPH", "Insulatard", 300, 2), _lot(2, "Protamina", "Mixtard 30", 300, 50)]
+    lots = [_lot(1, "NPH", "Insulatard", 300, 2), _lot(2, "Mixta", "Mixtard 30", 300, 50)]
     plan = plan_distribution(lots, [PatientInput(1, True, {"NPH": 1200 / DAYS})], reserve_pct=0)
     r = plan.patients[1][0]
-    assert r.given_ui == 600 and r.substitute == "Protamina" and r.substitute_equiv_ui == 600
+    assert r.given_ui == 600 and r.substitute == "Mixta" and r.substitute_equiv_ui == 600
 
 
 def test_the_premix_never_replaces_an_analog_basal_but_does_replace_nph():
-    lots = [_lot(1, "Protamina", "Mixtard 30", 300, 100)]
+    lots = [_lot(1, "Mixta", "Mixtard 30", 300, 100)]
     for source in ("Glargina", "Detemir", "Degludec"):
         plan = plan_distribution(lots, [PatientInput(1, False, {source: 20.0})], reserve_pct=0)
         assert plan.assignments == [], source
     plan = plan_distribution(lots, [PatientInput(1, False, {"NPH": 20.0})], reserve_pct=0)
-    assert plan.patients[1][0].substitute == "Protamina"
+    assert plan.patients[1][0].substitute == "Mixta"
 
 
 def test_nph_is_not_given_as_a_substitute_of_the_premix():
     # La regla es de un solo sentido: quien usa la premezcla no recibe NPH.
     lots = [_lot(1, "NPH", "Insulatard", 300, 100)]
-    plan = plan_distribution(lots, [PatientInput(1, False, {"Protamina": 20.0})], reserve_pct=0)
+    plan = plan_distribution(lots, [PatientInput(1, False, {"Mixta": 20.0})], reserve_pct=0)
     assert plan.assignments == [] and plan.patients[1][0].substitute is None
 
 
 def test_the_nph_exception_does_not_open_the_door_to_other_premix_rules():
     from app.core.insulin_distribution import Substitution
 
-    bad = [Substitution("Detemir", "Protamina", factor=1.0)]
+    bad = [Substitution("Detemir", "Mixta", factor=1.0)]
     try:
-        plan_distribution([_lot(1, "Protamina", "Mix", 300, 10)], [PatientInput(1, False, {"Detemir": 10.0})], substitutions=bad)
+        plan_distribution([_lot(1, "Mixta", "Mix", 300, 10)], [PatientInput(1, False, {"Detemir": 10.0})], substitutions=bad)
     except ValueError as exc:
         assert "premezcla" in str(exc).lower()
     else:
@@ -1376,13 +1376,13 @@ def test_the_nph_exception_does_not_open_the_door_to_other_premix_rules():
 
 
 def test_nph_prefers_degludec_and_the_premix_completes_when_degludec_runs_out():
-    lots = [_lot(1, "Degludec", "Tresiba", 300, 2), _lot(2, "Protamina", "Mixtard 30", 300, 50)]  # degludec: 600 UI
+    lots = [_lot(1, "Degludec", "Tresiba", 300, 2), _lot(2, "Mixta", "Mixtard 30", 300, 50)]  # degludec: 600 UI
     plan = plan_distribution(lots, [PatientInput(1, False, {"NPH": 1500 / DAYS})], reserve_pct=0)
     r = plan.patients[1][0]
     # La protamina sola alcanza la banda: el adulto pasa entero a la premezcla en vez de mezclar dos insulinas.
-    assert r.substitute == "Protamina"
+    assert r.substitute == "Mixta"
     plan = plan_distribution(
-        [_lot(1, "Degludec", "Tresiba", 300, 50), _lot(2, "Protamina", "Mixtard 30", 300, 50)],
+        [_lot(1, "Degludec", "Tresiba", 300, 50), _lot(2, "Mixta", "Mixtard 30", 300, 50)],
         [PatientInput(1, False, {"NPH": 1500 / DAYS})],
         reserve_pct=0,
     )
@@ -1562,7 +1562,7 @@ def test_a_vial_that_would_cover_more_than_120_percent_through_a_substitution_fa
 
 
 def test_nph_can_be_replaced_with_detemir_when_there_is_no_degludec():
-    lots = [_lot(1, "Detemir", "Levemir", 300, 50), _lot(2, "Protamina", "Mixtard 30", 300, 50)]
+    lots = [_lot(1, "Detemir", "Levemir", 300, 50), _lot(2, "Mixta", "Mixtard 30", 300, 50)]
     plan = plan_distribution(lots, [PatientInput(1, False, {"NPH": 600 / DAYS})], reserve_pct=0)
     r = plan.patients[1][0]
     assert r.substitute == "Detemir"  # antes que la premezcla
@@ -1572,18 +1572,18 @@ def test_nph_can_be_replaced_with_detemir_when_there_is_no_degludec():
 def test_the_nph_alternatives_follow_degludec_then_detemir_then_the_premix():
     from app.core.insulin_distribution import SUBSTITUTION_TABLE
 
-    assert SUBSTITUTION_TABLE["NPH"] == ("Degludec", "Detemir", "Protamina")
+    assert SUBSTITUTION_TABLE["NPH"] == ("Degludec", "Detemir", "Mixta")
     todos = [
         _lot(1, "Degludec", "Tresiba", 300, 50),
         _lot(2, "Detemir", "Levemir", 300, 50),
-        _lot(3, "Protamina", "Mixtard 30", 300, 50),
+        _lot(3, "Mixta", "Mixtard 30", 300, 50),
     ]
     plan = plan_distribution(todos, [PatientInput(1, False, {"NPH": 600 / DAYS})], reserve_pct=0)
     assert plan.patients[1][0].substitute == "Degludec"
     plan = plan_distribution(todos[1:], [PatientInput(1, False, {"NPH": 600 / DAYS})], reserve_pct=0)
     assert plan.patients[1][0].substitute == "Detemir"
     plan = plan_distribution(todos[2:], [PatientInput(1, False, {"NPH": 600 / DAYS})], reserve_pct=0)
-    assert plan.patients[1][0].substitute == "Protamina"
+    assert plan.patients[1][0].substitute == "Mixta"
 
 
 def test_detemir_users_never_receive_nph():
@@ -1734,12 +1734,12 @@ def test_the_minors_degludec_is_completed_before_nph_users_take_it_as_a_substitu
 def test_a_substitute_holder_is_moved_to_another_alternative_to_free_the_only_insulin_a_user_has():
     # La protamina (4 envases) se la llevó el paciente con NPH; el usuario de protamina quedaba en 25 %.
     # El detemir (en gran parte en la reserva) alcanza para el de NPH: pasa a detemir y libera la protamina.
-    lots = [_lot(1, "Protamina", "Mixtard 30", 300, 4), _lot(2, "Detemir", "Levemir", 300, 4)]
-    pats = [PatientInput(1, False, {"NPH": 1200 / DAYS}), PatientInput(2, False, {"Protamina": 1200 / DAYS})]
+    lots = [_lot(1, "Mixta", "Mixtard 30", 300, 4), _lot(2, "Detemir", "Levemir", 300, 4)]
+    pats = [PatientInput(1, False, {"NPH": 1200 / DAYS}), PatientInput(2, False, {"Mixta": 1200 / DAYS})]
     off = plan_distribution(lots, pats, reserve_pct=0.2, release_reserve=False)
-    assert _given(off, 2, "Protamina") == 300 and off.patients[2][0].outside_band
+    assert _given(off, 2, "Mixta") == 300 and off.patients[2][0].outside_band
     on = plan_distribution(lots, pats, reserve_pct=0.2)
-    assert _given(on, 2, "Protamina") == 1200 and not on.patients[2][0].outside_band
+    assert _given(on, 2, "Mixta") == 1200 and not on.patients[2][0].outside_band
     assert on.patients[1][0].substitute == "Detemir" and not on.patients[1][0].outside_band
     assert on.reserve_released_ui == 300  # solo lo que hizo falta de la reserva
 

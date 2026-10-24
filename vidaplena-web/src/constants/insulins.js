@@ -1,7 +1,7 @@
 export const INSULIN_OPTIONS = [
   { value: 'Glargina', label: 'Glargina (Lantus, Toujeo, Basaglar, Semglee)' },
   { value: 'Lispro', label: 'Lispro (Humalog, Liprolog, Lyumjev)' },
-  { value: 'Protamina', label: 'Protamina (Protaphane, mezclas Mix)' },
+  { value: 'Mixta', label: 'Mixta (Protaphane, mezclas Mix)' },
   { value: 'Glulisina', label: 'Glulisina (Apidra)' },
   { value: 'NPH', label: 'NPH (Insulatard, Huminsulin, Humulin, Berlinsulin)' },
   { value: 'Aspart', label: 'Aspart (NovoRapid, Fiasp)' },
@@ -13,7 +13,7 @@ export const INSULIN_OPTIONS = [
 const INSULIN_ALIAS_MAP = {
   Glargina: ['glargina', 'lantus', 'toujeo', 'basaglar', 'semglee'],
   Lispro: ['lispro', 'humalog', 'liprolog', 'lyumjev'],
-  Protamina: ['protamina', 'protaphane', 'mix'],
+  Mixta: ['mixta', 'protamina', 'protaphane', 'mix'],
   Glulisina: ['glulisina', 'apidra'],
   NPH: ['nph', 'insulatard', 'huminsulin', 'humulin', 'berlinsulin'],
   Aspart: ['aspart', 'novorapid', 'fiasp'],
@@ -47,7 +47,7 @@ export const INSULIN_BRANDS = {
   Aspart: ['NovoRapid', 'Fiasp'],
   Glulisina: ['Apidra'],
   NPH: ['Insulatard', 'Protaphane', 'Huminsulin Basal', 'Humulin Basal'],
-  Protamina: ['Humalog Mix 25', 'Humalog Mix 50', 'NovoMix 30', 'Actraphane 30'],
+  Mixta: ['Humalog Mix 25', 'Humalog Mix 50', 'NovoMix 30', 'Actraphane 30'],
   Detemir: ['Levemir'],
   Degludec: ['Tresiba'],
   Regular: ['Actrapid', 'Huminsulin Normal', 'Humulin R'],

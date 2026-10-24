@@ -8,10 +8,11 @@ from __future__ import annotations
 import unicodedata
 from typing import Optional
 
-# «Protamina» agrupa las premezclas (Mix, bifásicas, Actraphane, NovoMix) y va primero para que
+# «Mixta» (antes «Protamina») agrupa las premezclas (Mix, bifásicas, Actraphane, NovoMix) y va primero para que
 # «Humalog Mix» o «Aspart bifásica» no caigan en Lispro/Aspart. Protaphane es NPH.
 CANONICAL_INSULIN_ALIASES = {
-    "Protamina": ["protamina", "bifasic", "premezcla", "mix", "actraphane"],
+    # «protamina» se conserva como alias: fichas y Excel antiguos siguen reconociéndose.
+    "Mixta": ["mixta", "protamina", "bifasic", "premezcla", "mix", "actraphane"],
     "Glargina": ["glargina", "glargin", "gliargina", "lantus", "toujeo", "basaglar", "semglee"],
     "Lispro": ["lispro", "humalog", "liprolog", "lyumjev"],
     "Glulisina": ["glulisina", "apidra"],

@@ -553,7 +553,7 @@ export default function InsulinDistributionReport() {
                             </h3>
                             <p className="text-sm text-amber-800 mb-3">
                                 Cada beneficiario usa <b>una sola insulina de cada grupo</b>: rápidas (lispro, aspart,
-                                glulisina, regular) y basales / intermedias / premezclas (glargina, protamina, NPH,
+                                glulisina, regular) y basales / intermedias / premezclas (glargina, mixta, NPH,
                                 detemir, degludec). Estas fichas traen dos del mismo grupo: el reparto usó <b>una</b>,
                                 la que mejor se puede atender con el stock de esta donación o con una sustitución
                                 conocida. Conviene dejar una sola en la ficha.
