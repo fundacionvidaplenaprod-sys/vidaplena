@@ -54,6 +54,13 @@ describe('formato de los datos clínicos', () => {
     expect(formatTreatments(undefined)).toBe('-');
   });
 
+  it('una ficha guardada como «Protamina» se muestra como «Mixta»', () => {
+    expect(formatTreatments([{ nombre: 'Protamina', dosis_diaria: 30 }, { nombre: ' protamina ', dosis_diaria: 0 }])).toBe(
+      'Mixta: 30 UI al día\nMixta',
+    );
+    expect(formatTreatments([{ nombre: 'Protaphane', dosis_diaria: 10 }])).toBe('Protaphane: 10 UI al día'); // otros nombres no cambian
+  });
+
   it('complicaciones: una por línea; «Otras» se separa por comas y no se repite', () => {
     expect(
       formatComplications([

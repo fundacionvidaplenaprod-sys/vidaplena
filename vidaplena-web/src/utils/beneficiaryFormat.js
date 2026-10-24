@@ -1,4 +1,5 @@
 // Formato de los datos clínicos de un beneficiario para el reporte de beneficiarios.
+import { displayInsulinName } from '../constants/insulins';
 
 const COMPLICATION_LABELS = {
   RETINOPATIA: 'Retinopatía',
@@ -22,7 +23,8 @@ export const formatTreatments = (treatments) => {
     .filter((tx) => tx?.nombre)
     .map((tx) => {
       const units = Number(tx.dosis_diaria || 0);
-      return units > 0 ? `${tx.nombre.trim()}: ${formatUnits(units)} UI al día` : tx.nombre.trim();
+      const name = displayInsulinName(tx.nombre);
+      return units > 0 ? `${name}: ${formatUnits(units)} UI al día` : name;
     });
   return lines.length ? lines.join('\n') : '-';
 };

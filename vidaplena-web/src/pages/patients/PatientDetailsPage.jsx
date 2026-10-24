@@ -8,6 +8,7 @@ import { Modal } from '../../components/ui/Modal';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { toast } from 'react-hot-toast';
 import { ArrowLeft, CheckCircle, User, Activity, Edit2, AlertTriangle, Pill, Copy, Key, Mail, ClipboardCheck } from 'lucide-react';
+import { displayInsulinName } from '../../constants/insulins';
 
 const EVALUACION_ESTADO_STYLES = {
     PENDIENTE: 'bg-yellow-100 text-yellow-700 border-yellow-200',
@@ -334,7 +335,7 @@ export default function PatientDetailsPage() {
                                                 INSULINA
                                             </div>
                                             <div>
-                                                <p className="font-bold text-gray-800 text-sm">{t.nombre}</p>
+                                                <p className="font-bold text-gray-800 text-sm">{displayInsulinName(t.nombre)}</p>
                                                 <p className="text-xs text-gray-500">UI por día: {t.dosis_diaria ?? 0}</p>
                                             </div>
                                         </div>

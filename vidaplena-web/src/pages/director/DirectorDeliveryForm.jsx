@@ -10,6 +10,7 @@ import {
   INSULIN_OPTIONS,
   PRESENTACION_OPTIONS,
   brandOptions,
+  displayInsulinName,
   guessBrand,
 } from '../../constants/insulins';
 
@@ -293,7 +294,7 @@ export default function DirectorDeliveryForm() {
                       </span>
                       <span className="text-xs text-gray-400 text-right">
                         {b.tratamientos.length
-                          ? b.tratamientos.map((t) => t.nombre).join(', ')
+                          ? b.tratamientos.map((t) => displayInsulinName(t.nombre)).join(', ')
                           : 'Sin insulina anotada'}
                       </span>
                     </button>

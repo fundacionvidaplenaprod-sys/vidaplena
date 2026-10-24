@@ -6,7 +6,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import { DEPARTAMENTOS } from '../../constants/departamentos';
-import { INSULIN_OPTIONS, PRESENTACION_OPTIONS } from '../../constants/insulins';
+import { INSULIN_OPTIONS, PRESENTACION_OPTIONS, displayInsulinName } from '../../constants/insulins';
 import {
     getActiveDepartmentalBeneficiaries,
     getPendingDocDepartmentalBeneficiaries,
@@ -452,7 +452,7 @@ export default function DepartmentalDashboardPage() {
                                                     key={t.id}
                                                     className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200"
                                                 >
-                                                    {t.nombre}
+                                                    {displayInsulinName(t.nombre)}
                                                     {t.dosis_diaria ? ` — ${t.dosis_diaria} UI/día` : ''}
                                                 </span>
                                             ))

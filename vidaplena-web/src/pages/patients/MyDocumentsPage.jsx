@@ -9,6 +9,7 @@ import { getMySocialEvaluation, getMyEvaluationEligibility } from '../../api/eva
 import { getMyDeliveryReceipt, listMyInsulinDeliveries } from '../../api/donations';
 import { VoluntaryContributionModal } from '../../components/patients/VoluntaryContributionModal';
 import client from '../../api/axios';
+import { displayInsulinName } from '../../constants/insulins';
 
 export default function MyDocumentsPage() {
     const navigate = useNavigate();
@@ -559,7 +560,7 @@ export default function MyDocumentsPage() {
                                                 const dailyUnits = Number(tx.dosis_diaria || 0);
                                                 return (
                                                     <>
-                                                        <p className="text-sm font-bold text-gray-800">{tx.nombre || 'Tratamiento sin nombre'}</p>
+                                                        <p className="text-sm font-bold text-gray-800">{displayInsulinName(tx.nombre) || 'Tratamiento sin nombre'}</p>
                                                         <p className="text-xs text-gray-600 mt-1">
                                                             UI por día: {dailyUnits > 0 ? dailyUnits : 'No especificada'}
                                                         </p>

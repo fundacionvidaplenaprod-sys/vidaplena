@@ -22,6 +22,13 @@ const INSULIN_ALIAS_MAP = {
   Regular: ['regular', 'actrapid', 'normal'],
 };
 
+// «Protamina» pasó a llamarse «Mixta». Las fichas guardadas con el nombre anterior se muestran con el nuevo
+// aunque la migración que las renombra (`alembic upgrade head`) todavía no se haya corrido.
+export const displayInsulinName = (rawName) => {
+  const name = String(rawName ?? '').trim();
+  return /^protamina$/i.test(name) ? 'Mixta' : name;
+};
+
 export const normalizeInsulinName = (rawName) => {
   const value = String(rawName || '').toLowerCase();
   for (const [canonical, aliases] of Object.entries(INSULIN_ALIAS_MAP)) {
