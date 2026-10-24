@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getPatientById, activatePatient, updatePatient, changePatientStatus } from '../../api/patients';
+import { getPatientById, activatePatient, updatePatient, changePatientStatus, updateCommitmentAmount } from '../../api/patients';
+import { useAuth } from '../../context/AuthContext';
 import { getSocialEvaluation } from '../../api/evaluations';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -25,6 +26,8 @@ const EVALUACION_ESTADO_LABELS = {
 export default function PatientDetailsPage() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { user } = useAuth();
+    const isSuperAdmin = user?.role === 'SUPER_ADMIN';
     const [patient, setPatient] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activating, setActivating] = useState(false);
@@ -38,6 +41,39 @@ export default function PatientDetailsPage() {
     // ningún aviso, dejando el botón pareciendo roto (sin error, sin toast, sin
     // llamada de red). Con un modal propio la confirmación siempre se ve.
     const [showActivateConfirm, setShowActivateConfirm] = useState(false);
+    // Corrección del aporte comprometido (solo SUPER_ADMIN).
+    const [showAmountModal, setShowAmountModal] = useState(false);
+    const [newAmount, setNewAmount] = useState('');
+    const [amountReason, setAmountReason] = useState('');
+    const [savingAmount, setSavingAmount] = useState(false);
+
+    const openAmountModal = () => {
+        setNewAmount(patient?.monto_aporte_comprometido ?? '');
+        setAmountReason('');
+        setShowAmountModal(true);
+    };
+
+    const submitAmount = async () => {
+        if (!(Number(newAmount) > 0)) {
+            toast.error('Indique el nuevo monto del aporte.');
+            return;
+        }
+        if (amountReason.trim().length < 5) {
+            toast.error('Indique el motivo de la corrección.');
+            return;
+        }
+        try {
+            setSavingAmount(true);
+            const updated = await updateCommitmentAmount(id, Number(newAmount), amountReason.trim());
+            setPatient(updated);
+            setShowAmountModal(false);
+            toast.success('Aporte corregido. El beneficiario debe descargar y subir su compromiso actualizado.');
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'No se pudo corregir el aporte comprometido.');
+        } finally {
+            setSavingAmount(false);
+        }
+    };
 
     useEffect(() => {
         loadData();
@@ -396,8 +432,19 @@ export default function PatientDetailsPage() {
                                     departamental. Se otorga y se retira desde Gestión de Usuarios.
                                 </p>
                             ) : patient.monto_aporte_comprometido != null && (
-                                <p className="text-sm text-gray-700 font-medium mt-2">
-                                    Aporte mensual comprometido: <span className="font-bold">Bs. {patient.monto_aporte_comprometido}</span>
+                                <p className="text-sm text-gray-700 font-medium mt-2 flex items-center gap-3 flex-wrap">
+                                    <span>
+                                        Aporte mensual comprometido: <span className="font-bold">Bs. {patient.monto_aporte_comprometido}</span>
+                                    </span>
+                                    {isSuperAdmin && (
+                                        <button
+                                            type="button"
+                                            onClick={openAmountModal}
+                                            className="text-xs font-semibold text-vida-main hover:underline inline-flex items-center gap-1"
+                                        >
+                                            <Edit2 size={12} /> Corregir monto
+                                        </button>
+                                    )}
                                 </p>
                             )}
                         </div>
@@ -443,6 +490,59 @@ export default function PatientDetailsPage() {
                 onConfirm={handleManualStatusChange}
                 onCancel={() => setPendingStatusChange(null)}
             />
+
+            {/* MODAL DE CORRECCIÓN DEL APORTE COMPROMETIDO */}
+            <Modal
+                isOpen={showAmountModal}
+                onClose={() => setShowAmountModal(false)}
+                title="Corregir aporte comprometido"
+            >
+                <div className="space-y-4">
+                    <p className="text-sm text-gray-500">
+                        El compromiso firmado con el monto anterior dejará de valer: el expediente vuelve a
+                        <span className="font-semibold"> PENDIENTE_DOC</span> y el beneficiario descargará el compromiso con el
+                        monto corregido para firmarlo y subirlo de nuevo.
+                    </p>
+                    <div>
+                        <label htmlFor="commitment-amount" className="block text-sm font-semibold text-gray-700 mb-1">
+                            Nuevo aporte mensual (Bs.)
+                        </label>
+                        <input
+                            id="commitment-amount"
+                            type="number"
+                            min="1"
+                            step="0.01"
+                            value={newAmount}
+                            onChange={(e) => setNewAmount(e.target.value)}
+                            className="w-full border rounded-lg px-3 py-2 text-sm"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="commitment-reason" className="block text-sm font-semibold text-gray-700 mb-1">
+                            Motivo de la corrección
+                        </label>
+                        <textarea
+                            id="commitment-reason"
+                            value={amountReason}
+                            onChange={(e) => setAmountReason(e.target.value)}
+                            placeholder="Ej: el informe de la evaluación socioeconómica indica un aporte de Bs. 25."
+                            className="w-full border rounded-lg px-3 py-2 text-sm min-h-[90px]"
+                        />
+                    </div>
+                    <div className="flex justify-end gap-3">
+                        <Button
+                            variant="secondary"
+                            className="border border-gray-200 text-gray-600"
+                            onClick={() => setShowAmountModal(false)}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button onClick={submitAmount} disabled={savingAmount}>
+                            {savingAmount ? 'Guardando...' : 'Corregir monto'}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
 
             {/* MODAL DE CREDENCIALES */}
             <Modal 

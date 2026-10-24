@@ -10,7 +10,7 @@ from app.core.config import settings
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Query
 from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -1648,6 +1648,23 @@ class PatientDocsUpdate(BaseModel):
 class CommitmentResetRequest(BaseModel):
     observacion_admin: Optional[str] = None
 
+
+class CommitmentAmountUpdate(BaseModel):
+    monto: float = Field(..., gt=0, le=100000, description="Nuevo aporte mensual comprometido (Bs.)")
+    motivo: str = Field(..., min_length=5, max_length=500)
+
+
+async def _tiene_aporte_reducido_aprobado(db: AsyncSession, patient_id: int) -> bool:
+    """True si la evaluación socioeconómica vigente está avalada con categoría MEDIA (aporte reducido)."""
+    result = await db.execute(
+        select(models.SocialEvaluation.id).where(
+            models.SocialEvaluation.patient_id == patient_id,
+            models.SocialEvaluation.estado_revision == "APROBADO",
+            models.SocialEvaluation.categoria_final == "MEDIA",
+        )
+    )
+    return result.first() is not None
+
 @router.put("/me/documents", response_model=schemas.PatientResponse)
 async def update_my_documents(
     # --- DOCUMENTOS PUNTO 5.2 y 5.3 DEL REGLAMENTO ---
@@ -2191,7 +2208,11 @@ async def reset_patient_commitment(
     old_status = patient.estado
     patient.estado = "PENDIENTE_DOC"
     patient.url_declaracion_aporte = None
-    patient.monto_aporte_comprometido = None
+    # El aporte reducido fijado por una evaluación socioeconómica avalada (MEDIA) no se pierde al
+    # reabrir: si se borrara, el beneficiario tendría que elegir de nuevo con el mínimo de Bs. 100
+    # y quedaría comprometido con un monto mayor al que indica su informe.
+    if not await _tiene_aporte_reducido_aprobado(db, patient.id):
+        patient.monto_aporte_comprometido = None
 
     admin_note = reset_data.observacion_admin or "Compromiso de aporte reabierto para actualización administrativa."
     status_event = models.PatientStatusEvent(
@@ -2225,3 +2246,88 @@ async def reset_patient_commitment(
         await db.rollback()
         raise HTTPException(status_code=400, detail="No se pudo reabrir el compromiso del paciente.")
 
+
+@router.put("/{patient_id}/commitment-amount", response_model=schemas.PatientDetailResponse)
+async def update_commitment_amount(
+    patient_id: int,
+    data: CommitmentAmountUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_super_user),
+):
+    """
+    Corrige el aporte mensual comprometido de un beneficiario (solo SUPER_ADMIN).
+
+    Sirve cuando el monto guardado no coincide con lo que indica el informe de la evaluación
+    socioeconómica. El compromiso firmado con el monto anterior deja de valer, así que el
+    expediente vuelve a PENDIENTE_DOC (igual que «reabrir compromiso»): el beneficiario descarga
+    el compromiso con el monto corregido, lo firma y lo sube de nuevo. Sin una evaluación MEDIA
+    avalada rige el mínimo de Bs. 100.
+    """
+    query = (
+        select(models.Patient)
+        .where(models.Patient.id == patient_id)
+        .options(
+            selectinload(models.Patient.tutor),
+            selectinload(models.Patient.medical),
+            selectinload(models.Patient.treatments),
+            selectinload(models.Patient.complications),
+        )
+    )
+    patient = (await db.execute(query)).scalars().first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+
+    if patient.exonerado_aporte or patient.exonerado_por_cargo:
+        raise HTTPException(
+            status_code=400,
+            detail="Este beneficiario está exonerado del aporte mensual: no tiene un monto que corregir.",
+        )
+
+    reducido = await _tiene_aporte_reducido_aprobado(db, patient.id)
+    if not reducido and data.monto < 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Sin una evaluación socioeconómica avalada con aporte reducido, el aporte mínimo es de Bs. 100.",
+        )
+
+    old_status = patient.estado
+    old_amount = float(patient.monto_aporte_comprometido) if patient.monto_aporte_comprometido is not None else None
+    patient.monto_aporte_comprometido = data.monto
+    patient.url_declaracion_aporte = None
+    patient.estado = "PENDIENTE_DOC"
+
+    motivo = data.motivo.strip()
+    db.add(
+        models.PatientStatusEvent(
+            patient_id=patient.id,
+            user_id=current_user.id,
+            old_state=old_status,
+            new_state="PENDIENTE_DOC",
+            observacion=f"Aporte comprometido corregido a Bs. {data.monto:.2f}. {motivo}",
+            payload={"commitment_amount_changed": True, "old_amount": old_amount, "new_amount": data.monto},
+        )
+    )
+    _log_audit_event(
+        db=db,
+        actor_id=current_user.id,
+        entidad="patients",
+        entidad_id=patient.id,
+        accion="UPDATE_COMMITMENT_AMOUNT",
+        payload={
+            "old_amount": old_amount,
+            "new_amount": data.monto,
+            "old_state": old_status,
+            "new_state": "PENDIENTE_DOC",
+            "aporte_reducido_avalado": reducido,
+            "motivo": motivo,
+        },
+    )
+
+    try:
+        db.add(patient)
+        await db.commit()
+        await db.refresh(patient)
+        return patient
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="No se pudo corregir el aporte comprometido.")

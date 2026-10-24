@@ -58,6 +58,16 @@ export const changePatientStatus = async (id, newStatus) => {
   return response.data;
 };
 
+/**
+ * Corrige el aporte mensual comprometido de un beneficiario (solo SUPER_ADMIN). El compromiso
+ * firmado con el monto anterior se anula y el expediente vuelve a PENDIENTE_DOC para que el
+ * beneficiario descargue, firme y suba el compromiso corregido.
+ */
+export const updateCommitmentAmount = async (id, monto, motivo) => {
+  const response = await client.put(`/patients/${id}/commitment-amount`, { monto, motivo });
+  return response.data;
+};
+
 export const uploadDocument = async (docType, file) => {
   const formData = new FormData();
   formData.append('doc_type', docType);

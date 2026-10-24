@@ -241,6 +241,8 @@ Sistema aislado y ágil, sin ataduras al padrón estructurado:
 ### Reportes (`/dashboard/reportes`)
 Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones, con paginación, filtros por estado de registro y de aporte, **historial de aportes solidarios por mes** y exportación a **PDF y Excel**.
 
+**Corrección del aporte comprometido** (`PUT /patients/{id}/commitment-amount`, solo `SUPER_ADMIN`; botón «Corregir monto» junto al «Aporte mensual comprometido» de la ficha del beneficiario): para cuando el monto guardado no coincide con el informe de la evaluación socioeconómica. Pide el nuevo monto y un motivo, anula el compromiso firmado con el monto anterior (`url_declaracion_aporte`) y devuelve el expediente a `PENDIENTE_DOC`; el beneficiario descarga el compromiso con el monto corregido (el monto fijado manda en `/patients/me/commitment-template`), lo firma y lo sube, y el admin lo valida. Sin una evaluación MEDIA avalada rige el mínimo de Bs. 100; a un exonerado no se le puede fijar monto. Queda registro en `patient_status_events` y en la auditoría (`UPDATE_COMMITMENT_AMOUNT`). Además, **reabrir el compromiso** (`POST /patients/{id}/reset-commitment`) ya no borra el aporte reducido de una evaluación MEDIA avalada: antes lo dejaba en blanco y el beneficiario solo podía elegir desde Bs. 100, quedando comprometido con más de lo que indicaba su informe.
+
 **Reporte de beneficiarios** (columnas a elección): además de los datos personales, el selector de columnas ofrece **C.I. Tutor** (solo el número), **Tratamiento** (una insulina por línea: «Glargina: 40 UI al día»), **Tiempo de Evolución** (los años con la diabetes tal como se registraron, p. ej. «8 años») y **Complicaciones/Otros** (una por línea; el texto libre de «Otras» se separa por comas). En el Excel esas celdas llevan saltos de línea: se ven una bajo otra activando «Ajustar texto». Formato en `vidaplena-web/src/utils/beneficiaryFormat.js`.
 
 **Insulina «Mixta»** (antes «Protamina»): es el nombre del grupo de las premezclas (Mix, bifásicas, Actraphane, NovoMix). Se renombró en el catálogo, el motor de reparto y las opciones del formulario; «protamina» sigue reconociéndose como alias (fichas o Excel antiguos). La migración `20261023_000001` renombra los tratamientos ya guardados (`patient_treatments.nombre`): **hay que correr `alembic upgrade head`** antes de desplegar, o las fichas con «Protamina» no coincidirán con la opción «Mixta» del formulario de edición.
@@ -317,6 +319,7 @@ Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones,
 | `test_director_deliveries.py` | 4 | Módulo de la Directora y anti-duplicados |
 | `test_director_cuaderno.py` | 11 | Cuaderno estructurado: búsqueda de beneficiarios con sus insulinas, visita con varias insulinas (presentación y marca, todo o nada), persona fuera del padrón, registro anterior sin vínculo, alerta por ficha, reporte con filtros de fecha y texto, y control de roles (un paciente no puede usar el cuaderno) |
 | `test_aportes_rango_departamento.py` | 11 | Reportes de aportes: una fila por voucher con su periodo y departamento, rango «desde / hasta», filtro por departamento sin importar mayúsculas, validación del rango, y el contenido real de los PDF (columnas Departamento y Periodo) |
+| `test_commitment_amount.py` | 6 | Corrección del aporte comprometido: anula el compromiso firmado y reabre el expediente, mínimo de Bs. 100 sin evaluación MEDIA, exonerados, permisos, reabrir conserva el aporte reducido y descarga del compromiso con el monto corregido |
 | `test_donation_request.py` | 6 | Solicitud de donación: suma de dosis × 60 días por tipo de insulina (nombres comerciales incluidos), porcentajes sobre el total, insulina fuera del catálogo, estados considerados (sin INACTIVOS ni filtro de aporte) y acceso solo para SUPER_ADMIN |
 | `test_contributions_ocr.py` | 4 | Lectura OCR de comprobantes |
 | `test_commitment_template.py` | 4 | Plantilla de compromiso de aporte |
@@ -325,7 +328,7 @@ Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones,
 
 ### Pruebas del frontend (vitest + jsdom)
 
-`npx vitest run` desde `vidaplena-web/`. **46 pruebas: 45 pasan, 1 falla** (la preexistente de `RegisterPatientPage`), incluidas las del panel del almacén (local).
+`npx vitest run` desde `vidaplena-web/`. **49 pruebas: 48 pasan, 1 falla** (la preexistente de `RegisterPatientPage`), incluidas las del panel del almacén (local).
 
 | Archivo | Tests | Qué cubre |
 |---|---:|---|
@@ -333,6 +336,7 @@ Reportes gerenciales sobre beneficiarios, entregas, donaciones y complicaciones,
 | `src/__tests__/globalDistributionPanel.test.jsx` *(local, no incluido en main)* | 7 | Panel de reparto global: estado inicial, simulación (no guarda), filtro de menores, que «Guardar borrador» y «Consolidar todo» exijan confirmación antes de llamar a la API, que se vea la sustitución por detemir y la etiqueta/filtro de tipo 1. |
 | `src/__tests__/insulinDistributionReport.test.jsx` | 5 | Reporte de distribución desde el Excel: exige archivo, muestra beneficiarios por estado con lote, filtros (menores, tipo 1, sin cubrir, con sustituto, estado, búsqueda por nombre/CI), filas omitidas y errores del servidor |
 | `src/__tests__/aportesReports.test.jsx` | 7 | Historial de Aportes y Control de Vouchers: rango desde/hasta, departamento, columnas Departamento y Periodo, y el Excel con el periodo a la derecha de los datos del beneficiario |
+| `src/__tests__/commitmentAmount.test.jsx` | 3 | Botón y modal «Corregir monto» en la ficha (solo SUPER_ADMIN), motivo obligatorio y errores del servidor |
 | `src/__tests__/beneficiaryReportColumns.test.jsx` | 7 | Formato de tratamiento, complicaciones y tiempo de evolución; columnas nuevas del reporte de beneficiarios (pantalla y Excel); reporte de solicitud de donación (cuadro, porcentajes, total y Excel) |
 | `src/__tests__/directorCuaderno.test.jsx` | 9 | Cuaderno de la Directora: búsqueda y despliegue de insulinas anotadas con marca sugerida, presentación/marca/cantidad, aviso de entrega duplicada, persona fuera de la lista, y el reporte (tabla y Excel) |
 | `src/pages/patients/__tests__/RegisterPatientPage.test.jsx` | 1 | Registro de un menor con tutor. **Falla desde antes** (`getAllByLabelText` no encuentra la etiqueta); se comprobó que falla también sobre el código original, sin relación con el autoregistro. |

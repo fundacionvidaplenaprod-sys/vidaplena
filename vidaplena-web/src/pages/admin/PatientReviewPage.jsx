@@ -481,7 +481,7 @@ export default function PatientReviewPage() {
                     <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
                         <h3 className="text-lg font-bold text-gray-800 mb-2">Reabrir compromiso de aporte</h3>
                         <p className="text-sm text-gray-500 mb-4">
-                            Esta acción regresará al paciente a <span className="font-semibold">PENDIENTE_DOC</span> para que registre un nuevo monto y vuelva a subir su compromiso firmado.
+                            Esta acción regresará al paciente a <span className="font-semibold">PENDIENTE_DOC</span> para que vuelva a subir su compromiso firmado. Si su evaluación socioeconómica fijó un aporte reducido, ese monto se conserva; si no, el beneficiario registra un nuevo monto (mínimo Bs. 100). Para corregir el monto, use «Corregir monto» en la ficha del beneficiario.
                         </p>
                         <label className="text-sm font-semibold text-gray-700 block mb-2">
                             Motivo de reapertura
