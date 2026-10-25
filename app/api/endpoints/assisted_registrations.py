@@ -2,21 +2,28 @@
 Registro Asistido por Situación Excepcional.
 
 Reglamento especial: incorpora al programa, de forma gratuita y sin exigir documentos ni datos
-personales, a personas en centros de acogida, recintos penitenciarios, situación de calle, etc.
+personales a la persona asistida, a quienes están en centros de acogida, recintos penitenciarios,
+situación de calle, etc.
 
-- Ningún dato es obligatorio (Art. 9): se puede registrar una persona sin llenar nada y el sistema
-  le asigna su Código Interno de Registro (RA-00001).
-- No se piden documentos ni se guardan causas del acogimiento o de la privación de libertad: no hay
-  campos para eso (Art. 8 y 9 III).
+- Los datos de la persona asistida son opcionales (Art. 9): se puede registrar a alguien sin llenar
+  nada y el sistema le asigna su Código Interno de Registro (RA-00001).
+- La persona referente, en cambio, es obligatoria: es quien recibe la insulina para entregarla. Se
+  exigen su nombre completo, C.I., teléfono y una foto personal para identificarse, y el vínculo con el
+  beneficiario (familiar, conocido, referido por terceros o amistad; nunca «no se sabe»). Una misma
+  persona referente puede serlo de varios beneficiarios.
+- No hay campos para documentos de la persona asistida ni para las causas del acogimiento o de la
+  privación de libertad (Art. 8 y 9 III).
 - Acceso restringido al Evaluador Social, la Coordinación y la Dirección Ejecutiva (Art. 19 I).
 - Gratuidad absoluta (Art. 17): son tablas aparte de `patients`, sin usuario ni aporte, y no entran
   en los reportes de aportes ni de morosos.
 """
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -24,12 +31,15 @@ from sqlalchemy.orm import selectinload
 from app import models, schemas
 from app.api import deps
 from app.api.deps import get_db
+from app.core.firebase import upload_file_to_firebase
 from app.core.text_normalize import fold_sql, normalize_name
 
 router = APIRouter()
 
 # Revisión periódica de vigencia: al menos semestral (Art. 20 c).
 REVISION_DIAS = 183
+FOTO_MAX_BYTES = 2 * 1024 * 1024
+FOTO_TIPOS = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png"}
 
 
 def _revision_vencida(reg: models.AssistedRegistration, hoy: Optional[datetime] = None) -> bool:
@@ -48,8 +58,32 @@ async def _emails(db: AsyncSession, user_ids: set) -> dict:
     return {uid: email for uid, email in rows.all()}
 
 
-def _out(reg: models.AssistedRegistration, *, detail: bool = False, emails: Optional[dict] = None):
-    base = schemas.AssistedRegistrationOut.model_validate(reg).model_dump()
+async def _codigos_por_referente(db: AsyncSession, referente_ids: set) -> dict:
+    """Códigos de los registros ACTIVOS de cada persona referente."""
+    ids = {i for i in referente_ids if i}
+    if not ids:
+        return {}
+    R = models.AssistedRegistration
+    rows = await db.execute(
+        select(R.referente_id, R.codigo).where(R.referente_id.in_(ids), R.estado == "ACTIVO").order_by(R.id)
+    )
+    por_referente: dict = {}
+    for referente_id, codigo in rows.all():
+        por_referente.setdefault(referente_id, []).append(codigo)
+    return por_referente
+
+
+def _referente_out(ref: models.AssistedReferent, codigos: List[str], *, con_codigos: bool = False):
+    base = schemas.AssistedReferentOut.model_validate(ref).model_dump()
+    base["registros_activos"] = len(codigos)
+    base["codigos"] = codigos if con_codigos else []
+    return schemas.AssistedReferentOut(**base)
+
+
+def _out(reg: models.AssistedRegistration, *, detail: bool = False, emails: Optional[dict] = None, codigos: Optional[dict] = None):
+    base = schemas.AssistedRegistrationOut.model_validate(reg).model_dump(exclude={"referente"})
+    base["referente"] = _referente_out(reg.referente, (codigos or {}).get(reg.referente_id, [])) if reg.referente else None
+    base["referente_pendiente"] = reg.referente_id is None
     base["revision_vencida"] = _revision_vencida(reg)
     base["total_entregas"] = len(reg.deliveries)
     base["ultima_entrega"] = reg.deliveries[0].fecha if reg.deliveries else None
@@ -67,24 +101,20 @@ def _out(reg: models.AssistedRegistration, *, detail: bool = False, emails: Opti
     return schemas.AssistedRegistrationDetail(**base, deliveries=deliveries)
 
 
-def _audit(db: AsyncSession, actor: models.User, reg_id: int, accion: str, payload: Optional[dict] = None) -> None:
-    """Bitácora sin datos personales: solo el id del registro y qué se hizo."""
-    db.add(
-        models.AuditLog(
-            actor_id=actor.id,
-            entidad="assisted_registration",
-            entidad_id=reg_id,
-            accion=accion,
-            payload=payload or {},
-        )
-    )
+def _audit(db: AsyncSession, actor: models.User, entidad_id: int, accion: str, payload: Optional[dict] = None, *, entidad: str = "assisted_registration") -> None:
+    """Bitácora sin datos personales: solo el id y qué se hizo."""
+    db.add(models.AuditLog(actor_id=actor.id, entidad=entidad, entidad_id=entidad_id, accion=accion, payload=payload or {}))
 
 
 async def _load(db: AsyncSession, reg_id: int) -> models.AssistedRegistration:
     result = await db.execute(
         select(models.AssistedRegistration)
         .where(models.AssistedRegistration.id == reg_id)
-        .options(selectinload(models.AssistedRegistration.treatments), selectinload(models.AssistedRegistration.deliveries))
+        .options(
+            selectinload(models.AssistedRegistration.treatments),
+            selectinload(models.AssistedRegistration.deliveries),
+            selectinload(models.AssistedRegistration.referente),
+        )
         .execution_options(populate_existing=True)
     )
     reg = result.scalars().first()
@@ -101,12 +131,145 @@ def _require_active(reg: models.AssistedRegistration) -> None:
         )
 
 
+async def _require_referente(db: AsyncSession, referente_id: int) -> models.AssistedReferent:
+    ref = await db.get(models.AssistedReferent, referente_id)
+    if ref is None:
+        raise HTTPException(status_code=404, detail="No existe esa persona referente.")
+    return ref
+
+
 async def _detail(db: AsyncSession, reg_id: int):
     reg = await _load(db, reg_id)
     emails = await _emails(db, {d.entregado_por_id for d in reg.deliveries})
-    return _out(reg, detail=True, emails=emails)
+    codigos = await _codigos_por_referente(db, {reg.referente_id})
+    return _out(reg, detail=True, emails=emails, codigos=codigos)
 
 
+# --- Personas referentes -----------------------------------------------------------------------
+# Van antes de las rutas «/{reg_id}» para que «referentes» no se interprete como un id.
+
+def _clean_referente_fields(nombre_completo: str, ci: str, telefono: str) -> tuple:
+    nombre, ci, telefono = nombre_completo.strip(), ci.strip(), telefono.strip()
+    if len(nombre) < 3:
+        raise HTTPException(status_code=422, detail="Indique el nombre completo de la persona referente.")
+    if len(ci) < 4:
+        raise HTTPException(status_code=422, detail="Indique el C.I. de la persona referente.")
+    if len(re.sub(r"\D", "", telefono)) < 6:
+        raise HTTPException(status_code=422, detail="Indique un número de contacto válido de la persona referente.")
+    return nombre, ci, telefono
+
+
+async def _upload_foto(ref_id: int, foto: UploadFile) -> str:
+    extension = FOTO_TIPOS.get(foto.content_type or "")
+    if extension is None:
+        raise HTTPException(status_code=400, detail="La foto debe ser una imagen JPG o PNG.")
+    content = await foto.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="La foto está vacía.")
+    if len(content) > FOTO_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="La foto supera el máximo de 2 MB.")
+    path = f"registro_asistido/referentes/{ref_id}/foto.{extension}"
+    try:
+        return await run_in_threadpool(upload_file_to_firebase, content, path, foto.content_type)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No se pudo subir la foto: {exc}")
+
+
+async def _ci_en_uso(db: AsyncSession, ci: str, excepto_id: Optional[int] = None) -> Optional[models.AssistedReferent]:
+    query = select(models.AssistedReferent).where(func.lower(models.AssistedReferent.ci) == ci.lower())
+    if excepto_id:
+        query = query.where(models.AssistedReferent.id != excepto_id)
+    return (await db.execute(query)).scalars().first()
+
+
+@router.post("/referentes", response_model=schemas.AssistedReferentOut, status_code=201)
+async def create_referent(
+    nombre_completo: str = Form(...),
+    ci: str = Form(...),
+    telefono: str = Form(...),
+    foto: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_assisted_staff),
+):
+    """Registra una persona referente: nombre completo, C.I., teléfono y foto personal son obligatorios."""
+    nombre, ci, telefono = _clean_referente_fields(nombre_completo, ci, telefono)
+    existente = await _ci_en_uso(db, ci)
+    if existente:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ya hay una persona referente con ese C.I. ({existente.nombre_completo}): selecciónela de la lista.",
+        )
+    ref = models.AssistedReferent(nombre_completo=nombre, ci=ci, telefono=telefono, created_by_id=current_user.id)
+    db.add(ref)
+    await db.flush()
+    ref.foto_url = await _upload_foto(ref.id, foto)
+    _audit(db, current_user, ref.id, "CREATE", entidad="assisted_referent")
+    await db.commit()
+    await db.refresh(ref)
+    return _referente_out(ref, [])
+
+
+@router.get("/referentes", response_model=List[schemas.AssistedReferentOut])
+async def search_referents(
+    q: Optional[str] = Query(None, max_length=80, description="Nombre o C.I."),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_assisted_staff),
+):
+    ref = models.AssistedReferent
+    query = select(ref)
+    for token in normalize_name(q).split():
+        query = query.where(
+            fold_sql(ref.nombre_completo).contains(token, autoescape=True) | ref.ci.icontains(token, autoescape=True)
+        )
+    refs = (await db.execute(query.order_by(ref.nombre_completo).limit(30))).scalars().all()
+    codigos = await _codigos_por_referente(db, {r.id for r in refs})
+    return [_referente_out(r, codigos.get(r.id, [])) for r in refs]
+
+
+@router.get("/referentes/{referente_id}", response_model=schemas.AssistedReferentOut)
+async def get_referent(
+    referente_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_assisted_staff),
+):
+    ref = await _require_referente(db, referente_id)
+    codigos = await _codigos_por_referente(db, {ref.id})
+    return _referente_out(ref, codigos.get(ref.id, []), con_codigos=True)
+
+
+@router.put("/referentes/{referente_id}", response_model=schemas.AssistedReferentOut)
+async def update_referent(
+    referente_id: int,
+    nombre_completo: Optional[str] = Form(None),
+    ci: Optional[str] = Form(None),
+    telefono: Optional[str] = Form(None),
+    foto: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_assisted_staff),
+):
+    """Corrige o completa los datos de la persona referente. Lo que se omite queda igual; no se puede dejar en blanco."""
+    ref = await _require_referente(db, referente_id)
+    nombre, ci_nuevo, tel = _clean_referente_fields(
+        nombre_completo if nombre_completo is not None else ref.nombre_completo,
+        ci if ci is not None else (ref.ci or ""),
+        telefono if telefono is not None else (ref.telefono or ""),
+    )
+    if ci_nuevo != (ref.ci or "") and await _ci_en_uso(db, ci_nuevo, excepto_id=ref.id):
+        raise HTTPException(status_code=409, detail="Ya hay otra persona referente con ese C.I.")
+    tiene_foto_nueva = foto is not None and bool(foto.filename)
+    if not ref.foto_url and not tiene_foto_nueva:
+        raise HTTPException(status_code=422, detail="Falta la foto personal de la persona referente.")
+    ref.nombre_completo, ref.ci, ref.telefono = nombre, ci_nuevo, tel
+    if tiene_foto_nueva:
+        ref.foto_url = await _upload_foto(ref.id, foto)
+    _audit(db, current_user, ref.id, "UPDATE", entidad="assisted_referent")
+    await db.commit()
+    await db.refresh(ref)
+    codigos = await _codigos_por_referente(db, {ref.id})
+    return _referente_out(ref, codigos.get(ref.id, []), con_codigos=True)
+
+
+# --- Registros ---------------------------------------------------------------------------------
 @router.post("/", response_model=schemas.AssistedRegistrationDetail, status_code=201)
 async def create_assisted_registration(
     data: schemas.AssistedRegistrationCreate,
@@ -114,9 +277,10 @@ async def create_assisted_registration(
     current_user: models.User = Depends(deps.get_current_assisted_staff),
 ):
     """
-    Registra a una persona. Todo es opcional: con el cuerpo vacío igual se crea y recibe su código,
-    para poder entregar insumos desde el primer contacto y completar el registro después (Art. 11 IV).
+    Registra a una persona. Los datos de la persona son opcionales, pero hay que indicar su persona
+    referente (ya registrada) y el vínculo con ella. Recibe su Código Interno de Registro.
     """
+    await _require_referente(db, data.referente_id)
     values = data.model_dump(exclude={"treatments", "buen_uso_comunicado"}, exclude_none=True)
     reg = models.AssistedRegistration(**values, estado="ACTIVO", registrado_por_id=current_user.id)
     reg.urgente = bool(data.urgente)
@@ -138,27 +302,33 @@ async def create_assisted_registration(
 async def list_assisted_registrations(
     estado: Optional[str] = Query(None, pattern="^(ACTIVO|DENEGADO|CESADO)$"),
     depto: Optional[str] = Query(None, max_length=80),
-    q: Optional[str] = Query(None, max_length=80, description="Código, nombre, entidad o persona referente"),
+    q: Optional[str] = Query(None, max_length=80, description="Código, nombre, C.I., entidad o persona referente"),
     revision_vencida: Optional[bool] = Query(None),
     limit: int = Query(500, ge=1, le=2000),
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_assisted_staff),
 ):
     R = models.AssistedRegistration
-    query = select(R).options(selectinload(R.treatments), selectinload(R.deliveries))
+    F = models.AssistedReferent
+    query = (
+        select(R)
+        .outerjoin(F, F.id == R.referente_id)
+        .options(selectinload(R.treatments), selectinload(R.deliveries), selectinload(R.referente))
+    )
     if estado:
         query = query.where(R.estado == estado)
     if depto:
         query = query.where(func.lower(R.depto) == depto.strip().lower())
     texto = fold_sql(
-        func.concat_ws(" ", R.codigo, R.nombre, R.entidad_nombre, R.referente_nombre, R.ciudad_localidad)
+        func.concat_ws(" ", R.codigo, R.nombre, R.ci, R.entidad_nombre, R.ciudad_localidad, F.nombre_completo, F.ci)
     )
     for token in normalize_name(q).split():
         query = query.where(texto.contains(token, autoescape=True))
     query = query.order_by(R.created_at.desc(), R.id.desc()).limit(limit)
     regs = (await db.execute(query)).scalars().unique().all()
 
-    items = [_out(r) for r in regs]
+    codigos = await _codigos_por_referente(db, {r.referente_id for r in regs})
+    items = [_out(r, codigos=codigos) for r in regs]
     if revision_vencida is not None:
         items = [i for i in items if i.revision_vencida == revision_vencida]
     return items
@@ -180,7 +350,10 @@ async def update_assisted_registration(
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_assisted_staff),
 ):
-    """Completa o corrige los datos. Un campo en blanco (cadena vacía) lo borra; omitirlo lo deja igual."""
+    """
+    Completa o corrige los datos. Un dato de la persona en blanco (cadena vacía) se borra; omitirlo lo
+    deja igual. La persona referente y el vínculo se pueden cambiar, pero no dejar en blanco.
+    """
     reg = await _load(db, reg_id)
     _require_active(reg)
 
@@ -191,6 +364,11 @@ async def update_assisted_registration(
             if field == "urgente":
                 value = bool(value)
             setattr(reg, field, value)
+    if data.referente_id is not None:
+        await _require_referente(db, data.referente_id)
+        reg.referente_id = data.referente_id
+    if data.referente_vinculo is not None:
+        reg.referente_vinculo = data.referente_vinculo
     if data.treatments is not None:
         reg.treatments = [
             models.AssistedTreatment(insulina=t.insulina, dosis_diaria=t.dosis_diaria) for t in data.treatments

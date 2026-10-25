@@ -5,7 +5,7 @@ import { toast } from 'react-hot-toast';
 import { AlertTriangle, FileSpreadsheet, HeartHandshake, Plus, RefreshCcw, Search, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { DEPARTAMENTOS } from '../../constants/departamentos';
-import { ENTIDAD_TIPOS, RANGOS_EDAD, ESTADO_LABELS, ESTADO_STYLES, labelOf } from '../../constants/assisted';
+import { ENTIDAD_TIPOS, RANGOS_EDAD, REFERENTE_VINCULOS, ESTADO_LABELS, ESTADO_STYLES, labelOf } from '../../constants/assisted';
 import { displayInsulinName } from '../../constants/insulins';
 import { createAssistedRegistration, listAssistedRegistrations } from '../../api/assistedRegistrations';
 import AssistedRegistrationForm from './AssistedRegistrationForm';
@@ -70,6 +70,8 @@ export default function AssistedRegistrationPage() {
         Departamento: r.depto || '-',
         'Tipo de entidad': labelOf(ENTIDAD_TIPOS, r.entidad_tipo),
         'Rango de edad': labelOf(RANGOS_EDAD, r.rango_edad),
+        'Tipo de diabetes': r.tipo_diabetes || '-',
+        'Años con diabetes': r.anios_diabetes ?? '-',
         Insulinas: insulinasDe(r) || '-',
         Entregas: r.total_entregas,
         'Última entrega': r.ultima_entrega || '-',
@@ -78,9 +80,15 @@ export default function AssistedRegistrationPage() {
       return {
         'Código interno': comun['Código interno'],
         'Nombre / apodo': r.nombre || '-',
+        'C.I.': r.ci || '-',
+        'Fecha de nacimiento': r.fecha_nacimiento || '-',
+        Municipio: r.municipio || '-',
+        'Complicaciones / otras enfermedades': r.complicaciones_otras || '-',
         'Entidad referente': r.entidad_nombre || '-',
-        'Persona referente': r.referente_nombre || '-',
-        'Contacto referente': r.referente_contacto || '-',
+        'Persona referente': r.referente?.nombre_completo || '-',
+        'C.I. persona referente': r.referente?.ci || '-',
+        'Contacto persona referente': r.referente?.telefono || '-',
+        'Vínculo con el beneficiario': labelOf(REFERENTE_VINCULOS, r.referente_vinculo),
         ...Object.fromEntries(Object.entries(comun).filter(([k]) => k !== 'Código interno')),
       };
     });
@@ -113,7 +121,7 @@ export default function AssistedRegistrationPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <input
             aria-label="Buscar"
-            placeholder="Código, nombre, entidad o referente…"
+            placeholder="Código, nombre, C.I., entidad o referente…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm w-72"
@@ -149,7 +157,7 @@ export default function AssistedRegistrationPage() {
         <table className="w-full text-left">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              {['Código', 'Nombre / apodo', 'Entidad referente', 'Departamento', 'Insulinas', 'Última entrega', 'Estado'].map((h) => (
+              {['Código', 'Nombre / apodo', 'Persona referente', 'Departamento', 'Insulinas', 'Última entrega', 'Estado'].map((h) => (
                 <th key={h} className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -169,8 +177,12 @@ export default function AssistedRegistrationPage() {
                   <td className="px-4 py-3 text-sm font-bold text-vida-primary whitespace-nowrap">{r.codigo}</td>
                   <td className="px-4 py-3 text-sm text-gray-800">{r.nombre || <span className="text-gray-400">Sin nombre</span>}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">
-                    {r.entidad_nombre || '-'}
-                    {r.entidad_tipo && <span className="block text-xs text-gray-400">{labelOf(ENTIDAD_TIPOS, r.entidad_tipo)}</span>}
+                    {r.referente ? r.referente.nombre_completo : <span className="text-red-500 font-semibold">Falta registrar</span>}
+                    {r.entidad_nombre && (
+                      <span className="block text-xs text-gray-400">
+                        {r.entidad_nombre}{r.entidad_tipo ? ` · ${labelOf(ENTIDAD_TIPOS, r.entidad_tipo)}` : ''}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">{r.depto || '-'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{insulinasDe(r) || '-'}</td>

@@ -390,9 +390,9 @@ ASSISTED_ENTIDAD_TIPOS = (
     "CENTRO_ACOGIDA", "RECINTO_PENITENCIARIO", "CENTRO_REINTEGRACION", "HOGAR_ALBERGUE",
     "ASILO_LARGA_ESTANCIA", "CENTRO_ESPECIALIZADO", "CASA_REFUGIO", "COMUNIDAD", "SITUACION_CALLE", "OTRO",
 )
-ASSISTED_REFERENTE_VINCULOS = (
-    "PERSONAL_SALUD", "TRABAJADOR_SOCIAL", "EDUCADOR", "DEFENSOR", "VOLUNTARIO", "FAMILIAR", "ALLEGADO", "OTRO",
-)
+# Vínculo de la persona referente con el beneficiario: es obligatorio, no admite «no se sabe».
+ASSISTED_REFERENTE_VINCULOS = ("FAMILIAR", "CONOCIDO", "REFERIDO_POR_TERCEROS", "AMISTAD")
+ASSISTED_TIPOS_DIABETES = ("Tipo 1", "Tipo 2", "Gestacional", "Otra")
 ASSISTED_RANGOS_EDAD = ("0-11", "12-17", "18-59", "60+")
 ASSISTED_ESTADOS = ("ACTIVO", "DENEGADO", "CESADO")
 ASSISTED_CESE_CAUSAS = ("FALLECIMIENTO", "RENUNCIA", "SIN_NECESIDAD", "TRASLADO_REGIMEN_ORDINARIO", "FALTA_GRAVE")
@@ -402,6 +402,26 @@ ASSISTED_CONSTANCIA_TIPOS = ("FIRMA", "HUELLA", "CONFIRMACION", "TESTIMONIO_PERS
 
 def _in_list(column: str, values) -> str:
     return f"{column} IS NULL OR {column} IN (" + ",".join(f"'{v}'" for v in values) + ")"
+
+
+class AssistedReferent(Base):
+    """
+    Persona referente: la que recibe la insulina para entregarla a la persona asistida. Una misma
+    persona puede ser referente de varios beneficiarios (p. ej. el contacto de varios reos), por eso es
+    una tabla aparte. Nombre completo, C.I., teléfono y una foto personal para identificarse son
+    obligatorios al registrarla (los exige la API; en la base son nulos solo para los registros
+    anteriores a este requisito).
+    """
+    __tablename__ = "assisted_referents"
+
+    id = Column(BigInteger, primary_key=True)
+    nombre_completo = Column(String(160), nullable=False)
+    ci = Column(String(32), nullable=True)
+    telefono = Column(String(40), nullable=True)
+    foto_url = Column(Text, nullable=True)
+    created_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class AssistedRegistration(Base):
@@ -418,13 +438,20 @@ class AssistedRegistration(Base):
     rango_edad = Column(String(10), nullable=True)
     edad_aproximada = Column(Integer, nullable=True)
     depto = Column(String(80), nullable=True)
+    municipio = Column(String(120), nullable=True)
     ciudad_localidad = Column(String(120), nullable=True)
+    # Datos complementarios, todos opcionales.
+    ci = Column(String(32), nullable=True)
+    fecha_nacimiento = Column(Date, nullable=True)
+    tipo_diabetes = Column(String(20), nullable=True)
+    anios_diabetes = Column(Integer, nullable=True)
+    complicaciones_otras = Column(String(500), nullable=True)  # complicaciones u otras enfermedades
 
     entidad_nombre = Column(String(200), nullable=True)
     entidad_tipo = Column(String(30), nullable=True)
-    referente_nombre = Column(String(160), nullable=True)
+    # Persona referente (obligatoria en los registros nuevos) y su vínculo con el beneficiario.
+    referente_id = Column(BigInteger, ForeignKey("assisted_referents.id", ondelete="SET NULL"), nullable=True)
     referente_vinculo = Column(String(30), nullable=True)
-    referente_contacto = Column(String(160), nullable=True)
 
     insumos_requeridos = Column(String(500), nullable=True)
     urgente = Column(Boolean, nullable=False, default=False)  # necesidad médica inmediata (Art. 11 IV)
@@ -447,6 +474,7 @@ class AssistedRegistration(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    referente = relationship("AssistedReferent")
     treatments = relationship(
         "AssistedTreatment", back_populates="registration", cascade="all, delete-orphan", order_by="AssistedTreatment.id"
     )
@@ -459,6 +487,7 @@ class AssistedRegistration(Base):
         CheckConstraint(_in_list("entidad_tipo", ASSISTED_ENTIDAD_TIPOS), name="ck_assisted_entidad_tipo"),
         CheckConstraint(_in_list("referente_vinculo", ASSISTED_REFERENTE_VINCULOS), name="ck_assisted_referente_vinculo"),
         CheckConstraint(_in_list("rango_edad", ASSISTED_RANGOS_EDAD), name="ck_assisted_rango_edad"),
+        CheckConstraint(_in_list("tipo_diabetes", ASSISTED_TIPOS_DIABETES), name="ck_assisted_tipo_diabetes"),
         CheckConstraint(_in_list("cese_causa", ASSISTED_CESE_CAUSAS), name="ck_assisted_cese_causa"),
         CheckConstraint("estado IN (" + ",".join(f"'{v}'" for v in ASSISTED_ESTADOS) + ")", name="ck_assisted_estado"),
     )

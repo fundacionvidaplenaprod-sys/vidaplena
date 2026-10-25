@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { AlertTriangle, ArrowLeft, CheckCircle, ClipboardCheck, Edit2, PackagePlus, ShieldOff } from 'lucide-react';
+import { ReferentCard } from './ReferentPicker';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { useAuth } from '../../context/AuthContext';
@@ -11,8 +12,8 @@ import {
 } from '../../constants/assisted';
 import { displayInsulinName } from '../../constants/insulins';
 import {
-  addAssistedDelivery, denyAssistedRegistration, endAssistedRegistration, getAssistedRegistration,
-  registerAssistedReview, updateAssistedRegistration,
+  addAssistedDelivery, denyAssistedRegistration, endAssistedRegistration, getAssistedRegistration, getReferent,
+  registerAssistedReview, updateAssistedRegistration, updateReferent,
 } from '../../api/assistedRegistrations';
 import AssistedRegistrationForm from './AssistedRegistrationForm';
 
@@ -45,6 +46,8 @@ export default function AssistedRegistrationDetailPage() {
   const [modal, setModal] = useState(null); // 'cese' | 'denegar'
   const [cese, setCese] = useState({ causa: 'SIN_NECESIDAD', detalle: '', patient_id: '' });
   const [motivo, setMotivo] = useState('');
+  const [otrosCodigos, setOtrosCodigos] = useState([]);
+  const [refEdit, setRefEdit] = useState({ nombre_completo: '', ci: '', telefono: '', foto: null });
 
   const load = useCallback(async () => {
     try {
@@ -60,6 +63,19 @@ export default function AssistedRegistrationDetailPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Otros beneficiarios de los que la misma persona es referente.
+  const referenteId = reg?.referente?.id;
+  const codigoActual = reg?.codigo;
+  useEffect(() => {
+    if (!referenteId) {
+      setOtrosCodigos([]);
+      return;
+    }
+    getReferent(referenteId)
+      .then((r) => setOtrosCodigos((r.codigos || []).filter((c) => c !== codigoActual)))
+      .catch(() => setOtrosCodigos([]));
+  }, [referenteId, codigoActual]);
 
   // Ejecuta una acción que devuelve el registro actualizado y muestra el error del servidor, si lo hay.
   const run = async (action, okMessage) => {
@@ -97,6 +113,34 @@ export default function AssistedRegistrationDetailPage() {
       receptor_nombre: entrega.receptor_nombre || null,
     };
     if (await run(() => addAssistedDelivery(id, payload), 'Entrega registrada.')) setEntrega({ ...ENTREGA_VACIA, fecha: hoy() });
+  };
+
+  const abrirEdicionReferente = () => {
+    setRefEdit({
+      nombre_completo: reg.referente.nombre_completo || '',
+      ci: reg.referente.ci || '',
+      telefono: reg.referente.telefono || '',
+      foto: null,
+    });
+    setModal('referente');
+  };
+
+  const guardarReferente = async () => {
+    if (!reg.referente.foto_url && !refEdit.foto) {
+      toast.error('La foto personal de la persona referente es obligatoria.');
+      return;
+    }
+    try {
+      setSaving(true);
+      await updateReferent(reg.referente.id, refEdit);
+      toast.success('Persona referente actualizada.');
+      setModal(null);
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'No se pudo actualizar a la persona referente.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmarCese = async () => {
@@ -165,17 +209,49 @@ export default function AssistedRegistrationDetailPage() {
         ) : (
           <div className="grid md:grid-cols-3 gap-4">
             <Dato label="Nombre, apodo o iniciales">{reg.nombre}</Dato>
+            <Dato label="C.I.">{reg.ci}</Dato>
+            <Dato label="Fecha de nacimiento">{reg.fecha_nacimiento && fmtDate(`${reg.fecha_nacimiento}T12:00:00`)}</Dato>
             <Dato label="Edad">{reg.edad_aproximada ? `${reg.edad_aproximada} años aprox.` : labelOf(RANGOS_EDAD, reg.rango_edad)}</Dato>
-            <Dato label="Departamento / localidad">{[reg.depto, reg.ciudad_localidad].filter(Boolean).join(' · ')}</Dato>
+            <Dato label="Departamento / municipio / localidad">{[reg.depto, reg.municipio, reg.ciudad_localidad].filter(Boolean).join(' · ')}</Dato>
+            <Dato label="Tipo de diabetes">{reg.tipo_diabetes}</Dato>
+            <Dato label="Años con la diabetes">{reg.anios_diabetes != null && `${reg.anios_diabetes} años`}</Dato>
+            <Dato label="Complicaciones u otras enfermedades">{reg.complicaciones_otras}</Dato>
             <Dato label="Entidad referente">{reg.entidad_nombre}</Dato>
             <Dato label="Tipo de entidad">{reg.entidad_tipo && labelOf(ENTIDAD_TIPOS, reg.entidad_tipo)}</Dato>
-            <Dato label="Persona referente">{[reg.referente_nombre, reg.referente_vinculo && `(${labelOf(REFERENTE_VINCULOS, reg.referente_vinculo)})`].filter(Boolean).join(' ')}</Dato>
-            <Dato label="Contacto de la persona referente">{reg.referente_contacto}</Dato>
             <Dato label="Insulinas">
               {reg.treatments.length > 0 && reg.treatments.map((t) => `${displayInsulinName(t.insulina)}${t.dosis_diaria ? `: ${t.dosis_diaria} UI al día` : ''}`).join(' · ')}
             </Dato>
             <Dato label="Otros insumos">{reg.insumos_requeridos}</Dato>
           </div>
+        )}
+      </section>
+
+      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-bold text-gray-800">Persona referente (recibe la insulina)</h2>
+          {activo && reg.referente && (
+            <button onClick={abrirEdicionReferente} className="text-sm font-semibold text-vida-main inline-flex items-center gap-1 hover:underline">
+              <Edit2 size={14} /> Corregir datos o foto
+            </button>
+          )}
+        </div>
+        {reg.referente ? (
+          <>
+            <ReferentCard referente={reg.referente} />
+            <p className="text-sm text-gray-600">
+              Vínculo con el beneficiario: <strong>{labelOf(REFERENTE_VINCULOS, reg.referente_vinculo)}</strong>
+              {otrosCodigos.length > 0 && <> · También es persona referente de: {otrosCodigos.join(', ')}</>}
+            </p>
+            {(!reg.referente.ci || !reg.referente.foto_url) && (
+              <p className="text-sm text-red-600 font-semibold flex items-center gap-1">
+                <AlertTriangle size={14} /> Faltan {!reg.referente.ci && 'el C.I.'}{!reg.referente.ci && !reg.referente.foto_url && ' y '}{!reg.referente.foto_url && 'la foto personal'} de la persona referente.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-red-600 font-semibold flex items-center gap-1">
+            <AlertTriangle size={14} /> Este registro no tiene persona referente. Indíquela en «Completar o corregir datos»: es obligatoria.
+          </p>
         )}
       </section>
 
@@ -305,6 +381,36 @@ export default function AssistedRegistrationDetailPage() {
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => setModal(null)} className="w-auto px-5">Cancelar</Button>
             <Button onClick={confirmarCese} disabled={saving} className="w-auto px-5 bg-red-600 hover:bg-red-700">Confirmar cese</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={modal === 'referente'} onClose={() => setModal(null)} title="Corregir a la persona referente">
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500">Los cambios valen para todos los beneficiarios de los que es persona referente.</p>
+          <div>
+            <label htmlFor="rfe-nombre" className="block text-xs font-semibold text-gray-700 mb-1">Nombre completo</label>
+            <input id="rfe-nombre" className={inputClass} value={refEdit.nombre_completo} onChange={(e) => setRefEdit({ ...refEdit, nombre_completo: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="rfe-ci" className="block text-xs font-semibold text-gray-700 mb-1">C.I.</label>
+              <input id="rfe-ci" className={inputClass} value={refEdit.ci} onChange={(e) => setRefEdit({ ...refEdit, ci: e.target.value })} />
+            </div>
+            <div>
+              <label htmlFor="rfe-tel" className="block text-xs font-semibold text-gray-700 mb-1">N.° de contacto</label>
+              <input id="rfe-tel" className={inputClass} value={refEdit.telefono} onChange={(e) => setRefEdit({ ...refEdit, telefono: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="rfe-foto" className="block text-xs font-semibold text-gray-700 mb-1">
+              Foto personal {reg.referente?.foto_url ? '(deje vacío para conservar la actual)' : '(obligatoria)'}
+            </label>
+            <input id="rfe-foto" type="file" accept="image/jpeg,image/png" className="text-sm" onChange={(e) => setRefEdit({ ...refEdit, foto: e.target.files?.[0] || null })} />
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setModal(null)} className="w-auto px-5">Cancelar</Button>
+            <Button onClick={guardarReferente} disabled={saving} className="w-auto px-5">Guardar</Button>
           </div>
         </div>
       </Modal>

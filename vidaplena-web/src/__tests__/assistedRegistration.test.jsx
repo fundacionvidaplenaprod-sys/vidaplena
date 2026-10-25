@@ -14,6 +14,10 @@ const api = vi.hoisted(() => ({
   registerAssistedReview: vi.fn(),
   denyAssistedRegistration: vi.fn(),
   endAssistedRegistration: vi.fn(),
+  searchReferents: vi.fn(),
+  createReferent: vi.fn(),
+  getReferent: vi.fn(),
+  updateReferent: vi.fn(),
 }));
 const xlsx = vi.hoisted(() => ({
   json_to_sheet: vi.fn(() => ({})),
@@ -43,9 +47,24 @@ const registro = (extra = {}) => ({
   ciudad_localidad: null,
   entidad_nombre: 'Hogar Esperanza',
   entidad_tipo: 'CENTRO_ACOGIDA',
-  referente_nombre: 'Lic. Rosa',
-  referente_vinculo: 'TRABAJADOR_SOCIAL',
-  referente_contacto: '70000000',
+  ci: '9876543',
+  fecha_nacimiento: '1990-05-17',
+  municipio: 'Quillacollo',
+  tipo_diabetes: 'Tipo 1',
+  anios_diabetes: 8,
+  complicaciones_otras: 'Hipertensión, neuropatía',
+  referente_id: 3,
+  referente_vinculo: 'FAMILIAR',
+  referente: {
+    id: 3,
+    nombre_completo: 'Rosa Quispe',
+    ci: '1234567',
+    telefono: '70000000',
+    foto_url: 'https://storage.test/rosa.png',
+    registros_activos: 2,
+    codigos: [],
+  },
+  referente_pendiente: false,
   insumos_requeridos: null,
   urgente: true,
   buen_uso_comunicado_at: null,
@@ -63,6 +82,7 @@ beforeEach(() => {
   toast.success.mockClear();
   toast.error.mockClear();
   auth.role = 'EVALUADOR_SOCIAL';
+  api.getReferent.mockResolvedValue({ id: 3, codigos: ['RA-00005', 'RA-00007'] });
 });
 
 const abrirLista = () =>
@@ -84,7 +104,8 @@ describe('Registro Asistido: lista', () => {
     expect(screen.getByText('Urgente')).toBeInTheDocument();
     expect(screen.getByText('Revisar')).toBeInTheDocument();
     expect(screen.getByText('Mixta (20 UI)')).toBeInTheDocument(); // «Protamina» se muestra como «Mixta»
-    expect(screen.getByText('Centro de acogida')).toBeInTheDocument();
+    expect(screen.getByText(/Hogar Esperanza · Centro de acogida/)).toBeInTheDocument();
+    expect(screen.getByText('Rosa Quispe')).toBeInTheDocument(); // la persona referente
   });
 
   it('el Excel «solo con código» no incluye nombre, entidad ni persona referente', async () => {
@@ -96,36 +117,102 @@ describe('Registro Asistido: lista', () => {
     const completo = xlsx.json_to_sheet.mock.calls[0][0][0];
     expect(completo['Nombre / apodo']).toBe('Iniciales J.P.');
     expect(completo['Entidad referente']).toBe('Hogar Esperanza');
+    expect(completo['Persona referente']).toBe('Rosa Quispe');
+    expect(completo['C.I. persona referente']).toBe('1234567');
+    expect(completo['Vínculo con el beneficiario']).toBe('Familiar');
 
     fireEvent.click(screen.getByLabelText(/Excel solo con código/));
     fireEvent.click(screen.getByRole('button', { name: /Excel/ }));
     const anonimo = xlsx.json_to_sheet.mock.calls[1][0][0];
     expect(Object.keys(anonimo)).toEqual([
-      'Código interno', 'Estado', 'Departamento', 'Tipo de entidad', 'Rango de edad', 'Insulinas', 'Entregas', 'Última entrega',
+      'Código interno', 'Estado', 'Departamento', 'Tipo de entidad', 'Rango de edad', 'Tipo de diabetes',
+      'Años con diabetes', 'Insulinas', 'Entregas', 'Última entrega',
     ]);
-    expect(JSON.stringify(anonimo)).not.toMatch(/Iniciales|Esperanza|Rosa|70000000/);
+    expect(JSON.stringify(anonimo)).not.toMatch(/Iniciales|Esperanza|Rosa|70000000|9876543|1234567|Quillacollo|neuropatía/);
     expect(xlsx.writeFile.mock.calls[1][1]).toMatch(/^Registro_Asistido_solo_codigo_/);
   });
 
-  it('se puede registrar a una persona sin llenar ningún dato y se abre su ficha con el código asignado', async () => {
+  it('los datos de la persona son opcionales, pero sin persona referente y vínculo no se registra', async () => {
     api.listAssistedRegistrations.mockResolvedValue([]);
     api.createAssistedRegistration.mockResolvedValue(registro({ id: 9, codigo: 'RA-00009' }));
+    api.searchReferents.mockResolvedValue([registro().referente]);
     abrirLista();
     await screen.findByText('No hay registros con esos filtros.');
 
     fireEvent.click(screen.getByRole('button', { name: /Nuevo registro asistido/ }));
-    expect(screen.getByText(/Ningún dato es obligatorio y no se piden documentos/)).toBeInTheDocument();
+    expect(screen.getByText(/Los datos de la persona son opcionales; la persona referente es obligatoria/)).toBeInTheDocument();
     // el formulario no tiene campos de documentos, tutor ni causas
     expect(screen.queryByLabelText(/cédula|tutor|causa|motivo del acogimiento|antecedentes/i)).toBeNull();
+    // pide los datos complementarios
+    const formulario = within(screen.getByRole('button', { name: 'Registrar y asignar código' }).closest('form'));
+    ['N.° de carnet de identidad (C.I.)', 'Fecha de nacimiento', 'Departamento', 'Municipio', 'Tipo de diabetes',
+      'Años con la diabetes', 'Complicaciones u otras enfermedades (separadas por coma)'].forEach((label) => {
+      expect(formulario.getByLabelText(label)).toBeInTheDocument();
+    });
 
+    // sin persona referente
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar y asignar código' }));
+    expect(api.createAssistedRegistration).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('Indique la persona referente: es quien recibirá la insulina.');
+
+    // con persona referente, pero sin vínculo
+    fireEvent.change(screen.getByLabelText('Buscar persona referente'), { target: { value: 'Rosa' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Rosa Quispe/ }));
+    toast.error.mockClear();
+    fireEvent.submit(screen.getByRole('button', { name: 'Registrar y asignar código' }).closest('form'));
+    expect(api.createAssistedRegistration).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('Indique el vínculo de la persona referente con el beneficiario.');
+
+    // el vínculo solo admite las cuatro opciones, sin «no se sabe»
+    const opciones = within(screen.getByLabelText(/Vínculo de la persona referente/)).getAllByRole('option').map((o) => o.textContent);
+    expect(opciones).toEqual(['Elegir el vínculo…', 'Familiar', 'Conocido/a', 'Referido/a por terceros', 'Amistad']);
+
+    fireEvent.change(screen.getByLabelText(/Vínculo de la persona referente/), { target: { value: 'AMISTAD' } });
     fireEvent.click(screen.getByRole('button', { name: 'Registrar y asignar código' }));
     await waitFor(() => expect(api.createAssistedRegistration).toHaveBeenCalledTimes(1));
     const payload = api.createAssistedRegistration.mock.calls[0][0];
-    expect(payload.nombre).toBe('');
-    expect(payload.treatments).toEqual([]);
+    expect(payload).toMatchObject({ referente_id: 3, referente_vinculo: 'AMISTAD', nombre: '', ci: '', treatments: [] });
     expect(payload.edad_aproximada).toBeNull();
+    expect(payload.anios_diabetes).toBeNull();
     await screen.findByText('DETALLE ABIERTO');
     expect(toast.success).toHaveBeenCalledWith('Registrado con el código RA-00009.');
+  });
+
+  it('registrar una persona referente nueva exige nombre, C.I., teléfono y foto', async () => {
+    api.listAssistedRegistrations.mockResolvedValue([]);
+    api.searchReferents.mockResolvedValue([]);
+    api.createReferent.mockResolvedValue({ id: 8, nombre_completo: 'Pedro Condori', ci: '5555555', telefono: '71111111', foto_url: 'https://storage.test/p.png', registros_activos: 0 });
+    abrirLista();
+    await screen.findByText('No hay registros con esos filtros.');
+    fireEvent.click(screen.getByRole('button', { name: /Nuevo registro asistido/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Registrar una nueva persona referente/ }));
+
+    const registrar = () => fireEvent.click(screen.getByRole('button', { name: 'Registrar persona referente' }));
+    registrar();
+    expect(toast.error).toHaveBeenLastCalledWith('Indique el nombre completo de la persona referente.');
+    fireEvent.change(screen.getByLabelText('Nombre completo *'), { target: { value: 'Pedro Condori' } });
+    registrar();
+    expect(toast.error).toHaveBeenLastCalledWith('Indique el C.I. de la persona referente.');
+    fireEvent.change(screen.getByLabelText('C.I. *'), { target: { value: '5555555' } });
+    registrar();
+    expect(toast.error).toHaveBeenLastCalledWith('Indique un número de contacto válido.');
+    fireEvent.change(screen.getByLabelText('N.° de contacto *'), { target: { value: '71111111' } });
+    registrar();
+    expect(toast.error).toHaveBeenLastCalledWith('La foto personal de la persona referente es obligatoria.');
+    expect(api.createReferent).not.toHaveBeenCalled();
+
+    // un PDF no es una foto
+    const archivo = screen.getByLabelText(/Foto personal para identificarse/);
+    fireEvent.change(archivo, { target: { files: [new File(['x'], 'doc.pdf', { type: 'application/pdf' })] } });
+    expect(toast.error).toHaveBeenLastCalledWith('La foto debe ser una imagen JPG o PNG.');
+
+    const foto = new File(['x'], 'foto.png', { type: 'image/png' });
+    fireEvent.change(archivo, { target: { files: [foto] } });
+    registrar();
+    await waitFor(() => expect(api.createReferent).toHaveBeenCalledTimes(1));
+    expect(api.createReferent.mock.calls[0][0]).toMatchObject({ nombre_completo: 'Pedro Condori', ci: '5555555', telefono: '71111111', foto });
+    // queda elegida como persona referente
+    await screen.findByText('C.I. 5555555 · Contacto 71111111');
   });
 });
 
@@ -140,6 +227,36 @@ const abrirDetalle = () =>
   );
 
 describe('Registro Asistido: ficha', () => {
+  it('muestra a la persona referente con su foto, C.I., vínculo y los otros beneficiarios que atiende', async () => {
+    api.getAssistedRegistration.mockResolvedValue(registro());
+    abrirDetalle();
+    await screen.findByText('RA-00005');
+
+    expect(screen.getByAltText('Foto de Rosa Quispe')).toHaveAttribute('src', 'https://storage.test/rosa.png');
+    expect(screen.getByText(/C\.I\. 1234567 · Contacto 70000000/)).toBeInTheDocument();
+    expect(screen.getByText('Familiar')).toBeInTheDocument();
+    await screen.findByText(/También es persona referente de: RA-00007/); // sin repetir el registro actual
+    // datos complementarios
+    expect(screen.getByText('9876543')).toBeInTheDocument();
+    expect(screen.getByText('Quillacollo', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('Tipo 1')).toBeInTheDocument();
+    expect(screen.getByText('8 años')).toBeInTheDocument();
+    expect(screen.getByText('Hipertensión, neuropatía')).toBeInTheDocument();
+  });
+
+  it('avisa si un registro anterior no tiene persona referente o le faltan C.I. y foto', async () => {
+    api.getAssistedRegistration.mockResolvedValue(registro({ referente: null, referente_id: null, referente_pendiente: true }));
+    const { unmount } = abrirDetalle();
+    await screen.findByText(/Este registro no tiene persona referente/);
+    unmount();
+
+    api.getAssistedRegistration.mockResolvedValue(
+      registro({ referente: { ...registro().referente, ci: null, foto_url: null } }),
+    );
+    abrirDetalle();
+    await screen.findByText(/Faltan el C\.I\. y la foto personal de la persona referente/);
+  });
+
   it('registra una entrega sin constancia ni datos del receptor', async () => {
     api.getAssistedRegistration.mockResolvedValue(registro());
     api.addAssistedDelivery.mockResolvedValue(

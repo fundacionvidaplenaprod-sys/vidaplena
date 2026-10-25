@@ -14,16 +14,15 @@ export const ENTIDAD_TIPOS = [
   { value: 'OTRO', label: 'Otro' },
 ];
 
+// Vínculo de la persona referente con el beneficiario. Es obligatorio y no admite «no se sabe».
 export const REFERENTE_VINCULOS = [
-  { value: 'PERSONAL_SALUD', label: 'Personal de salud' },
-  { value: 'TRABAJADOR_SOCIAL', label: 'Trabajador/a social' },
-  { value: 'EDUCADOR', label: 'Educador/a' },
-  { value: 'DEFENSOR', label: 'Defensor/a' },
-  { value: 'VOLUNTARIO', label: 'Voluntario/a' },
   { value: 'FAMILIAR', label: 'Familiar' },
-  { value: 'ALLEGADO', label: 'Allegado/a' },
-  { value: 'OTRO', label: 'Otro' },
+  { value: 'CONOCIDO', label: 'Conocido/a' },
+  { value: 'REFERIDO_POR_TERCEROS', label: 'Referido/a por terceros' },
+  { value: 'AMISTAD', label: 'Amistad' },
 ];
+
+export const TIPOS_DIABETES = ['Tipo 1', 'Tipo 2', 'Gestacional', 'Otra'];
 
 export const RANGOS_EDAD = [
   { value: '0-11', label: 'Niño/a (0 a 11 años)' },

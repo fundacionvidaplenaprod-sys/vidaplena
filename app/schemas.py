@@ -1480,16 +1480,16 @@ class DistributionReportResult(DistributionPlanResult):
 
 # ==========================================
 #   REGISTRO ASISTIDO POR SITUACIÓN EXCEPCIONAL
-#   Todos los datos de la persona son opcionales (Art. 9 del reglamento).
+#   Los datos de la persona asistida son opcionales (Art. 9 del reglamento); la persona referente y su
+#   vínculo, en cambio, son obligatorios porque es quien recibe la insulina para entregarla.
 # ==========================================
 AssistedEntidadTipo = Literal[
     "CENTRO_ACOGIDA", "RECINTO_PENITENCIARIO", "CENTRO_REINTEGRACION", "HOGAR_ALBERGUE",
     "ASILO_LARGA_ESTANCIA", "CENTRO_ESPECIALIZADO", "CASA_REFUGIO", "COMUNIDAD", "SITUACION_CALLE", "OTRO",
 ]
-AssistedReferenteVinculo = Literal[
-    "PERSONAL_SALUD", "TRABAJADOR_SOCIAL", "EDUCADOR", "DEFENSOR", "VOLUNTARIO", "FAMILIAR", "ALLEGADO", "OTRO",
-]
+AssistedReferenteVinculo = Literal["FAMILIAR", "CONOCIDO", "REFERIDO_POR_TERCEROS", "AMISTAD"]
 AssistedRangoEdad = Literal["0-11", "12-17", "18-59", "60+"]
+AssistedTipoDiabetes = Literal["Tipo 1", "Tipo 2", "Gestacional", "Otra"]
 AssistedCeseCausa = Literal["FALLECIMIENTO", "RENUNCIA", "SIN_NECESIDAD", "TRASLADO_REGIMEN_ORDINARIO", "FALTA_GRAVE"]
 AssistedReceptorTipo = Literal["PERSONA", "PERSONA_REFERENTE", "PERSONAL_SALUD", "OTRO_MEDIO"]
 AssistedConstanciaTipo = Literal["FIRMA", "HUELLA", "CONFIRMACION", "TESTIMONIO_PERSONAL", "NINGUNA"]
@@ -1511,36 +1511,66 @@ class AssistedTreatmentIn(BaseModel):
 
 
 class AssistedRegistrationFields(BaseModel):
+    """Datos de la persona asistida y de su entidad: todos opcionales."""
     nombre: Optional[str] = Field(None, max_length=160)
+    ci: Optional[str] = Field(None, max_length=32)
+    fecha_nacimiento: Optional[date] = None
     rango_edad: Optional[AssistedRangoEdad] = None
     edad_aproximada: Optional[int] = Field(None, ge=0, le=120)
     depto: Optional[str] = Field(None, max_length=80)
+    municipio: Optional[str] = Field(None, max_length=120)
     ciudad_localidad: Optional[str] = Field(None, max_length=120)
+    tipo_diabetes: Optional[AssistedTipoDiabetes] = None
+    anios_diabetes: Optional[int] = Field(None, ge=0, le=99)
+    complicaciones_otras: Optional[str] = Field(None, max_length=500)
     entidad_nombre: Optional[str] = Field(None, max_length=200)
     entidad_tipo: Optional[AssistedEntidadTipo] = None
-    referente_nombre: Optional[str] = Field(None, max_length=160)
-    referente_vinculo: Optional[AssistedReferenteVinculo] = None
-    referente_contacto: Optional[str] = Field(None, max_length=160)
     insumos_requeridos: Optional[str] = Field(None, max_length=500)
     urgente: Optional[bool] = None
 
     _blank = field_validator(
-        "nombre", "rango_edad", "depto", "ciudad_localidad", "entidad_nombre", "entidad_tipo",
-        "referente_nombre", "referente_vinculo", "referente_contacto", "insumos_requeridos",
+        "nombre", "ci", "fecha_nacimiento", "rango_edad", "depto", "municipio", "ciudad_localidad", "tipo_diabetes",
+        "complicaciones_otras", "entidad_nombre", "entidad_tipo", "insumos_requeridos",
         mode="before",
     )(_blank_to_none)
 
+    @field_validator("fecha_nacimiento")
+    @classmethod
+    def _birth_date_is_plausible(cls, value):
+        if value is not None and not (date(1900, 1, 1) <= value <= date.today()):
+            raise ValueError("La fecha de nacimiento no es válida.")
+        return value
+
 
 class AssistedRegistrationCreate(AssistedRegistrationFields):
+    # Obligatorios: quien recibe la insulina para entregarla y su vínculo (sin «no se sabe»).
+    referente_id: int
+    referente_vinculo: AssistedReferenteVinculo
     treatments: List[AssistedTreatmentIn] = []
     # El Evaluador Social comunicó el compromiso de buen uso a la Persona Referente (Art. 13).
     buen_uso_comunicado: bool = False
 
 
 class AssistedRegistrationUpdate(AssistedRegistrationFields):
+    # Se pueden cambiar, pero nunca dejar en blanco.
+    referente_id: Optional[int] = None
+    referente_vinculo: Optional[AssistedReferenteVinculo] = None
     # Si viene, reemplaza la lista de insulinas.
     treatments: Optional[List[AssistedTreatmentIn]] = None
     buen_uso_comunicado: Optional[bool] = None
+
+
+class AssistedReferentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nombre_completo: str
+    ci: Optional[str] = None
+    telefono: Optional[str] = None
+    foto_url: Optional[str] = None
+    # Registros activos de los que es persona referente (incluido el actual).
+    registros_activos: int = 0
+    # Códigos internos de esos registros (solo en el detalle de la persona referente).
+    codigos: List[str] = []
 
 
 class AssistedDenyRequest(BaseModel):
@@ -1593,15 +1623,23 @@ class AssistedRegistrationOut(BaseModel):
     codigo: Optional[str] = None
     estado: str
     nombre: Optional[str] = None
+    ci: Optional[str] = None
+    fecha_nacimiento: Optional[date] = None
     rango_edad: Optional[str] = None
     edad_aproximada: Optional[int] = None
     depto: Optional[str] = None
+    municipio: Optional[str] = None
     ciudad_localidad: Optional[str] = None
+    tipo_diabetes: Optional[str] = None
+    anios_diabetes: Optional[int] = None
+    complicaciones_otras: Optional[str] = None
     entidad_nombre: Optional[str] = None
     entidad_tipo: Optional[str] = None
-    referente_nombre: Optional[str] = None
+    referente_id: Optional[int] = None
     referente_vinculo: Optional[str] = None
-    referente_contacto: Optional[str] = None
+    referente: Optional[AssistedReferentOut] = None
+    # Registros anteriores a la obligatoriedad de la persona referente: faltan sus datos.
+    referente_pendiente: bool = False
     insumos_requeridos: Optional[str] = None
     urgente: bool = False
     buen_uso_comunicado_at: Optional[datetime] = None
