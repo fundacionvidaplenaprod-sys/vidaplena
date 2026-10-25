@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 
 # ==========================================
 #   1. SCHEMAS DE USUARIO Y AUTENTICACIÓN
@@ -1477,3 +1477,147 @@ class DistributionReportResult(DistributionPlanResult):
     bajo_minimo: List[DistributionBelowMinItem] = []
     pacientes: List[DistributionReportPatient] = []
 
+
+# ==========================================
+#   REGISTRO ASISTIDO POR SITUACIÓN EXCEPCIONAL
+#   Todos los datos de la persona son opcionales (Art. 9 del reglamento).
+# ==========================================
+AssistedEntidadTipo = Literal[
+    "CENTRO_ACOGIDA", "RECINTO_PENITENCIARIO", "CENTRO_REINTEGRACION", "HOGAR_ALBERGUE",
+    "ASILO_LARGA_ESTANCIA", "CENTRO_ESPECIALIZADO", "CASA_REFUGIO", "COMUNIDAD", "SITUACION_CALLE", "OTRO",
+]
+AssistedReferenteVinculo = Literal[
+    "PERSONAL_SALUD", "TRABAJADOR_SOCIAL", "EDUCADOR", "DEFENSOR", "VOLUNTARIO", "FAMILIAR", "ALLEGADO", "OTRO",
+]
+AssistedRangoEdad = Literal["0-11", "12-17", "18-59", "60+"]
+AssistedCeseCausa = Literal["FALLECIMIENTO", "RENUNCIA", "SIN_NECESIDAD", "TRASLADO_REGIMEN_ORDINARIO", "FALTA_GRAVE"]
+AssistedReceptorTipo = Literal["PERSONA", "PERSONA_REFERENTE", "PERSONAL_SALUD", "OTRO_MEDIO"]
+AssistedConstanciaTipo = Literal["FIRMA", "HUELLA", "CONFIRMACION", "TESTIMONIO_PERSONAL", "NINGUNA"]
+
+
+def _blank_to_none(value):
+    """Un campo vacío o con solo espacios es «sin dato»: nunca bloquea el registro."""
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+class AssistedTreatmentIn(BaseModel):
+    insulina: str = Field(..., min_length=1, max_length=120)
+    dosis_diaria: Optional[float] = Field(None, ge=0, le=1000)
+
+    _strip = field_validator("insulina", mode="before")(_blank_to_none)
+
+
+class AssistedRegistrationFields(BaseModel):
+    nombre: Optional[str] = Field(None, max_length=160)
+    rango_edad: Optional[AssistedRangoEdad] = None
+    edad_aproximada: Optional[int] = Field(None, ge=0, le=120)
+    depto: Optional[str] = Field(None, max_length=80)
+    ciudad_localidad: Optional[str] = Field(None, max_length=120)
+    entidad_nombre: Optional[str] = Field(None, max_length=200)
+    entidad_tipo: Optional[AssistedEntidadTipo] = None
+    referente_nombre: Optional[str] = Field(None, max_length=160)
+    referente_vinculo: Optional[AssistedReferenteVinculo] = None
+    referente_contacto: Optional[str] = Field(None, max_length=160)
+    insumos_requeridos: Optional[str] = Field(None, max_length=500)
+    urgente: Optional[bool] = None
+
+    _blank = field_validator(
+        "nombre", "rango_edad", "depto", "ciudad_localidad", "entidad_nombre", "entidad_tipo",
+        "referente_nombre", "referente_vinculo", "referente_contacto", "insumos_requeridos",
+        mode="before",
+    )(_blank_to_none)
+
+
+class AssistedRegistrationCreate(AssistedRegistrationFields):
+    treatments: List[AssistedTreatmentIn] = []
+    # El Evaluador Social comunicó el compromiso de buen uso a la Persona Referente (Art. 13).
+    buen_uso_comunicado: bool = False
+
+
+class AssistedRegistrationUpdate(AssistedRegistrationFields):
+    # Si viene, reemplaza la lista de insulinas.
+    treatments: Optional[List[AssistedTreatmentIn]] = None
+    buen_uso_comunicado: Optional[bool] = None
+
+
+class AssistedDenyRequest(BaseModel):
+    motivo: str = Field(..., min_length=10, max_length=1000)
+
+
+class AssistedCeseRequest(BaseModel):
+    causa: AssistedCeseCausa
+    detalle: Optional[str] = Field(None, max_length=1000)
+    # Solo con TRASLADO_REGIMEN_ORDINARIO: la ficha del registro ordinario, si ya existe.
+    patient_id: Optional[int] = None
+
+    _blank = field_validator("detalle", mode="before")(_blank_to_none)
+
+
+class AssistedDeliveryCreate(BaseModel):
+    fecha: Optional[date] = None
+    insumo: str = Field(..., min_length=1, max_length=160)
+    cantidad: str = Field(..., min_length=1, max_length=60)
+    receptor_tipo: Optional[AssistedReceptorTipo] = None
+    receptor_nombre: Optional[str] = Field(None, max_length=160)
+    # Opcional: la imposibilidad de obtener constancia nunca impide la entrega (Art. 14 II).
+    constancia_tipo: Optional[AssistedConstanciaTipo] = None
+
+    _blank = field_validator("insumo", "cantidad", "receptor_tipo", "receptor_nombre", "constancia_tipo", mode="before")(_blank_to_none)
+
+
+class AssistedTreatmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    insulina: str
+    dosis_diaria: Optional[float] = None
+
+
+class AssistedDeliveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    fecha: date
+    insumo: str
+    cantidad: str
+    receptor_tipo: Optional[str] = None
+    receptor_nombre: Optional[str] = None
+    constancia_tipo: Optional[str] = None
+    entregado_por: Optional[str] = None
+
+
+class AssistedRegistrationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    codigo: Optional[str] = None
+    estado: str
+    nombre: Optional[str] = None
+    rango_edad: Optional[str] = None
+    edad_aproximada: Optional[int] = None
+    depto: Optional[str] = None
+    ciudad_localidad: Optional[str] = None
+    entidad_nombre: Optional[str] = None
+    entidad_tipo: Optional[str] = None
+    referente_nombre: Optional[str] = None
+    referente_vinculo: Optional[str] = None
+    referente_contacto: Optional[str] = None
+    insumos_requeridos: Optional[str] = None
+    urgente: bool = False
+    buen_uso_comunicado_at: Optional[datetime] = None
+    motivo_denegacion: Optional[str] = None
+    cese_causa: Optional[str] = None
+    cese_detalle: Optional[str] = None
+    cese_at: Optional[datetime] = None
+    patient_id: Optional[int] = None
+    ultima_revision_at: Optional[datetime] = None
+    # Activo y sin revisión de vigencia en los últimos 6 meses (Art. 20 c).
+    revision_vencida: bool = False
+    created_at: Optional[datetime] = None
+    treatments: List[AssistedTreatmentOut] = []
+    total_entregas: int = 0
+    ultima_entrega: Optional[date] = None
+
+
+class AssistedRegistrationDetail(AssistedRegistrationOut):
+    deliveries: List[AssistedDeliveryOut] = []

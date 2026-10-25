@@ -67,6 +67,21 @@ def get_current_super_user(
         )
     return current_user
 
+# Registro Asistido por Situación Excepcional (Art. 19 I del reglamento): acceso restringido al
+# Evaluador Social, a la Coordinación y a la Dirección Ejecutiva.
+ASSISTED_ROLES = ("SUPER_ADMIN", "EVALUADOR_SOCIAL", "COORDINADOR_NACIONAL")
+
+
+def get_current_assisted_staff(
+    current_user: models.User = Depends(get_current_active_user),
+) -> models.User:
+    if current_user.role not in ASSISTED_ROLES:
+        raise HTTPException(
+            status_code=403, detail="El Registro Asistido es de acceso restringido."
+        )
+    return current_user
+
+
 def get_current_staff_user(
     current_user: models.User = Depends(get_current_active_user),
 ) -> models.User:

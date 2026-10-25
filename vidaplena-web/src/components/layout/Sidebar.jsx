@@ -17,7 +17,8 @@ import {
   QrCode,
   Phone,
   ClipboardCheck,
-  MapPin
+  MapPin,
+  HeartHandshake
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -83,6 +84,16 @@ export default function Sidebar({ isOpen, onClose }) {
       path: '/dashboard/evaluacion-social',
       label: 'Revisión Eval. Social',
       icon: <ClipboardCheck size={20} />
+    });
+  }
+
+  // Registro Asistido por Situación Excepcional: acceso restringido al Evaluador Social, la
+  // Coordinación y la Dirección Ejecutiva (Art. 19 del reglamento especial).
+  if (isSuperAdmin || isEvaluador || isCoordinadorNacional) {
+    menuItems.push({
+      path: '/dashboard/registro-asistido',
+      label: 'Registro Asistido',
+      icon: <HeartHandshake size={20} />
     });
   }
 

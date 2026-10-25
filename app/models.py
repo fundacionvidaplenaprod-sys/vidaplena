@@ -381,6 +381,126 @@ class AuditLog(Base):
 
     actor = relationship("User")
 
+# --- Registro Asistido por Situación Excepcional ------------------------------------------------
+# Reglamento especial: personas en centros de acogida, recintos penitenciarios, situación de calle,
+# etc. Ningún dato personal es obligatorio y no se piden documentos; la persona se identifica con un
+# Código Interno de Registro. Es una tabla aparte de `patients` a propósito: no tienen usuario, no
+# aportan, no se evalúan socioeconómicamente y no entran en los reportes de aportes ni morosos.
+ASSISTED_ENTIDAD_TIPOS = (
+    "CENTRO_ACOGIDA", "RECINTO_PENITENCIARIO", "CENTRO_REINTEGRACION", "HOGAR_ALBERGUE",
+    "ASILO_LARGA_ESTANCIA", "CENTRO_ESPECIALIZADO", "CASA_REFUGIO", "COMUNIDAD", "SITUACION_CALLE", "OTRO",
+)
+ASSISTED_REFERENTE_VINCULOS = (
+    "PERSONAL_SALUD", "TRABAJADOR_SOCIAL", "EDUCADOR", "DEFENSOR", "VOLUNTARIO", "FAMILIAR", "ALLEGADO", "OTRO",
+)
+ASSISTED_RANGOS_EDAD = ("0-11", "12-17", "18-59", "60+")
+ASSISTED_ESTADOS = ("ACTIVO", "DENEGADO", "CESADO")
+ASSISTED_CESE_CAUSAS = ("FALLECIMIENTO", "RENUNCIA", "SIN_NECESIDAD", "TRASLADO_REGIMEN_ORDINARIO", "FALTA_GRAVE")
+ASSISTED_RECEPTOR_TIPOS = ("PERSONA", "PERSONA_REFERENTE", "PERSONAL_SALUD", "OTRO_MEDIO")
+ASSISTED_CONSTANCIA_TIPOS = ("FIRMA", "HUELLA", "CONFIRMACION", "TESTIMONIO_PERSONAL", "NINGUNA")
+
+
+def _in_list(column: str, values) -> str:
+    return f"{column} IS NULL OR {column} IN (" + ",".join(f"'{v}'" for v in values) + ")"
+
+
+class AssistedRegistration(Base):
+    __tablename__ = "assisted_registrations"
+
+    id = Column(BigInteger, primary_key=True)
+    # Código Interno de Registro (RA-00001): con él se identifica a la persona en todas las operaciones.
+    codigo = Column(String(20), unique=True, nullable=True)
+    estado = Column(String(20), nullable=False, default="ACTIVO")
+
+    # Todos los datos de la persona son opcionales (Art. 9). No hay campos para documentos, tutor,
+    # causa del acogimiento ni de la privación de libertad: no se deben recabar.
+    nombre = Column(String(160), nullable=True)  # nombre completo, apodo o iniciales
+    rango_edad = Column(String(10), nullable=True)
+    edad_aproximada = Column(Integer, nullable=True)
+    depto = Column(String(80), nullable=True)
+    ciudad_localidad = Column(String(120), nullable=True)
+
+    entidad_nombre = Column(String(200), nullable=True)
+    entidad_tipo = Column(String(30), nullable=True)
+    referente_nombre = Column(String(160), nullable=True)
+    referente_vinculo = Column(String(30), nullable=True)
+    referente_contacto = Column(String(160), nullable=True)
+
+    insumos_requeridos = Column(String(500), nullable=True)
+    urgente = Column(Boolean, nullable=False, default=False)  # necesidad médica inmediata (Art. 11 IV)
+
+    buen_uso_comunicado_at = Column(DateTime(timezone=True), nullable=True)  # Art. 13
+    buen_uso_comunicado_por_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    motivo_denegacion = Column(Text, nullable=True)  # Art. 11 III: solo por ausencia de necesidad
+    cese_causa = Column(String(30), nullable=True)  # Art. 23
+    cese_detalle = Column(Text, nullable=True)
+    cese_at = Column(DateTime(timezone=True), nullable=True)
+    # Tránsito al registro ordinario (Art. 24): ficha a la que pasó la persona, si ya existe.
+    patient_id = Column(BigInteger, ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
+
+    # Revisión periódica de vigencia, al menos semestral (Art. 20 c).
+    ultima_revision_at = Column(DateTime(timezone=True), nullable=True)
+    ultima_revision_por_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    registrado_por_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    treatments = relationship(
+        "AssistedTreatment", back_populates="registration", cascade="all, delete-orphan", order_by="AssistedTreatment.id"
+    )
+    deliveries = relationship(
+        "AssistedDelivery", back_populates="registration", cascade="all, delete-orphan",
+        order_by="AssistedDelivery.fecha.desc(), AssistedDelivery.id.desc()",
+    )
+
+    __table_args__ = (
+        CheckConstraint(_in_list("entidad_tipo", ASSISTED_ENTIDAD_TIPOS), name="ck_assisted_entidad_tipo"),
+        CheckConstraint(_in_list("referente_vinculo", ASSISTED_REFERENTE_VINCULOS), name="ck_assisted_referente_vinculo"),
+        CheckConstraint(_in_list("rango_edad", ASSISTED_RANGOS_EDAD), name="ck_assisted_rango_edad"),
+        CheckConstraint(_in_list("cese_causa", ASSISTED_CESE_CAUSAS), name="ck_assisted_cese_causa"),
+        CheckConstraint("estado IN (" + ",".join(f"'{v}'" for v in ASSISTED_ESTADOS) + ")", name="ck_assisted_estado"),
+    )
+
+
+class AssistedTreatment(Base):
+    """Insulina que usa la persona, según lo informado por quien administra el tratamiento."""
+    __tablename__ = "assisted_treatments"
+
+    id = Column(BigInteger, primary_key=True)
+    registration_id = Column(BigInteger, ForeignKey("assisted_registrations.id", ondelete="CASCADE"), nullable=False)
+    insulina = Column(String(120), nullable=False)
+    dosis_diaria = Column(Float, nullable=True)
+
+    registration = relationship("AssistedRegistration", back_populates="treatments")
+
+
+class AssistedDelivery(Base):
+    """Entrega de insumos a una persona asistida (Art. 14): fecha, insumo y cantidad, por Código Interno."""
+    __tablename__ = "assisted_deliveries"
+
+    id = Column(BigInteger, primary_key=True)
+    registration_id = Column(BigInteger, ForeignKey("assisted_registrations.id", ondelete="CASCADE"), nullable=False)
+    fecha = Column(Date, nullable=False, default=func.current_date())
+    insumo = Column(String(160), nullable=False)
+    cantidad = Column(String(60), nullable=False)
+    receptor_tipo = Column(String(30), nullable=True)
+    receptor_nombre = Column(String(160), nullable=True)
+    # Constancia de recepción: opcional, y nunca condiciona la entrega.
+    constancia_tipo = Column(String(30), nullable=True)
+    entregado_por_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    registration = relationship("AssistedRegistration", back_populates="deliveries")
+
+    __table_args__ = (
+        CheckConstraint(_in_list("receptor_tipo", ASSISTED_RECEPTOR_TIPOS), name="ck_assisted_receptor_tipo"),
+        CheckConstraint(_in_list("constancia_tipo", ASSISTED_CONSTANCIA_TIPOS), name="ck_assisted_constancia_tipo"),
+    )
+
+
+
 class DirectorInsulinDelivery(Base):
     __tablename__ = "director_insulin_deliveries"
 

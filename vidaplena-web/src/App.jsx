@@ -27,6 +27,8 @@ import ContactInfoManagementPage from './pages/admin/ContactInfoManagementPage';
 import SocialEvaluationsReviewPage from './pages/admin/SocialEvaluationsReviewPage';
 import SocialEvaluationSelfPage from './pages/patients/SocialEvaluationSelfPage';
 import DepartmentalDashboardPage from './pages/departmental/DepartmentalDashboardPage';
+import AssistedRegistrationPage from './pages/assisted/AssistedRegistrationPage';
+import AssistedRegistrationDetailPage from './pages/assisted/AssistedRegistrationDetailPage';
 
 function App() {
   return (
@@ -59,6 +61,8 @@ function App() {
           <Route path="contacto" element={<ContactInfoManagementPage />} />
           <Route path="evaluacion-social" element={<SocialEvaluationsReviewPage />} />
           <Route path="panel-departamental" element={<DepartmentalDashboardPage />} />
+          <Route path="registro-asistido" element={<AssistedRegistrationPage />} />
+          <Route path="registro-asistido/:id" element={<AssistedRegistrationDetailPage />} />
         </Route>
 
         {/* 3. ZONA PACIENTE (Totalmente separada) */}
