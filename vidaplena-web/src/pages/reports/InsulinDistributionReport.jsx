@@ -15,6 +15,7 @@ const ESTADO_LABELS = {
     ACTIVO: 'Activo',
     PENDIENTE_DOC: 'Pendiente de documentos',
     HABILITADO: 'Habilitado',
+    ASISTIDO: 'Registro asistido',
 };
 
 const FILTERS = [
@@ -546,6 +547,15 @@ export default function InsulinDistributionReport() {
                         </div>
                     </div>
 
+                    {data.asistidos_incluidos > 0 && (
+                        <div className="mb-6 border border-blue-100 bg-blue-50 rounded-xl p-4 text-sm text-blue-800">
+                            <b>{data.asistidos_incluidos}</b> persona(s) del <b>Registro Asistido por Situación Excepcional</b> entran
+                            en este reparto, con las mismas reglas y prioridades (edad y tipo de diabetes) y sin exigir aporte: su
+                            beneficio es el registro y la dotación gratuita. Se identifican por su Código Interno. Solo entran las que
+                            tienen insulina con dosis diaria registrada; las demás figuran entre los excluidos.
+                        </div>
+                    )}
+
                     {data.registros_por_corregir.length > 0 && (
                         <div className="mb-6 border border-amber-200 bg-amber-50 rounded-xl p-4">
                             <h3 className="text-base font-bold text-amber-800">
@@ -797,7 +807,7 @@ export default function InsulinDistributionReport() {
                                 className="px-3 py-1.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-vida-primary"
                             >
                                 <option value="">Todos los estados</option>
-                                {data.estados_considerados.map((e) => (
+                                {[...data.estados_considerados, ...(data.asistidos_incluidos > 0 ? ['ASISTIDO'] : [])].map((e) => (
                                     <option key={e} value={e}>
                                         {ESTADO_LABELS[e] || e}
                                     </option>

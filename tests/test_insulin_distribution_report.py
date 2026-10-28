@@ -66,11 +66,29 @@ async def _paciente(db, *, edad, estado, tipo="Tipo 1", glargina_ui=20.0):
     return patient
 
 
-async def _solo(db, *patients):
-    """Fuera del cálculo todo paciente que no sembró el test (se revierte al final)."""
+async def _solo(db, *patients, asistidos=()):
+    """Fuera del cálculo todo lo que no sembró el test (se revierte al final)."""
     ids = [p.id for p in patients]
     await db.execute(update(models.Patient).where(models.Patient.id.notin_(ids)).values(estado="INACTIVO"))
+    # Las personas del Registro Asistido que dejaron otras pruebas también entrarían en el cálculo.
+    await db.execute(
+        update(models.AssistedRegistration)
+        .where(models.AssistedRegistration.id.notin_([a.id for a in asistidos]))
+        .values(estado="CESADO")
+    )
     await db.flush()
+
+
+async def _asistido(db, *, tratamientos=(("Glargina", 20.0),), tipo="Tipo 1", edad=None, rango=None, estado="ACTIVO", nombre=None):
+    reg = models.AssistedRegistration(
+        estado=estado, nombre=nombre, tipo_diabetes=tipo, edad_aproximada=edad, rango_edad=rango, depto="Oruro", ci="777"
+    )
+    reg.treatments = [models.AssistedTreatment(insulina=n, dosis_diaria=d) for n, d in tratamientos]
+    db.add(reg)
+    await db.flush()
+    reg.codigo = f"RA-{reg.id:05d}"
+    await db.flush()
+    return reg
 
 
 def _fila(data, patient_id):
@@ -347,6 +365,79 @@ async def test_report_never_uses_a_premix_in_place_of_a_basal(client, aislado):
     aviso = data["registros_por_corregir"][0]
     assert aviso["insulina_usada"] == "Glargina" and aviso["premezcla_descartada"] is True
     assert "premezcla no puede sustituir a una basal" in aviso["mensaje"]
+
+
+@pytest.mark.asyncio
+async def test_report_includes_active_assisted_registrations_with_the_same_rules_and_priorities(client, aislado):
+    adulto_t2 = await _paciente(aislado, edad=40, estado="ACTIVO", tipo="Tipo 2")
+    menor_asistido = await _asistido(aislado, edad=10, tipo=None, nombre="Apodo Menor")
+    adulto_t1_asistido = await _asistido(aislado, edad=35, tipo="Tipo 1")
+    await _solo(aislado, adulto_t2, asistidos=(menor_asistido, adulto_t1_asistido))
+
+    futuro = datetime.now() + timedelta(days=400)
+    content = _excel([[200, "Lantus SoloStar 3 ml", "Glargina", "3 ml", "U100", futuro, "L-1"]])
+    data = (await client.post(URL, files=_files(content))).json()
+
+    assert data["asistidos_incluidos"] == 2
+    pacientes = {p["patient_id"]: p for p in data["pacientes"]}
+    # los asistidos van con id negativo (no chocan con las fichas) y el nombre lleva el Código Interno
+    menor = pacientes[-menor_asistido.id]
+    assert menor["registro_asistido"] is True and menor["estado"] == "ASISTIDO"
+    assert menor["nombre_completo"] == f"{menor_asistido.codigo} Apodo Menor"
+    assert menor["es_menor"] is True and menor["edad"] == 10
+    assert pacientes[adulto_t2.id]["registro_asistido"] is False
+    # mismas prioridades: menor primero, luego tipo 1, luego tipo 2; y misma necesidad (20 UI x 60 días)
+    assert [p["patient_id"] for p in data["pacientes"]] == [-menor_asistido.id, -adulto_t1_asistido.id, adulto_t2.id]
+    assert [p["grupo_prioridad"] for p in data["pacientes"]] == [1, 2, 4]
+    for p in data["pacientes"]:
+        assert p["insulinas"][0]["necesidad_ui"] == 1200
+    # sin aporte que exigir: nadie queda excluido por eso
+    assert data["excluded_patients"] == []
+
+
+@pytest.mark.asyncio
+async def test_report_leaves_out_assisted_without_a_recognized_insulin_and_says_why(client, aislado):
+    con_insulina = await _asistido(aislado, edad=30)
+    sin_tratamiento = await _asistido(aislado, tratamientos=())
+    sin_dosis = await _asistido(aislado, tratamientos=(("Glargina", None),))
+    no_reconocida = await _asistido(aislado, tratamientos=(("Otra", 20.0),))
+    await _solo(aislado, asistidos=(con_insulina, sin_tratamiento, sin_dosis, no_reconocida))
+
+    futuro = datetime.now() + timedelta(days=400)
+    content = _excel([[100, "Lantus SoloStar 3 ml", "Glargina", "3 ml", "U100", futuro, "L-1"]])
+    data = (await client.post(URL, files=_files(content))).json()
+
+    assert [p["patient_id"] for p in data["pacientes"]] == [-con_insulina.id]
+    assert data["asistidos_incluidos"] == 1
+    excluidos = {e["patient_id"]: e for e in data["excluded_patients"]}
+    assert set(excluidos) == {-sin_tratamiento.id, -sin_dosis.id, -no_reconocida.id}
+    assert "complete su tratamiento" in excluidos[-sin_dosis.id]["motivo"]
+    assert excluidos[-sin_dosis.id]["nombre_completo"] == sin_dosis.codigo
+
+
+@pytest.mark.asyncio
+async def test_report_ignores_ceased_and_denied_assisted_registrations(client, aislado):
+    activo = await _asistido(aislado, edad=30)
+    cesado = await _asistido(aislado, edad=30, estado="CESADO")
+    denegado = await _asistido(aislado, edad=30, estado="DENEGADO")
+    await _solo(aislado, asistidos=(activo, cesado, denegado))
+
+    futuro = datetime.now() + timedelta(days=400)
+    content = _excel([[100, "Lantus SoloStar 3 ml", "Glargina", "3 ml", "U100", futuro, "L-1"]])
+    data = (await client.post(URL, files=_files(content))).json()
+    assert [p["patient_id"] for p in data["pacientes"]] == [-activo.id]
+
+
+@pytest.mark.asyncio
+async def test_assisted_with_two_insulins_of_the_same_group_are_flagged_like_any_record(client, aislado):
+    doble = await _asistido(aislado, edad=30, tratamientos=(("Glargina", 20.0), ("Detemir", 10.0)))
+    await _solo(aislado, asistidos=(doble,))
+
+    futuro = datetime.now() + timedelta(days=400)
+    content = _excel([[100, "Lantus SoloStar 3 ml", "Glargina", "3 ml", "U100", futuro, "L-1"]])
+    data = (await client.post(URL, files=_files(content))).json()
+    aviso = data["registros_por_corregir"][0]
+    assert aviso["patient_id"] == -doble.id and aviso["insulina_usada"] == "Glargina"
 
 
 def test_report_endpoint_does_not_depend_on_the_warehouse_module():

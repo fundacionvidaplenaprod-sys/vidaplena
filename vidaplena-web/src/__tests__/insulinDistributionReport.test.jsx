@@ -196,6 +196,28 @@ describe('InsulinDistributionReport', () => {
     expect(screen.queryByText('Dora Sustituida')).not.toBeInTheDocument();
   });
 
+  it('avisa que las personas del Registro Asistido entran con las mismas reglas y se pueden filtrar', async () => {
+    const asistido = {
+      patient_id: -5, nombre_completo: 'RA-00005 Apodo Beto', es_menor: false, es_tipo1: true, ci: '777', estado: 'ASISTIDO',
+      registro_asistido: true, grupo_prioridad: 2, grupo_prioridad_nombre: 'Diabetes tipo 1',
+      insulinas: [{
+        insulina: 'Glargina', necesidad_ui: 1200, entregado_ui: 1200, cobertura_pct: 100,
+        margen_min_pct: 90, margen_max_pct: 120, fuera_de_margen: false,
+        dosis_diaria_registrada: 20, dosis_diaria_aplicada: 20, dosis_limitada: false,
+        envase_minimo: false, falta_minimo_ui: 0, motivo_bajo_minimo: null, lotes: [],
+      }],
+    };
+    api.generateInsulinDistributionReport.mockResolvedValue({ ...report(), asistidos_incluidos: 1, pacientes: [...report().pacientes, asistido] });
+    render(<InsulinDistributionReport />);
+    await elegirArchivoYGenerar();
+
+    expect(screen.getByText(/entran/)).toBeInTheDocument();
+    expect(screen.getByText(/Registro Asistido por Situación Excepcional/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Estado del beneficiario'), { target: { value: 'ASISTIDO' } });
+    expect(screen.getByText('RA-00005 Apodo Beto')).toBeInTheDocument();
+    expect(screen.queryByText('Ana Menor')).toBeNull();
+  });
+
   it('busca por CI y filtra por estado', async () => {
     api.generateInsulinDistributionReport.mockResolvedValue(report());
     render(<InsulinDistributionReport />);

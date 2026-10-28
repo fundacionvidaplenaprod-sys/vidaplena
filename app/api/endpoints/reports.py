@@ -410,7 +410,8 @@ async def insulin_distribution_report(
     """Recibe el Excel de la donación y calcula el reparto con las reglas definidas.
 
     Considera a los beneficiarios ACTIVO, PENDIENTE_DOC y HABILITADO con insulina
-    cargada, sin exigir aporte. No guarda nada.
+    cargada, sin exigir aporte, y a las personas activas del Registro Asistido por Situación
+    Excepcional que tengan insulina con dosis diaria registrada. No guarda nada.
     """
     filename = (file.filename or "").strip()
     content = await file.read()
@@ -465,7 +466,7 @@ async def insulin_distribution_report(
     errors.sort(key=lambda e: e.fila)
 
     patient_inputs, info, excluded = await dist.load_distribution_patients(
-        db, estados=INSULIN_REPORT_ESTADOS, require_current_contribution=False
+        db, estados=INSULIN_REPORT_ESTADOS, require_current_contribution=False, include_assisted=True
     )
     plan = plan_insulin_distribution(lot_inputs, patient_inputs, days=DISTRIBUTION_DAYS)
     grouped = dist.group_assignments(plan)
@@ -511,4 +512,5 @@ async def insulin_distribution_report(
             for r in parsed.rows
         ],
         estados_considerados=list(INSULIN_REPORT_ESTADOS),
+        asistidos_incluidos=sum(1 for data in info.values() if data.get("asistido")),
     )

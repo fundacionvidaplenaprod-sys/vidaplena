@@ -13,6 +13,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from app import models, schemas
+from app.core.assisted import assisted_age
 from app.core.contributions import current_periodo, is_patient_current_on_contribution
 from app.core.insulin_catalog import normalize_insulin_name
 from app.core.insulin_distribution import (
@@ -35,6 +36,7 @@ async def load_distribution_patients(
     *,
     estados: Sequence[str],
     require_current_contribution: bool,
+    include_assisted: bool = False,
 ) -> Tuple[List[InsulinPatientInput], dict, List[dict]]:
     """Pacientes con insulina en los estados dados, listos para el motor de reparto.
 
@@ -42,6 +44,12 @@ async def load_distribution_patients(
     Las dosis van tal como están en la ficha: si trae dos insulinas del mismo grupo, el
     motor decide cuál usar (`resolve_group_choices`) y `group_choice_issues` lo informa.
     Con `require_current_contribution` aplica el filtro de aporte del periodo en curso.
+
+    Con `include_assisted` suma a las personas ACTIVAS del Registro Asistido por Situación Excepcional,
+    que también son beneficiarias: su beneficio es el registro y la dotación gratuita, así que no se les
+    exige aporte, pero entran solo si tienen insulina con dosis diaria registrada y con las mismas
+    reglas y prioridades que los demás (edad y tipo de diabetes). Sus ids van en negativo
+    (`-id`) para no chocar con los de las fichas ordinarias.
     """
     options = [selectinload(models.Patient.treatments), selectinload(models.Patient.medical)]
     if require_current_contribution:
@@ -105,7 +113,55 @@ async def load_distribution_patients(
             "edad": patient.edad_calc,
             "tipo_diabetes": tipo_diabetes,
         }
+    if include_assisted:
+        await _add_assisted_patients(db, patient_inputs, info, excluded)
     return patient_inputs, info, excluded
+
+
+async def _add_assisted_patients(db: AsyncSession, patient_inputs: list, info: dict, excluded: list) -> None:
+    result = await db.execute(
+        select(models.AssistedRegistration)
+        .options(selectinload(models.AssistedRegistration.treatments))
+        .where(models.AssistedRegistration.estado == "ACTIVO")
+        .order_by(models.AssistedRegistration.id)
+    )
+    for reg in result.scalars().unique().all():
+        pid = -reg.id
+        nombre = " ".join(p for p in (reg.codigo, reg.nombre) if p)
+        daily: dict = {}
+        for tx in reg.treatments:
+            ingredient = normalize_insulin_name(tx.insulina)
+            units = float(tx.dosis_diaria or 0)
+            if ingredient and units > 0:
+                daily[ingredient] = daily.get(ingredient, 0.0) + units
+        if not daily:
+            excluded.append(
+                {
+                    "patient_id": pid,
+                    "nombre_completo": nombre,
+                    "motivo": "Registro asistido sin insulina reconocida con dosis diaria: complete su tratamiento",
+                }
+            )
+            continue
+        age = assisted_age(reg)
+        patient_inputs.append(
+            InsulinPatientInput(
+                patient_id=pid,
+                is_minor=age is not None and age < MINOR_AGE,
+                daily_ui=daily,
+                is_type1=is_type1_diabetes(reg.tipo_diabetes),
+                priority_group=priority_group_for(age, reg.tipo_diabetes),
+            )
+        )
+        info[pid] = {
+            "nombre": nombre,
+            "ci": reg.ci,
+            "estado": "ASISTIDO",
+            "depto": reg.depto,
+            "edad": age,
+            "tipo_diabetes": reg.tipo_diabetes,
+            "asistido": True,
+        }
 
 
 def group_choice_issues(plan, info: dict) -> List[schemas.DistributionRecordIssue]:
@@ -192,6 +248,7 @@ def plan_patient_items(plan, patient_inputs, info: dict, lot_meta: dict) -> List
                 depto=data.get("depto"),
                 edad=data.get("edad"),
                 tipo_diabetes=data.get("tipo_diabetes"),
+                registro_asistido=bool(data.get("asistido")),
                 insulinas=[
                     schemas.DistributionPatientInsulin(
                         insulina=r.ingredient,

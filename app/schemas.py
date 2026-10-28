@@ -638,6 +638,8 @@ class DistributionReportPatient(DistributionPatientItem):
     depto: Optional[str] = None
     edad: Optional[int] = None
     tipo_diabetes: Optional[str] = None
+    # Persona del Registro Asistido por Situación Excepcional (su nombre lleva el Código Interno).
+    registro_asistido: bool = False
 
 
 class DistributionIngredientSummary(BaseModel):
@@ -1471,6 +1473,8 @@ class DistributionReportResult(DistributionPlanResult):
     filas_con_error: List[DonationExcelRowError] = []
     donacion: List[DonationExcelLine] = []
     estados_considerados: List[str] = []
+    # Personas del Registro Asistido que entraron en el cálculo.
+    asistidos_incluidos: int = 0
     # Un resumen por grupo de prioridad (menores, tipo 1, adulto mayor tipo 2, tipo 2).
     prioridades: List[DistributionPriorityBand] = []
     # Tratamientos que quedaron bajo el mínimo de su margen y qué les falta.
