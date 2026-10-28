@@ -149,7 +149,8 @@ async def test_tarjeta_del_resumen_coincide_con_el_listado(client, superuser_tok
 async def test_resumen_reparte_todos_los_estados_sin_perder_ninguno(client, superuser_token):
     pop = (await client.get("/reports/population")).json()
     suma = pop["activos"] + pop["pendientes_validacion"] + pop["inactivos"] + pop["otros_estados"]
-    assert suma == pop["total_beneficiarios"]
+    # Las personas del Registro Asistido también son beneficiarias: suman al total pero no tienen estado de aporte.
+    assert suma + pop["asistidos"] == pop["total_beneficiarios"]
     # La clave engañosa anterior ya no existe.
     assert "inactivos_morosos" not in pop
 

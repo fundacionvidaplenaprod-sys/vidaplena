@@ -4,6 +4,8 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { getPatients } from '../../api/patients';
 import { getContributionsReview } from '../../api/contributions';
+import { listAssistedRegistrations } from '../../api/assistedRegistrations';
+import { assistedToBeneficiary, canSeeAssisted } from '../../utils/assistedAsBeneficiary';
 import { Download, Filter, Search, Columns, RefreshCcw, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
@@ -17,7 +19,7 @@ const ALL_COLUMNS = [
   { id: 'ap_materno', label: 'Ap. Materno', getValue: p => p.ap_materno || '-' },
   { id: 'ci', label: 'CI', getValue: p => p.ci || '-' },
   { id: 'edad', label: 'Edad', getValue: p => {
-      if (!p.fecha_nac) return '-';
+      if (!p.fecha_nac) return p.edad_aproximada != null ? `~${p.edad_aproximada}` : '-';
       const diff = new Date() - new Date(p.fecha_nac);
       return Math.floor(diff / 31557600000);
   }},
@@ -38,6 +40,9 @@ const ALL_COLUMNS = [
   { id: 'complicaciones', label: 'Complicaciones/Otros', multiline: true, getValue: p => formatComplications(p.complications) },
   { id: 'estado', label: 'Estado', getValue: p => p.estado || '-' },
   { id: 'aporte_estado', label: 'Estado Aporte', getValue: p => p._aporteEstado || 'NO REALIZADO' },
+  // Las personas del Registro Asistido por Situación Excepcional también son beneficiarias.
+  { id: 'origen', label: 'Origen', getValue: p => p._origen || 'Ordinario' },
+  { id: 'codigo_asistido', label: 'Código asistido', getValue: p => p._codigo || '-' },
 ];
 
 const DEFAULT_COLUMNS = ['nombres', 'ap_paterno', 'ci', 'edad', 'tipo_diabetes', 'celular', 'aporte_estado'];
@@ -82,9 +87,12 @@ export default function DynamicBeneficiaryReport() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [patientsData, contributionsData] = await Promise.all([
+      // El Registro Asistido es de acceso restringido: solo se pide a los roles que pueden verlo.
+      const role = JSON.parse(localStorage.getItem('user') || '{}').role;
+      const [patientsData, contributionsData, assistedData] = await Promise.all([
         getPatients(),
         getContributionsReview().catch(() => []),
+        canSeeAssisted(role) ? listAssistedRegistrations({ estado: 'ACTIVO' }).catch(() => []) : Promise.resolve([]),
       ]);
 
       // Estado del aporte del periodo actual (mes en curso) por beneficiario.
@@ -106,7 +114,7 @@ export default function DynamicBeneficiaryReport() {
             ? 'EXONERADO (CARGO)'
             : (estadoByPatientId.get(p.id) || 'NO REALIZADO'),
       }));
-      setPatients(enriched);
+      setPatients([...enriched, ...(assistedData || []).map(assistedToBeneficiary)]);
     } catch (error) {
       toast.error('Error al cargar beneficiarios');
     } finally {
@@ -118,7 +126,7 @@ export default function DynamicBeneficiaryReport() {
   const filteredPatients = useMemo(() => {
     return patients.filter(p => {
       const matchSearch = searchTerm === '' || 
-        `${p.nombres || ""} ${p.ap_paterno || ""} ${p.ap_materno || ""} ${p.ci || ""}`.toLowerCase().includes(searchTerm.toLowerCase());
+        `${p.nombres || ""} ${p.ap_paterno || ""} ${p.ap_materno || ""} ${p.ci || ""} ${p._codigo || ""}`.toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchEstado = filterEstado === '' || p.estado === filterEstado;
 
@@ -280,6 +288,7 @@ export default function DynamicBeneficiaryReport() {
               <option value="HABILITADO">Habilitado</option>
               <option value="PENDIENTE_DOC">Pendiente Documentos</option>
               <option value="NO_REGISTRADO">No Registrado</option>
+              <option value="ASISTIDO">Registro asistido</option>
             </select>
           </div>
 

@@ -136,3 +136,81 @@ async def test_el_endpoint_cuenta_a_todos_sin_mirar_aporte_ni_documentos_pero_no
 async def test_solo_el_super_admin_ve_el_reporte(client, patient_token):
     resp = await client.get(URL)
     assert resp.status_code == 403
+
+
+def _asistido(aid, *, nacimiento=None, edad=None, rango=None, tipo=None, tratamientos=()):
+    return SimpleNamespace(
+        id=aid,
+        fecha_nacimiento=nacimiento,
+        edad_aproximada=edad,
+        rango_edad=rango,
+        tipo_diabetes=tipo,
+        treatments=[SimpleNamespace(insulina=n, dosis_diaria=d) for n, d in tratamientos],
+    )
+
+
+def test_las_personas_del_registro_asistido_tambien_se_cuentan():
+    ordinarios = [_ficha(1, 40, "Tipo 2", [("Glargina", 20)])]
+    asistidos = [
+        _asistido(1, nacimiento=date(date.today().year - 10, 1, 1), tipo="Tipo 1", tratamientos=[("Glargina", 10), ("Lispro", 5)]),
+        _asistido(2, edad=70, tipo="Tipo 2", tratamientos=[("Mixta", 30)]),
+        _asistido(3, rango="12-17", tipo=None, tratamientos=[("NPH", 8)]),
+        _asistido(4),  # no se sabe nada: cuenta en el total y no suma insulina
+    ]
+    reporte = build_donation_request(ordinarios, assisted=asistidos)
+
+    # el id 1 del ordinario y el id 1 del asistido no se confunden
+    por_insulina = {i["insulina"]: i for i in reporte["insulinas"]}
+    assert por_insulina["Glargina"]["cantidad_ui"] == (20 + 10) * 60
+    assert por_insulina["Glargina"]["beneficiarios"] == 2
+    assert por_insulina["Mixta"]["cantidad_ui"] == 30 * 60
+    assert por_insulina["NPH"]["cantidad_ui"] == 8 * 60
+    assert por_insulina["Lispro"]["cantidad_ui"] == 5 * 60
+
+    assert reporte["total_beneficiarios"] == 5
+    assert reporte["asistidos_incluidos"] == 4
+    assert reporte["sin_insulina_registrada"] == 1
+    # edades: 10 años (fecha de nacimiento) y 15 (rango 12-17) → menores; 40 → adulto; 70 → mayor; el último sin dato
+    assert reporte["menores_18"]["cantidad"] == 2
+    assert reporte["entre_18_y_60"]["cantidad"] == 1
+    assert reporte["mayores_61"]["cantidad"] == 1
+    assert reporte["diabeticos_tipo_1"]["cantidad"] == 1
+    assert reporte["diabeticos_tipo_2"]["cantidad"] == 2  # el ordinario y el asistido de 70 años, ambos con insulina
+
+
+def test_la_edad_del_asistido_prefiere_la_fecha_de_nacimiento_luego_la_aproximada_y_al_final_el_rango():
+    hoy = date.today()
+    cumple_ayer = date(hoy.year - 30, hoy.month, hoy.day) - timedelta(days=1)
+    reg = _asistido(1, nacimiento=cumple_ayer, edad=70, rango="0-11")
+    assert build_donation_request([], assisted=[reg])["entre_18_y_60"]["cantidad"] == 1  # 30 años por la fecha
+    reg = _asistido(1, edad=70, rango="0-11")
+    assert build_donation_request([], assisted=[reg])["mayores_61"]["cantidad"] == 1  # 70 por la edad aproximada
+    reg = _asistido(1, rango="60+")
+    assert build_donation_request([], assisted=[reg])["mayores_61"]["cantidad"] == 1  # del rango
+    reg = _asistido(1)
+    reporte = build_donation_request([], assisted=[reg])
+    assert reporte["total_beneficiarios"] == 1
+    assert (reporte["menores_18"]["cantidad"], reporte["entre_18_y_60"]["cantidad"], reporte["mayores_61"]["cantidad"]) == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_el_endpoint_suma_los_asistidos_activos_y_no_los_cesados(client, superuser_token, db_session):
+    antes = (await client.get(URL)).json()
+    base = {i["insulina"]: i["cantidad_ui"] for i in antes["insulinas"]}
+
+    def asistido(estado, dosis):
+        reg = models.AssistedRegistration(estado=estado, tipo_diabetes="Tipo 1", edad_aproximada=10)
+        reg.treatments = [models.AssistedTreatment(insulina="Detemir", dosis_diaria=dosis)]
+        return reg
+
+    activo, cesado = asistido("ACTIVO", 7), asistido("CESADO", 700)
+    db_session.add_all([activo, cesado])
+    await db_session.commit()
+
+    despues = (await client.get(URL)).json()
+    nuevo = {i["insulina"]: i["cantidad_ui"] for i in despues["insulinas"]}
+    assert nuevo["Detemir"] - base.get("Detemir", 0.0) == 7 * 60
+    assert despues["total_beneficiarios"] - antes["total_beneficiarios"] == 1
+    assert despues["asistidos_incluidos"] - antes["asistidos_incluidos"] == 1
+    assert despues["menores_18"]["cantidad"] - antes["menores_18"]["cantidad"] == 1
+    assert despues["diabeticos_tipo_1"]["cantidad"] - antes["diabeticos_tipo_1"]["cantidad"] == 1

@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   getPatients: vi.fn(),
   getContributionsReview: vi.fn(),
   getDonationRequestReport: vi.fn(),
+  listAssisted: vi.fn(),
 }));
 const xlsx = vi.hoisted(() => ({
   json_to_sheet: vi.fn(() => ({})),
@@ -21,6 +22,7 @@ const xlsx = vi.hoisted(() => ({
 vi.mock('../api/patients', () => ({ getPatients: api.getPatients }));
 vi.mock('../api/contributions', () => ({ getContributionsReview: api.getContributionsReview }));
 vi.mock('../api/reports', () => ({ getDonationRequestReport: api.getDonationRequestReport }));
+vi.mock('../api/assistedRegistrations', () => ({ listAssistedRegistrations: api.listAssisted }));
 vi.mock('xlsx', () => ({
   utils: {
     json_to_sheet: xlsx.json_to_sheet,
@@ -34,6 +36,7 @@ vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } 
 vi.mock('../utils/imageToBase64', () => ({ imageToBase64: () => Promise.resolve('data:image/png;base64,AAAA') }));
 
 beforeEach(() => {
+  localStorage.removeItem('user');
   Object.values(api).forEach((fn) => fn.mockReset());
   xlsx.json_to_sheet.mockClear();
   xlsx.aoa_to_sheet.mockClear();
@@ -139,6 +142,80 @@ describe('Reporte de beneficiarios: columnas nuevas', () => {
   });
 });
 
+const asistido = {
+  id: 5,
+  codigo: 'RA-00005',
+  estado: 'ACTIVO',
+  nombre: 'Apodo Beto',
+  ci: '7654321',
+  fecha_nacimiento: null,
+  edad_aproximada: 35,
+  depto: 'Oruro',
+  municipio: 'Caracollo',
+  tipo_diabetes: 'Tipo 2',
+  anios_diabetes: 4,
+  complicaciones_otras: 'Hipertensión, neuropatía',
+  referente: { id: 3, nombre_completo: 'Rosa Quispe', telefono: '70000000' },
+  treatments: [{ id: 1, insulina: 'Protamina', dosis_diaria: 30 }],
+};
+
+describe('Reporte de beneficiarios: el Registro Asistido también cuenta', () => {
+  it('incluye a las personas del Registro Asistido para quien puede verlas', async () => {
+    localStorage.setItem('user', JSON.stringify({ role: 'SUPER_ADMIN' }));
+    api.getPatients.mockResolvedValue([beneficiario]);
+    api.getContributionsReview.mockResolvedValue([]);
+    api.listAssisted.mockResolvedValue([asistido]);
+    render(<DynamicBeneficiaryReport />);
+    await screen.findByText('Quispe');
+
+    expect(api.listAssisted).toHaveBeenCalledWith({ estado: 'ACTIVO' }); // solo los activos
+    expect(screen.getByText('Apodo Beto')).toBeInTheDocument();
+    expect(screen.getByText('EXONERADO (REGISTRO ASISTIDO)')).toBeInTheDocument();
+    expect(screen.getByText('~35')).toBeInTheDocument(); // edad aproximada
+
+    fireEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    ['Estado', 'Origen', 'Código asistido', 'Tratamiento', 'Tiempo de Evolución', 'Complicaciones/Otros', 'Municipio'].forEach((label) => {
+      fireEvent.click(screen.getByLabelText(label));
+    });
+    const celda = (texto) => screen.getByText((_, el) => el.tagName === 'TD' && el.textContent === texto);
+    expect(celda('ASISTIDO')).toBeInTheDocument();
+    expect(celda('Registro asistido')).toBeInTheDocument();
+    expect(celda('RA-00005')).toBeInTheDocument();
+    expect(celda('Mixta: 30 UI al día')).toBeInTheDocument(); // «Protamina» se muestra como «Mixta»
+    expect(celda('4 años')).toBeInTheDocument();
+    expect(celda('Hipertensión\nNeuropatía')).toBeInTheDocument();
+    expect(celda('Ordinario')).toBeInTheDocument();
+  });
+
+  it('se busca por código y se filtra por «Registro asistido»', async () => {
+    localStorage.setItem('user', JSON.stringify({ role: 'EVALUADOR_SOCIAL' }));
+    api.getPatients.mockResolvedValue([beneficiario]);
+    api.getContributionsReview.mockResolvedValue([]);
+    api.listAssisted.mockResolvedValue([asistido]);
+    render(<DynamicBeneficiaryReport />);
+    await screen.findByText('Quispe');
+
+    fireEvent.change(screen.getByPlaceholderText('Buscar por nombre o CI...'), { target: { value: 'ra-00005' } });
+    expect(screen.getByText('Apodo Beto')).toBeInTheDocument();
+    expect(screen.queryByText('Quispe')).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Buscar por nombre o CI...'), { target: { value: '' } });
+
+    fireEvent.change(screen.getByDisplayValue('Todos los estados'), { target: { value: 'ASISTIDO' } });
+    expect(screen.getByText('Apodo Beto')).toBeInTheDocument();
+    expect(screen.queryByText('Quispe')).toBeNull();
+  });
+
+  it('el Registro Asistido es de acceso restringido: no se pide a quien no puede verlo', async () => {
+    localStorage.setItem('user', JSON.stringify({ role: 'REGISTRADOR' }));
+    api.getPatients.mockResolvedValue([beneficiario]);
+    api.getContributionsReview.mockResolvedValue([]);
+    render(<DynamicBeneficiaryReport />);
+    await screen.findByText('Quispe');
+    expect(api.listAssisted).not.toHaveBeenCalled();
+    expect(screen.queryByText('ASISTIDO')).toBeNull();
+  });
+});
+
 const solicitud = () => ({
   dias: 60,
   estados_considerados: ['ACTIVO', 'PENDIENTE_DOC', 'HABILITADO'],
@@ -178,6 +255,16 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
     expect(dato('Total de beneficiarios')).toBe('208');
     // el texto aclaratorio sobre aporte y documentos ya no va en el encabezado
     expect(screen.queryByText(/estén o no al día/)).toBeNull();
+  });
+
+  it('avisa cuántas personas del Registro Asistido están incluidas en el total', async () => {
+    api.getDonationRequestReport.mockResolvedValue({ ...solicitud(), asistidos_incluidos: 7 });
+    render(<DonationRequestReport />);
+    await screen.findByText('Glargina');
+    expect(screen.getByText('Del Registro Asistido (incluidos en el total)').nextSibling.textContent).toBe('7');
+    // el total sigue siendo la última fila
+    const filas = screen.getAllByText(/Total de beneficiarios|Del Registro Asistido/).map((el) => el.textContent);
+    expect(filas[filas.length - 1]).toBe('Total de beneficiarios');
   });
 
   it('el Excel trae el cuadro, una fila en blanco y los datos finales con el total al final', async () => {

@@ -118,6 +118,10 @@ async def get_population_stats(
     """
     Cuántos beneficiarios hay por estado y cuántos son morosos del mes anterior.
 
+    `asistidos` son las personas activas del Registro Asistido por Situación Excepcional: también son
+    beneficiarias y suman al total, pero no tienen aporte, así que no entran en los estados ni en la
+    morosidad.
+
     `morosos` NO sale de restar estados: cuenta a los activos sin aporte
     aceptado en `periodo_morosos` (el mes anterior, para no marcar como
     deudor a todo el mundo en los primeros días del mes). Es el mismo
@@ -127,6 +131,11 @@ async def get_population_stats(
         (await db.execute(select(models.Patient.estado, func.count(models.Patient.id)).group_by(models.Patient.estado))).all()
     )
     total = sum(por_estado.values())
+    asistidos = (
+        await db.execute(
+            select(func.count(models.AssistedRegistration.id)).where(models.AssistedRegistration.estado == "ACTIVO")
+        )
+    ).scalar() or 0
     activos = por_estado.get("ACTIVO", 0)
     pendientes = por_estado.get("PENDIENTE_DOC", 0)
     inactivos = por_estado.get("INACTIVO", 0)
@@ -135,7 +144,8 @@ async def get_population_stats(
     morosos = await calcular_morosos(db, periodo)
 
     return {
-        "total_beneficiarios": total,
+        "total_beneficiarios": total + asistidos,
+        "asistidos": asistidos,
         "activos": activos,
         "pendientes_validacion": pendientes,
         "inactivos": inactivos,
@@ -371,7 +381,13 @@ async def get_donation_request_report(
         .options(selectinload(models.Patient.treatments), selectinload(models.Patient.medical))
         .where(models.Patient.estado.in_(DONATION_REQUEST_ESTADOS))
     )
-    return build_donation_request(result.scalars().unique().all())
+    # Las personas del Registro Asistido por Situación Excepcional también son beneficiarias.
+    asistidos = await db.execute(
+        select(models.AssistedRegistration)
+        .options(selectinload(models.AssistedRegistration.treatments))
+        .where(models.AssistedRegistration.estado == "ACTIVO")
+    )
+    return build_donation_request(result.scalars().unique().all(), assisted=asistidos.scalars().unique().all())
 
 
 # --- Distribución de insulina a partir del Excel de una donación ---------------

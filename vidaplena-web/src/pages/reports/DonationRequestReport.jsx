@@ -22,6 +22,8 @@ const resumenDe = (data) => [
   ['Porcentaje por Tipo de Diabetes'],
   ['Porcentaje de diabéticos tipo 1', formatPct(data.diabeticos_tipo_1.porcentaje)],
   ['Porcentaje de diabéticos tipo 2 insulino requirentes', formatPct(data.diabeticos_tipo_2.porcentaje)],
+  // Las personas del Registro Asistido por Situación Excepcional también son beneficiarias y suman al total.
+  ...(data.asistidos_incluidos > 0 ? [['Del Registro Asistido (incluidos en el total)', String(data.asistidos_incluidos)]] : []),
   ['Total de beneficiarios', String(data.total_beneficiarios)],
 ];
 

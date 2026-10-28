@@ -174,6 +174,9 @@ export default function ReportsPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <p className="text-xs text-gray-500 uppercase font-semibold">Beneficiarios totales</p>
           <p className="text-2xl font-bold text-gray-800 mt-1">{population?.total_beneficiarios ?? 0}</p>
+          {population?.asistidos > 0 && (
+            <p className="text-xs text-gray-400 mt-1">Incluye {population.asistidos} del Registro Asistido</p>
+          )}
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <p className="text-xs text-gray-500 uppercase font-semibold">Activos</p>

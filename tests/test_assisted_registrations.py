@@ -479,12 +479,19 @@ async def test_solo_el_evaluador_social_o_la_direccion_deniegan_la_admision(clie
 
 
 @pytest.mark.asyncio
-async def test_las_personas_asistidas_no_entran_en_los_reportes_de_aportes(client, superuser_token, ref):
+async def test_las_personas_asistidas_suman_al_total_de_beneficiarios_pero_no_a_aportes_ni_morosos(client, superuser_token, ref):
     antes = (await client.get("/reports/population")).json()
     await client.post(f"{URL}/", json=_datos(ref, nombre="Sin aporte", treatments=[{"insulina": "Glargina", "dosis_diaria": 20}]))
+    cesado = (await client.post(f"{URL}/", json=_datos(ref))).json()
+    await client.post(f"{URL}/{cesado['id']}/cese", json={"causa": "RENUNCIA"})  # un cesado no cuenta
     despues = (await client.get("/reports/population")).json()
-    assert despues["total_beneficiarios"] == antes["total_beneficiarios"]
+
+    assert despues["asistidos"] == antes["asistidos"] + 1
+    assert despues["total_beneficiarios"] == antes["total_beneficiarios"] + 1
+    # no tienen aporte: no son morosos ni cambian los estados de los beneficiarios ordinarios
     assert despues["morosos"] == antes["morosos"]
+    for estado in ("activos", "pendientes_validacion", "inactivos", "otros_estados"):
+        assert despues[estado] == antes[estado]
 
 
 @pytest.mark.asyncio
