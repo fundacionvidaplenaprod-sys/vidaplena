@@ -29,6 +29,7 @@ import SocialEvaluationSelfPage from './pages/patients/SocialEvaluationSelfPage'
 import DepartmentalDashboardPage from './pages/departmental/DepartmentalDashboardPage';
 import AssistedRegistrationPage from './pages/assisted/AssistedRegistrationPage';
 import AssistedRegistrationDetailPage from './pages/assisted/AssistedRegistrationDetailPage';
+import AssistedReportPage from './pages/assisted/AssistedReportPage';
 
 function App() {
   return (
@@ -62,6 +63,7 @@ function App() {
           <Route path="evaluacion-social" element={<SocialEvaluationsReviewPage />} />
           <Route path="panel-departamental" element={<DepartmentalDashboardPage />} />
           <Route path="registro-asistido" element={<AssistedRegistrationPage />} />
+          <Route path="registro-asistido/reporte" element={<AssistedReportPage />} />
           <Route path="registro-asistido/:id" element={<AssistedRegistrationDetailPage />} />
         </Route>
 

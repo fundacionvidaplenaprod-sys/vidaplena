@@ -90,6 +90,7 @@ const abrirLista = () =>
     <MemoryRouter initialEntries={['/dashboard/registro-asistido']}>
       <Routes>
         <Route path="/dashboard/registro-asistido" element={<AssistedRegistrationPage />} />
+        <Route path="/dashboard/registro-asistido/reporte" element={<div>REPORTE ABIERTO</div>} />
         <Route path="/dashboard/registro-asistido/:id" element={<div>DETALLE ABIERTO</div>} />
       </Routes>
     </MemoryRouter>,
@@ -108,28 +109,12 @@ describe('Registro Asistido: lista', () => {
     expect(screen.getByText('Rosa Quispe')).toBeInTheDocument(); // la persona referente
   });
 
-  it('el Excel «solo con código» no incluye nombre, entidad ni persona referente', async () => {
+  it('el reporte (PDF / Excel, con columnas a elección) se genera en su propia pantalla', async () => {
     api.listAssistedRegistrations.mockResolvedValue([registro()]);
     abrirLista();
     await screen.findByText('RA-00005');
-
-    fireEvent.click(screen.getByRole('button', { name: /Excel/ }));
-    const completo = xlsx.json_to_sheet.mock.calls[0][0][0];
-    expect(completo['Nombre / apodo']).toBe('Iniciales J.P.');
-    expect(completo['Entidad referente']).toBe('Hogar Esperanza');
-    expect(completo['Persona referente']).toBe('Rosa Quispe');
-    expect(completo['C.I. persona referente']).toBe('1234567');
-    expect(completo['Vínculo con el beneficiario']).toBe('Familiar');
-
-    fireEvent.click(screen.getByLabelText(/Excel solo con código/));
-    fireEvent.click(screen.getByRole('button', { name: /Excel/ }));
-    const anonimo = xlsx.json_to_sheet.mock.calls[1][0][0];
-    expect(Object.keys(anonimo)).toEqual([
-      'Código interno', 'Estado', 'Departamento', 'Tipo de entidad', 'Rango de edad', 'Tipo de diabetes',
-      'Años con diabetes', 'Insulinas', 'Entregas', 'Última entrega',
-    ]);
-    expect(JSON.stringify(anonimo)).not.toMatch(/Iniciales|Esperanza|Rosa|70000000|9876543|1234567|Quillacollo|neuropatía/);
-    expect(xlsx.writeFile.mock.calls[1][1]).toMatch(/^Registro_Asistido_solo_codigo_/);
+    fireEvent.click(screen.getByRole('button', { name: /Generar reporte/ }));
+    await screen.findByText('REPORTE ABIERTO');
   });
 
   it('los datos de la persona son opcionales, pero sin persona referente y vínculo no se registra', async () => {

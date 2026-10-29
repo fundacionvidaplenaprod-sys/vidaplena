@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
 import { toast } from 'react-hot-toast';
-import { AlertTriangle, FileSpreadsheet, HeartHandshake, Plus, RefreshCcw, Search, X } from 'lucide-react';
+import { AlertTriangle, FileText, HeartHandshake, Plus, RefreshCcw, Search, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { DEPARTAMENTOS } from '../../constants/departamentos';
-import { ENTIDAD_TIPOS, RANGOS_EDAD, REFERENTE_VINCULOS, ESTADO_LABELS, ESTADO_STYLES, labelOf } from '../../constants/assisted';
+import { ENTIDAD_TIPOS, ESTADO_LABELS, ESTADO_STYLES, labelOf } from '../../constants/assisted';
 import { displayInsulinName } from '../../constants/insulins';
 import { createAssistedRegistration, listAssistedRegistrations } from '../../api/assistedRegistrations';
 import AssistedRegistrationForm from './AssistedRegistrationForm';
@@ -23,7 +22,6 @@ export default function AssistedRegistrationPage() {
   const [estado, setEstado] = useState('');
   const [depto, setDepto] = useState('');
   const [soloVencidos, setSoloVencidos] = useState(false);
-  const [anonimizar, setAnonimizar] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -55,48 +53,6 @@ export default function AssistedRegistrationPage() {
     } finally {
       setSaving(false);
     }
-  };
-
-  // Art. 19 IV: en informes a donantes las personas se identifican solo por su Código Interno.
-  const exportExcel = () => {
-    if (items.length === 0) {
-      toast.error('No hay registros para descargar.');
-      return;
-    }
-    const rows = items.map((r) => {
-      const comun = {
-        'Código interno': r.codigo,
-        Estado: ESTADO_LABELS[r.estado] || r.estado,
-        Departamento: r.depto || '-',
-        'Tipo de entidad': labelOf(ENTIDAD_TIPOS, r.entidad_tipo),
-        'Rango de edad': labelOf(RANGOS_EDAD, r.rango_edad),
-        'Tipo de diabetes': r.tipo_diabetes || '-',
-        'Años con diabetes': r.anios_diabetes ?? '-',
-        Insulinas: insulinasDe(r) || '-',
-        Entregas: r.total_entregas,
-        'Última entrega': r.ultima_entrega || '-',
-      };
-      if (anonimizar) return comun;
-      return {
-        'Código interno': comun['Código interno'],
-        'Nombre / apodo': r.nombre || '-',
-        'C.I.': r.ci || '-',
-        'Fecha de nacimiento': r.fecha_nacimiento || '-',
-        Municipio: r.municipio || '-',
-        'Complicaciones / otras enfermedades': r.complicaciones_otras || '-',
-        'Entidad referente': r.entidad_nombre || '-',
-        'Persona referente': r.referente?.nombre_completo || '-',
-        'C.I. persona referente': r.referente?.ci || '-',
-        'Contacto persona referente': r.referente?.telefono || '-',
-        'Vínculo con el beneficiario': labelOf(REFERENTE_VINCULOS, r.referente_vinculo),
-        ...Object.fromEntries(Object.entries(comun).filter(([k]) => k !== 'Código interno')),
-      };
-    });
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Registro asistido');
-    XLSX.writeFile(workbook, `Registro_Asistido_${anonimizar ? 'solo_codigo_' : ''}${new Date().toISOString().split('T')[0]}.xlsx`);
-    toast.success('Reporte descargado exitosamente');
   };
 
   return (
@@ -140,15 +96,11 @@ export default function AssistedRegistrationPage() {
           Revisión semestral vencida
         </label>
         <div className="ml-auto flex items-end gap-3 flex-wrap">
-          <label className="flex items-center gap-2 text-sm text-gray-700 pb-2">
-            <input type="checkbox" checked={anonimizar} onChange={(e) => setAnonimizar(e.target.checked)} />
-            Excel solo con código (para donantes)
-          </label>
           <Button variant="secondary" onClick={load} className="w-auto px-3" aria-label="Actualizar">
             <RefreshCcw size={18} className={loading ? 'animate-spin' : ''} />
           </Button>
-          <Button onClick={exportExcel} disabled={loading || items.length === 0} className="bg-emerald-700 hover:bg-emerald-800 text-white w-auto">
-            <FileSpreadsheet size={18} /> Excel
+          <Button onClick={() => navigate('/dashboard/registro-asistido/reporte')} className="bg-emerald-700 hover:bg-emerald-800 text-white w-auto">
+            <FileText size={18} /> Generar reporte (PDF / Excel)
           </Button>
         </div>
       </div>
