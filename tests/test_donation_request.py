@@ -11,7 +11,9 @@ from types import SimpleNamespace
 import pytest
 
 from app import models
-from app.core.donation_request import SIN_CLASIFICAR, build_donation_request, viales_3ml
+from app.core.donation_request import (
+    SIN_CLASIFICAR, build_donation_request, plan_por_presentacion, validar_reparto, viales_10ml, viales_3ml,
+)
 
 URL = "/reports/donation-request"
 
@@ -59,6 +61,56 @@ def test_viales_de_3_ml_por_concentracion_redondeando_hacia_arriba():
     assert viales_3ml(0) == {"U100": 0, "U200": 0, "U300": 0}
 
 
+def test_viales_de_10_ml_solo_en_u100_redondeando_hacia_arriba():
+    assert viales_10ml(156180) == {"U100": 157}  # 156,18 -> 157
+    assert viales_10ml(113820) == {"U100": 114}  # 113,82 -> 114
+    assert viales_10ml(1000) == {"U100": 1}      # exacto: no suma uno de más
+    assert viales_10ml(1000.5) == {"U100": 2}
+    assert viales_10ml(0.1 * 10000) == {"U100": 1}
+    assert viales_10ml(0) == {"U100": 0}
+    assert list(viales_10ml(5000)) == ["U100"]    # no hay U200 ni U300 en 10 ml
+
+
+REPARTO_30 = {"10ml_U100": 30, "3ml_U100": 70 / 3, "3ml_U200": 70 / 3, "3ml_U300": 70 / 3}
+
+
+def test_reparto_por_porcentajes_30_por_ciento_en_10_ml_y_el_resto_en_partes_iguales_de_3_ml():
+    plan = plan_por_presentacion(156180, validar_reparto(REPARTO_30))
+    # 30 % = 46.854 UI -> 47 frascos de 1.000 UI
+    assert (plan["10ml_U100"]["ui"], plan["10ml_U100"]["envases"]) == (46854.0, 47)
+    # el 70 % restante, en tres partes iguales de 36.442 UI
+    assert plan["3ml_U100"]["ui"] == 36442.0 and plan["3ml_U100"]["envases"] == 122  # 121,47 -> 122
+    assert plan["3ml_U200"]["envases"] == 61                                          # 60,74 -> 61
+    assert plan["3ml_U300"]["envases"] == 41                                          # 40,49 -> 41
+    assert round(sum(p["ui"] for p in plan.values()), 1) == 156180.0
+    # un reparto que cae exacto no suma envases de más
+    exacto = plan_por_presentacion(10000, {"10ml_U100": 50, "3ml_U100": 50, "3ml_U200": 0, "3ml_U300": 0})
+    assert (exacto["10ml_U100"]["envases"], exacto["3ml_U100"]["envases"], exacto["3ml_U200"]["envases"]) == (5, 17, 0)
+
+
+def test_el_reparto_exige_las_cuatro_presentaciones_entre_0_y_100_y_sumando_100():
+    validar_reparto(REPARTO_30)
+    validar_reparto({"10ml_U100": 100, "3ml_U100": 0, "3ml_U200": 0, "3ml_U300": 0})
+    validar_reparto({"10ml_U100": 30, "3ml_U100": 23.33, "3ml_U200": 23.33, "3ml_U300": 23.34})  # redondeos de pantalla
+    with pytest.raises(ValueError, match="cuatro presentaciones"):
+        validar_reparto({"10ml_U100": 100})
+    with pytest.raises(ValueError, match="sumar 100"):
+        validar_reparto({"10ml_U100": 30, "3ml_U100": 30, "3ml_U200": 30, "3ml_U300": 30})
+    with pytest.raises(ValueError, match="entre 0 y 100"):
+        validar_reparto({"10ml_U100": 150, "3ml_U100": -50, "3ml_U200": 0, "3ml_U300": 0})
+
+
+def test_el_cuadro_trae_el_plan_solo_si_se_pide_el_reparto():
+    fichas = [_ficha(1, 40, "Tipo 1", [("Glargina", 20)])]
+    sin = build_donation_request(fichas)
+    assert sin["reparto"] is None and "plan" not in sin["insulinas"][0]
+    con = build_donation_request(fichas, reparto=REPARTO_30)
+    glargina = con["insulinas"][0]
+    assert glargina["plan"]["10ml_U100"] == {"pct": 30.0, "ui": 360.0, "envases": 1}
+    assert con["reparto"]["10ml_U100"] == 30.0
+    assert glargina["viales_3ml"]["U100"] == 4  # los escenarios siguen estando
+
+
 def test_cada_insulina_del_cuadro_trae_sus_viales_por_concentracion():
     fichas = [
         _ficha(1, 40, "Tipo 1", [("Glargina", 20)]),
@@ -68,6 +120,8 @@ def test_cada_insulina_del_cuadro_trae_sus_viales_por_concentracion():
     assert por_insulina["Glargina"]["cantidad_ui"] == 2100  # (20 + 15) x 60
     assert por_insulina["Glargina"]["viales_3ml"] == {"U100": 7, "U200": 4, "U300": 3}
     assert por_insulina["Lispro"]["viales_3ml"] == {"U100": 1, "U200": 1, "U300": 1}  # 180 UI: un vial
+    assert por_insulina["Glargina"]["viales_10ml"] == {"U100": 3}  # 2.100 UI: 2,1 frascos de 1.000 UI
+    assert por_insulina["Lispro"]["viales_10ml"] == {"U100": 1}
 
 
 def test_porcentajes_por_rango_etario_y_tipo_de_diabetes_sobre_el_total():
@@ -105,7 +159,13 @@ def test_la_protamina_pasa_a_llamarse_mixta_y_el_nombre_anterior_se_sigue_recono
 def test_una_insulina_fuera_del_catalogo_se_cuenta_aparte_y_sin_beneficiarios_no_divide_por_cero():
     reporte = build_donation_request([_ficha(1, 30, "Tipo 1", [("Marca desconocida", 10)])])
     assert reporte["insulinas"] == [
-        {"insulina": SIN_CLASIFICAR, "cantidad_ui": 600.0, "viales_3ml": {"U100": 2, "U200": 1, "U300": 1}, "beneficiarios": 1}
+        {
+            "insulina": SIN_CLASIFICAR,
+            "cantidad_ui": 600.0,
+            "viales_3ml": {"U100": 2, "U200": 1, "U300": 1},
+            "viales_10ml": {"U100": 1},
+            "beneficiarios": 1,
+        }
     ]
 
     vacio = build_donation_request([])
@@ -240,3 +300,20 @@ async def test_el_endpoint_suma_los_asistidos_activos_y_no_los_cesados(client, s
     assert despues["asistidos_incluidos"] - antes["asistidos_incluidos"] == 1
     assert despues["menores_18"]["cantidad"] - antes["menores_18"]["cantidad"] == 1
     assert despues["diabeticos_tipo_1"]["cantidad"] - antes["diabeticos_tipo_1"]["cantidad"] == 1
+
+
+@pytest.mark.asyncio
+async def test_el_endpoint_acepta_el_reparto_por_porcentajes_y_lo_valida(client, superuser_token):
+    ok = await client.get(URL, params={"pct_10ml_u100": 30, "pct_3ml_u100": 70 / 3, "pct_3ml_u200": 70 / 3, "pct_3ml_u300": 70 / 3})
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["reparto"]["10ml_U100"] == 30
+    assert all(set(i["plan"]) == {"3ml_U100", "3ml_U200", "3ml_U300", "10ml_U100"} for i in body["insulinas"])
+
+    sin_reparto = (await client.get(URL)).json()
+    assert sin_reparto["reparto"] is None
+
+    incompleto = await client.get(URL, params={"pct_10ml_u100": 30})
+    assert incompleto.status_code == 422
+    no_suma = await client.get(URL, params={"pct_10ml_u100": 30, "pct_3ml_u100": 30, "pct_3ml_u200": 30, "pct_3ml_u300": 30})
+    assert no_suma.status_code == 422 and "sumar 100" in no_suma.json()["detail"]

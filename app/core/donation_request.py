@@ -32,9 +32,51 @@ OLDER_ADULT_AGE = ADULT_MAX_AGE + 1
 SIN_CLASIFICAR = "Otras (sin clasificar)"
 
 # Viales de 3 ml por concentración: la solicitud indica cuántos se necesitan de cada una. Un vial de 3 ml
-# U100 trae 300 UI; U200, 600 UI; U300, 900 UI.
+# U100 trae 300 UI; U200, 600 UI; U300, 900 UI. El vial de 10 ml solo se calcula en U100 (1.000 UI).
 VIAL_ML = 3
 CONCENTRACIONES_UI_ML = (100, 200, 300)
+VIAL_10ML_ML = 10
+CONCENTRACION_10ML_UI_ML = 100
+
+
+# Presentaciones del reparto por porcentajes y las UI que trae un envase de cada una.
+PRESENTACIONES_UI = {"3ml_U100": 300, "3ml_U200": 600, "3ml_U300": 900, "10ml_U100": 1000}
+REPARTO_TOLERANCIA = 0.05  # puntos porcentuales: lo que los porcentajes pueden desviarse de 100
+
+
+def validar_reparto(reparto: dict) -> dict:
+    """Valida un reparto por porcentajes (presentación -> %): las cuatro presentaciones, de 0 a 100 y sumando 100."""
+    if set(reparto) != set(PRESENTACIONES_UI):
+        raise ValueError("El reparto debe indicar el porcentaje de las cuatro presentaciones.")
+    for presentacion, pct in reparto.items():
+        if not 0 <= pct <= 100:
+            raise ValueError(f"El porcentaje de {presentacion} debe estar entre 0 y 100.")
+    total = sum(reparto.values())
+    if abs(total - 100) > REPARTO_TOLERANCIA:
+        raise ValueError(f"Los porcentajes deben sumar 100 % (suman {total:g} %).")
+    return {presentacion: float(pct) for presentacion, pct in reparto.items()}
+
+
+def plan_por_presentacion(ui: float, reparto: dict) -> dict:
+    """
+    Reparte `ui` entre las presentaciones según los porcentajes y calcula los envases de cada una,
+    redondeando hacia arriba (por eso el total pedido puede pasar un poco de las UI requeridas).
+    """
+    plan = {}
+    for presentacion, pct in reparto.items():
+        ui_parte = round(ui * pct / 100, 2)
+        plan[presentacion] = {
+            "pct": pct,
+            "ui": ui_parte,
+            "envases": math.ceil(ui_parte / PRESENTACIONES_UI[presentacion] - 1e-9),
+        }
+    return plan
+
+
+def viales_10ml(ui: float) -> dict:
+    """Viales de 10 ml U100 (1.000 UI cada uno) necesarios para `ui` unidades, redondeando hacia arriba."""
+    ui = round(ui, 2)
+    return {f"U{CONCENTRACION_10ML_UI_ML}": math.ceil(ui / (VIAL_10ML_ML * CONCENTRACION_10ML_UI_ML) - 1e-9)}
 
 
 def viales_3ml(ui: float) -> dict:
@@ -69,11 +111,16 @@ def _pct(count: int, total: int) -> float:
     return round(count * 100 / total, 1) if total else 0.0
 
 
-def build_donation_request(patients: Iterable, days: int = DISTRIBUTION_DAYS, assisted: Iterable = ()) -> dict:
+def build_donation_request(
+    patients: Iterable, days: int = DISTRIBUTION_DAYS, assisted: Iterable = (), reparto: Optional[dict] = None
+) -> dict:
     """Cantidades requeridas por tipo de insulina y perfil de los beneficiarios.
 
     `assisted`: registros ACTIVOS del Registro Asistido por Situación Excepcional.
+    `reparto`: porcentajes por presentación (ver `validar_reparto`); si viene, cada insulina trae además su
+    `plan` con las UI y los envases de cada presentación.
     """
+    reparto = validar_reparto(reparto) if reparto else None
     rows = [_ordinary_row(p) for p in patients] + [_assisted_row(r) for r in assisted]
     total = len(rows)
     asistidos = sum(1 for key, *_ in rows if key[0] == "A")
@@ -106,6 +153,8 @@ def build_donation_request(patients: Iterable, days: int = DISTRIBUTION_DAYS, as
             "insulina": nombre,
             "cantidad_ui": round(ui, 2),
             "viales_3ml": viales_3ml(ui),
+            "viales_10ml": viales_10ml(ui),
+            **({"plan": plan_por_presentacion(ui, reparto)} if reparto else {}),
             "beneficiarios": len(patients_per_insulin[nombre]),
         }
         # Mayor cantidad primero; «sin clasificar» siempre al final.
@@ -118,6 +167,7 @@ def build_donation_request(patients: Iterable, days: int = DISTRIBUTION_DAYS, as
         # De ese total, las personas del Registro Asistido por Situación Excepcional.
         "asistidos_incluidos": asistidos,
         "sin_insulina_registrada": sin_insulina,
+        "reparto": reparto,
         "insulinas": insulinas,
         "menores_18": {"cantidad": menores, "porcentaje": _pct(menores, total)},
         "entre_18_y_60": {"cantidad": adultos, "porcentaje": _pct(adultos, total)},

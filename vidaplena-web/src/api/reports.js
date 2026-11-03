@@ -97,9 +97,18 @@ export const getMorososReport = async (periodo, depto) => {
  * Cantidades de insulina requeridas para 60 días de tratamiento (todos los beneficiarios
  * registrados) y perfil de la población. Solo SUPER_ADMIN.
  */
-export const getDonationRequestReport = async () => {
+export const getDonationRequestReport = async (reparto = null) => {
   try {
-    const response = await client.get('/reports/donation-request');
+    // `reparto`: porcentajes por presentación {'3ml_U100', '3ml_U200', '3ml_U300', '10ml_U100'}; sin él, solo escenarios.
+    const params = reparto
+      ? {
+          pct_3ml_u100: reparto['3ml_U100'],
+          pct_3ml_u200: reparto['3ml_U200'],
+          pct_3ml_u300: reparto['3ml_U300'],
+          pct_10ml_u100: reparto['10ml_U100'],
+        }
+      : undefined;
+    const response = await client.get('/reports/donation-request', { params });
     return response.data;
   } catch (error) {
     console.error('Error al cargar la solicitud de donación:', error);

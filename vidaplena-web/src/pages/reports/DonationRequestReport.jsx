@@ -12,13 +12,37 @@ import { imageToBase64 } from '../../utils/imageToBase64';
 const formatUi = (value) => `${Number(value).toLocaleString('es-BO')} UI`;
 const formatCount = (value) => Number(value).toLocaleString('es-BO');
 
-// Viales de 3 ml por concentración (U100 = 300 UI por vial, U200 = 600 UI, U300 = 900 UI), redondeados hacia arriba.
+// Viales de 3 ml por concentración (U100 = 300 UI por vial, U200 = 600 UI, U300 = 900 UI) y de 10 ml solo en U100
+// (1.000 UI), redondeados hacia arriba.
 const CONCENTRACIONES = ['U100', 'U200', 'U300'];
-const encabezados = (dias) => [
+// Presentaciones del reparto por porcentajes, en el orden de las columnas.
+const PRESENTACIONES = [
+  { id: '3ml_U100', titulo: 'Cant. Vial 3ml U100', etiqueta: 'Vial 3ml U100' },
+  { id: '3ml_U200', titulo: 'Cant. Vial 3ml U200', etiqueta: 'Vial 3ml U200' },
+  { id: '3ml_U300', titulo: 'Cant. Vial 3ml U300', etiqueta: 'Vial 3ml U300' },
+  { id: '10ml_U100', titulo: 'Cant. Vial 10ml U100', etiqueta: 'Vial 10ml U100' },
+];
+const pctCorto = (value) => `${Number(value).toLocaleString('es-BO', { maximumFractionDigits: 2 })} %`;
+
+// Sin reparto: una columna por escenario (todo en esa presentación). Con reparto: una por presentación, con su porcentaje.
+const encabezados = (dias, reparto) => [
   'Tipo de insulina',
   `Cantidad requerida (${dias} días)`,
-  ...CONCENTRACIONES.map((c) => `Cant. Vial 3ml ${c}`),
+  ...PRESENTACIONES.map((p) => (reparto ? `${p.titulo} (${pctCorto(reparto[p.id])})` : p.titulo)),
 ];
+// Las celdas de envases de una insulina, en el mismo orden que los encabezados.
+const vialesDe = (i, reparto) =>
+  reparto
+    ? PRESENTACIONES.map((p) => i.plan[p.id].envases)
+    : [...CONCENTRACIONES.map((c) => i.viales_3ml[c]), i.viales_10ml.U100];
+
+// Parte de 100 % que queda para las tres presentaciones de 3 ml, a partes iguales.
+const restoEnTres = (pct10) => String(Number(((100 - Number(pct10 || 0)) / 3).toFixed(4)));
+const REPARTO_INICIAL = { '10ml_U100': '30', '3ml_U100': restoEnTres(30), '3ml_U200': restoEnTres(30), '3ml_U300': restoEnTres(30) };
+const repartoNumerico = (texto) => Object.fromEntries(Object.entries(texto).map(([k, v]) => [k, Number(v)]));
+const sumaDe = (texto) => Object.values(texto).reduce((acc, v) => acc + (Number(v) || 0), 0);
+const esValido = (texto) =>
+  Object.values(texto).every((v) => v !== '' && Number(v) >= 0 && Number(v) <= 100) && Math.abs(sumaDe(texto) - 100) <= 0.05;
 const formatPct = (value) => `${Number(value).toLocaleString('es-BO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
 
 // Los datos de abajo del cuadro, en dos bloques (rango etario y tipo de diabetes) y, al final, el total.
@@ -40,11 +64,15 @@ export default function DonationRequestReport() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [logoBase64, setLogoBase64] = useState(null);
+  // Reparto por porcentajes entre presentaciones (opcional).
+  const [usarReparto, setUsarReparto] = useState(false);
+  const [pcts, setPcts] = useState(REPARTO_INICIAL);
+  const repartoValido = esValido(pcts);
 
-  const load = async () => {
+  const load = async (reparto = null) => {
     try {
       setLoading(true);
-      setData(await getDonationRequestReport());
+      setData(await getDonationRequestReport(reparto));
     } catch (error) {
       toast.error(typeof error === 'string' ? error : 'No se pudo cargar el reporte.');
       setData(null);
@@ -54,11 +82,29 @@ export default function DonationRequestReport() {
   };
 
   useEffect(() => {
-    load();
     imageToBase64(logoUrl)
       .then(setLogoBase64)
       .catch((err) => console.error('Error al cargar el logo en base64', err));
   }, []);
+
+  // Sin reparto se piden los escenarios; con reparto válido se vuelve a calcular al cambiar los porcentajes.
+  useEffect(() => {
+    if (usarReparto && !repartoValido) return undefined;
+    const timer = setTimeout(() => load(usarReparto ? repartoNumerico(pcts) : null), usarReparto ? 400 : 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usarReparto, repartoValido, JSON.stringify(pcts)]);
+
+  const cambiarPct = (id, valor) =>
+    setPcts((prev) => {
+      const next = { ...prev, [id]: valor };
+      // Al cambiar el frasco de 10 ml, el resto se vuelve a dividir en partes iguales entre las de 3 ml.
+      if (id === '10ml_U100') {
+        const resto = restoEnTres(valor);
+        next['3ml_U100'] = next['3ml_U200'] = next['3ml_U300'] = resto;
+      }
+      return next;
+    });
 
   const fileDate = new Date().toISOString().split('T')[0];
   const sinDatos = !data || data.insulinas.length === 0;
@@ -85,21 +131,23 @@ export default function DonationRequestReport() {
     doc.setTextColor(100, 116, 139);
     doc.setFont('helvetica', 'normal');
     doc.text(`Fecha de generación: ${new Date().toLocaleDateString('es-BO')} ${new Date().toLocaleTimeString('es-BO')}`, margin + 30, 27);
-    doc.text(`Cantidad requerida calculada para ${data.dias} días de tratamiento`, margin + 30, 32);
+    doc.text(
+      data.reparto
+        ? `Cantidad requerida para ${data.dias} días | Reparto: ${PRESENTACIONES.map((p) => `${p.etiqueta} ${pctCorto(data.reparto[p.id])}`).join(', ')}`
+        : `Cantidad requerida calculada para ${data.dias} días de tratamiento`,
+      margin + 30,
+      32,
+    );
 
     autoTable(doc, {
-      head: [encabezados(data.dias)],
-      body: data.insulinas.map((i) => [
-        i.insulina,
-        formatUi(i.cantidad_ui),
-        ...CONCENTRACIONES.map((c) => formatCount(i.viales_3ml[c])),
-      ]),
+      head: [encabezados(data.dias, data.reparto)],
+      body: data.insulinas.map((i) => [i.insulina, formatUi(i.cantidad_ui), ...vialesDe(i, data.reparto).map(formatCount)]),
       startY: 42,
       margin: { left: margin, right: margin },
       styles: { fontSize: 9, cellPadding: 3, font: 'helvetica' },
       headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold', halign: 'right' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
-      columnStyles: { 0: { halign: 'left' }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      columnStyles: { 0: { halign: 'left' }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
       // El título de la primera columna va a la izquierda, como sus datos.
       didParseCell: (hook) => {
         if (hook.section === 'head' && hook.column.index === 0) hook.cell.styles.halign = 'left';
@@ -129,13 +177,13 @@ export default function DonationRequestReport() {
 
   const exportXLS = () => {
     const rows = [
-      encabezados(data.dias),
-      ...data.insulinas.map((i) => [i.insulina, i.cantidad_ui, ...CONCENTRACIONES.map((c) => i.viales_3ml[c])]),
+      encabezados(data.dias, data.reparto),
+      ...data.insulinas.map((i) => [i.insulina, i.cantidad_ui, ...vialesDe(i, data.reparto)]),
       [],
       ...resumenDe(data),
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(rows);
-    worksheet['!cols'] = [{ wch: 48 }, { wch: 26 }, { wch: 20 }, { wch: 20 }, { wch: 20 }];
+    worksheet['!cols'] = [{ wch: 48 }, { wch: 26 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 22 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Solicitud');
     XLSX.writeFile(workbook, `Solicitud_Donacion_${fileDate}.xlsx`);
@@ -151,8 +199,8 @@ export default function DonationRequestReport() {
           </h2>
           <p className="text-sm text-gray-500">
             Insulina necesaria para 60 días de tratamiento, sumando la dosis diaria de todos los beneficiarios registrados.
-            Además se indica cuántos viales de 3 ml hacen falta por concentración (U100 = 300 UI, U200 = 600 UI, U300 = 900 UI),
-            redondeando siempre hacia arriba.
+            Además se indica cuántos viales de 3 ml hacen falta por concentración (U100 = 300 UI, U200 = 600 UI, U300 = 900 UI)
+            y cuántos de 10 ml en U100 (1.000 UI), redondeando siempre hacia arriba.
           </p>
         </div>
         <div className="flex gap-2">
@@ -178,6 +226,44 @@ export default function DonationRequestReport() {
         </div>
       </div>
 
+      <div className="bg-white border border-gray-100 rounded-xl p-4 mb-4 max-w-5xl">
+        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+          <input type="checkbox" checked={usarReparto} onChange={(e) => setUsarReparto(e.target.checked)} />
+          Calcular con un reparto por porcentajes entre presentaciones
+        </label>
+        <p className="text-xs text-gray-500 mt-1">
+          Sin esto, cada columna muestra el escenario «toda la insulina en esa presentación». Con el reparto, cada columna indica
+          los envases que corresponden al porcentaje que se pida en esa presentación.
+        </p>
+        {usarReparto && (
+          <div className="mt-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[PRESENTACIONES[3], PRESENTACIONES[0], PRESENTACIONES[1], PRESENTACIONES[2]].map((p) => (
+                <div key={p.id}>
+                  <label htmlFor={`pct-${p.id}`} className="block text-xs font-semibold text-gray-700 mb-1">{p.etiqueta} (%)</label>
+                  <input
+                    id={`pct-${p.id}`}
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={pcts[p.id]}
+                    onChange={(e) => cambiarPct(p.id, e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className={`text-xs mt-2 font-semibold ${repartoValido ? 'text-green-700' : 'text-red-600'}`}>
+              Suma: {pctCorto(sumaDe(pcts))} {repartoValido ? '' : '— los porcentajes deben sumar 100 %'}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              Al cambiar el frasco de 10 ml, el resto se divide en partes iguales entre las tres de 3 ml; luego puede ajustar cada una.
+            </p>
+          </div>
+        )}
+      </div>
+
       {loading ? (
         <div className="p-10 text-center text-gray-500 font-semibold">Cargando...</div>
       ) : !data ? (
@@ -187,7 +273,7 @@ export default function DonationRequestReport() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {encabezados(data.dias).map((titulo, index) => (
+                {encabezados(data.dias, data.reparto).map((titulo, index) => (
                   <th
                     key={titulo}
                     className={`px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider ${index === 0 ? 'text-left' : 'text-right'}`}
@@ -200,7 +286,7 @@ export default function DonationRequestReport() {
             <tbody className="divide-y divide-gray-100">
               {data.insulinas.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-4 py-6 text-center text-gray-400">
+                  <td colSpan="6" className="px-4 py-6 text-center text-gray-400">
                     Ningún beneficiario tiene insulina con dosis diaria registrada.
                   </td>
                 </tr>
@@ -209,8 +295,8 @@ export default function DonationRequestReport() {
                   <tr key={i.insulina} className="hover:bg-gray-50/70 transition-colors">
                     <td className="px-4 py-3 text-sm text-gray-800 font-medium">{i.insulina}</td>
                     <td className="px-4 py-3 text-sm text-right text-gray-700">{formatUi(i.cantidad_ui)}</td>
-                    {CONCENTRACIONES.map((c) => (
-                      <td key={c} className="px-4 py-3 text-sm text-right text-gray-700">{formatCount(i.viales_3ml[c])}</td>
+                    {vialesDe(i, data.reparto).map((cantidad, index) => (
+                      <td key={index} className="px-4 py-3 text-sm text-right text-gray-700">{formatCount(cantidad)}</td>
                     ))}
                   </tr>
                 ))
@@ -235,6 +321,11 @@ export default function DonationRequestReport() {
               ),
             )}
           </dl>
+          {data.reparto && (
+            <p className="px-4 py-3 text-xs text-gray-500 border-t border-gray-100">
+              Los envases de cada presentación se redondean hacia arriba, por lo que el total pedido puede superar un poco las UI requeridas.
+            </p>
+          )}
           {data.sin_insulina_registrada > 0 && (
             <p className="px-4 pb-4 text-xs text-gray-400">
               {data.sin_insulina_registrada} beneficiario(s) no tienen insulina con dosis diaria registrada y no suman cantidad.

@@ -233,14 +233,122 @@ const solicitud = () => ({
   sin_insulina_registrada: 3,
   insulinas: [
     // los ejemplos de la Fundación: 156.180 UI y 113.820 UI, en viales de 3 ml por concentración
-    { insulina: 'Glargina', cantidad_ui: 156180, viales_3ml: { U100: 521, U200: 261, U300: 174 }, beneficiarios: 90 },
-    { insulina: 'NPH', cantidad_ui: 113820, viales_3ml: { U100: 380, U200: 190, U300: 127 }, beneficiarios: 40 },
+    { insulina: 'Glargina', cantidad_ui: 156180, viales_3ml: { U100: 521, U200: 261, U300: 174 }, viales_10ml: { U100: 157 }, beneficiarios: 90 },
+    { insulina: 'NPH', cantidad_ui: 113820, viales_3ml: { U100: 380, U200: 190, U300: 127 }, viales_10ml: { U100: 114 }, beneficiarios: 40 },
   ],
   menores_18: { cantidad: 30, porcentaje: 14.4 },
   entre_18_y_60: { cantidad: 140, porcentaje: 67.3 },
   mayores_61: { cantidad: 38, porcentaje: 18.3 },
   diabeticos_tipo_1: { cantidad: 134, porcentaje: 64.4 },
   diabeticos_tipo_2: { cantidad: 73, porcentaje: 35.1 },
+});
+
+// El servidor devuelve, con un reparto, el plan de cada insulina (aquí, los valores del ejemplo 30 % en 10 ml).
+const conPlan = (reparto) => ({
+  ...solicitud(),
+  reparto,
+  insulinas: [
+    {
+      ...solicitud().insulinas[0],
+      plan: {
+        '3ml_U100': { pct: reparto['3ml_U100'], ui: 36442, envases: 122 },
+        '3ml_U200': { pct: reparto['3ml_U200'], ui: 36442, envases: 61 },
+        '3ml_U300': { pct: reparto['3ml_U300'], ui: 36442, envases: 41 },
+        '10ml_U100': { pct: reparto['10ml_U100'], ui: 46854, envases: 47 },
+      },
+    },
+    {
+      ...solicitud().insulinas[1],
+      plan: {
+        '3ml_U100': { pct: reparto['3ml_U100'], ui: 26558, envases: 89 },
+        '3ml_U200': { pct: reparto['3ml_U200'], ui: 26558, envases: 45 },
+        '3ml_U300': { pct: reparto['3ml_U300'], ui: 26558, envases: 30 },
+        '10ml_U100': { pct: reparto['10ml_U100'], ui: 34146, envases: 35 },
+      },
+    },
+  ],
+});
+
+describe('Solicitud de donación: reparto por porcentajes entre presentaciones', () => {
+  beforeEach(() => {
+    api.getDonationRequestReport.mockImplementation(async (reparto) => (reparto ? conPlan(reparto) : solicitud()));
+  });
+
+  it('sin activarlo muestra los escenarios y no manda porcentajes', async () => {
+    render(<DonationRequestReport />);
+    await screen.findByText('Glargina');
+    expect(api.getDonationRequestReport).toHaveBeenLastCalledWith(null);
+    expect(screen.queryByLabelText('Vial 10ml U100 (%)')).toBeNull();
+  });
+
+  it('propone 30 % en 10 ml y el resto en partes iguales, y muestra los envases por presentación con su porcentaje', async () => {
+    render(<DonationRequestReport />);
+    await screen.findByText('Glargina');
+    fireEvent.click(screen.getByLabelText(/Calcular con un reparto por porcentajes/));
+
+    expect(screen.getByLabelText('Vial 10ml U100 (%)')).toHaveValue(30);
+    ['Vial 3ml U100 (%)', 'Vial 3ml U200 (%)', 'Vial 3ml U300 (%)'].forEach((label) => {
+      expect(Number(screen.getByLabelText(label).value)).toBeCloseTo(70 / 3, 3);
+    });
+    expect(screen.getByText(/Suma: 100 %/)).toBeInTheDocument();
+
+    await waitFor(() => expect(api.getDonationRequestReport.mock.calls.at(-1)[0]).toMatchObject({ '10ml_U100': 30 }));
+    const enviado = api.getDonationRequestReport.mock.calls.at(-1)[0];
+    expect(enviado['3ml_U100'] + enviado['3ml_U200'] + enviado['3ml_U300'] + enviado['10ml_U100']).toBeCloseTo(100, 2); // la parte en tres se redondea a 4 decimales: el servidor tolera 0,05
+
+    await waitFor(() => expect(screen.getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
+      'Tipo de insulina', 'Cantidad requerida (60 días)', 'Cant. Vial 3ml U100 (23,33 %)', 'Cant. Vial 3ml U200 (23,33 %)',
+      'Cant. Vial 3ml U300 (23,33 %)', 'Cant. Vial 10ml U100 (30 %)',
+    ]));
+    const celdas = (nombre) => Array.from(screen.getByText(nombre).closest('tr').querySelectorAll('td')).map((td) => td.textContent);
+    expect(celdas('Glargina').slice(2)).toEqual(['122', '61', '41', '47']);
+    expect(celdas('NPH').slice(2)).toEqual(['89', '45', '30', '35']);
+    expect(screen.getByText(/se redondean hacia arriba/)).toBeInTheDocument();
+  });
+
+  it('al cambiar el frasco de 10 ml el resto se vuelve a dividir en partes iguales', async () => {
+    render(<DonationRequestReport />);
+    await screen.findByText('Glargina');
+    fireEvent.click(screen.getByLabelText(/Calcular con un reparto por porcentajes/));
+    fireEvent.change(screen.getByLabelText('Vial 10ml U100 (%)'), { target: { value: '40' } });
+    ['Vial 3ml U100 (%)', 'Vial 3ml U200 (%)', 'Vial 3ml U300 (%)'].forEach((label) => {
+      expect(Number(screen.getByLabelText(label).value)).toBeCloseTo(20, 3);
+    });
+    await waitFor(() => expect(api.getDonationRequestReport.mock.calls.at(-1)[0]['10ml_U100']).toBe(40));
+  });
+
+  it('si los porcentajes no suman 100 avisa y no pide el cálculo', async () => {
+    render(<DonationRequestReport />);
+    await screen.findByText('Glargina');
+    fireEvent.click(screen.getByLabelText(/Calcular con un reparto por porcentajes/));
+    await waitFor(() => expect(api.getDonationRequestReport.mock.calls.at(-1)[0]).not.toBeNull());
+    const llamadas = api.getDonationRequestReport.mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText('Vial 3ml U200 (%)'), { target: { value: '50' } });
+    expect(screen.getByText(/los porcentajes deben sumar 100 %/)).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 600));
+    expect(api.getDonationRequestReport.mock.calls.length).toBe(llamadas); // no se vuelve a pedir
+  });
+
+  it('el PDF y el Excel llevan los envases del reparto y su porcentaje en el título', async () => {
+    pdf.tables.length = 0;
+    render(<DonationRequestReport />);
+    await screen.findByText('Glargina');
+    fireEvent.click(screen.getByLabelText(/Calcular con un reparto por porcentajes/));
+    await screen.findByText('Cant. Vial 10ml U100 (30 %)');
+
+    fireEvent.click(screen.getByRole('button', { name: /Excel/ }));
+    const filas = xlsx.aoa_to_sheet.mock.calls.at(-1)[0];
+    expect(filas[0].slice(2)).toEqual([
+      'Cant. Vial 3ml U100 (23,33 %)', 'Cant. Vial 3ml U200 (23,33 %)', 'Cant. Vial 3ml U300 (23,33 %)', 'Cant. Vial 10ml U100 (30 %)',
+    ]);
+    expect(filas[1]).toEqual(['Glargina', 156180, 122, 61, 41, 47]);
+
+    fireEvent.click(screen.getByRole('button', { name: /PDF/ }));
+    await waitFor(() => expect(pdf.tables.length).toBeGreaterThanOrEqual(1));
+    expect(pdf.tables[0].body[0].slice(2)).toEqual(['122', '61', '41', '47']);
+    expect(pdf.doc.text.mock.calls.some((c) => /Reparto: .*Vial 10ml U100 30 %/.test(c[0]))).toBe(true);
+  });
 });
 
 describe('Reporte de solicitud de cantidades requeridas de donación', () => {
@@ -250,14 +358,15 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
 
     await screen.findByText('Glargina');
     const encabezados = screen.getAllByRole('columnheader').map((th) => th.textContent);
-    // el cuadro tiene 5 columnas: la cantidad en UI y los viales de 3 ml por concentración
+    // el cuadro tiene 6 columnas: la cantidad en UI, los viales de 3 ml por concentración y los de 10 ml solo en U100
     expect(encabezados).toEqual([
       'Tipo de insulina', 'Cantidad requerida (60 días)', 'Cant. Vial 3ml U100', 'Cant. Vial 3ml U200', 'Cant. Vial 3ml U300',
+      'Cant. Vial 10ml U100',
     ]);
     const celdas = (nombre) => Array.from(screen.getByText(nombre).closest('tr').querySelectorAll('td')).map((td) => td.textContent);
     const n = (valor) => valor.toLocaleString('es-BO');
-    expect(celdas('Glargina')).toEqual(['Glargina', `${n(156180)} UI`, '521', '261', '174']);
-    expect(celdas('NPH')).toEqual(['NPH', `${n(113820)} UI`, '380', '190', '127']);
+    expect(celdas('Glargina')).toEqual(['Glargina', `${n(156180)} UI`, '521', '261', '174', '157']);
+    expect(celdas('NPH')).toEqual(['NPH', `${n(113820)} UI`, '380', '190', '127', '114']);
 
     // dos bloques con título: rango etario y tipo de diabetes
     expect(screen.getByText('Porcentajes por Rango Etario')).toBeInTheDocument();
@@ -283,7 +392,7 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
     expect(filas[filas.length - 1]).toBe('Total de beneficiarios');
   });
 
-  it('el PDF lleva el cuadro de 5 columnas con los viales de 3 ml por concentración', async () => {
+  it('el PDF lleva el cuadro de 6 columnas con los viales de 3 ml por concentración y de 10 ml en U100', async () => {
     pdf.tables.length = 0;
     api.getDonationRequestReport.mockResolvedValue(solicitud());
     render(<DonationRequestReport />);
@@ -294,9 +403,10 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
     const cuadro = pdf.tables[0];
     expect(cuadro.head[0]).toEqual([
       'Tipo de insulina', 'Cantidad requerida (60 días)', 'Cant. Vial 3ml U100', 'Cant. Vial 3ml U200', 'Cant. Vial 3ml U300',
+      'Cant. Vial 10ml U100',
     ]);
-    expect(cuadro.body[0]).toEqual(['Glargina', `${(156180).toLocaleString('es-BO')} UI`, '521', '261', '174']);
-    expect(cuadro.body[1]).toEqual(['NPH', `${(113820).toLocaleString('es-BO')} UI`, '380', '190', '127']);
+    expect(cuadro.body[0]).toEqual(['Glargina', `${(156180).toLocaleString('es-BO')} UI`, '521', '261', '174', '157']);
+    expect(cuadro.body[1]).toEqual(['NPH', `${(113820).toLocaleString('es-BO')} UI`, '380', '190', '127', '114']);
     expect(pdf.doc.save).toHaveBeenCalledWith(expect.stringMatching(/^Solicitud_Donacion_.*\.pdf$/));
   });
 
@@ -310,9 +420,10 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
     const filas = xlsx.aoa_to_sheet.mock.calls[0][0];
     expect(filas[0]).toEqual([
       'Tipo de insulina', 'Cantidad requerida (60 días)', 'Cant. Vial 3ml U100', 'Cant. Vial 3ml U200', 'Cant. Vial 3ml U300',
+      'Cant. Vial 10ml U100',
     ]);
-    expect(filas[1]).toEqual(['Glargina', 156180, 521, 261, 174]);
-    expect(filas[2]).toEqual(['NPH', 113820, 380, 190, 127]);
+    expect(filas[1]).toEqual(['Glargina', 156180, 521, 261, 174, 157]);
+    expect(filas[2]).toEqual(['NPH', 113820, 380, 190, 127, 114]);
     expect(filas[3]).toEqual([]);
     expect(filas[4]).toEqual(['Porcentajes por Rango Etario']);
     expect(filas[7]).toEqual(['Porcentaje de adultos mayores de 61 años en adelante', expect.stringMatching(/^18,3\s?%$/)]);

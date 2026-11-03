@@ -20,7 +20,7 @@ from app.core.contributions import (
 )
 from app.core.text_normalize import normalize_name
 from app.core import distribution_service as dist
-from app.core.donation_request import DONATION_REQUEST_ESTADOS, build_donation_request
+from app.core.donation_request import DONATION_REQUEST_ESTADOS, PRESENTACIONES_UI, build_donation_request
 from app.core.donation_excel import DonationExcelError, parse_donation_excel
 from app.core.insulin_catalog import normalize_insulin_name
 from app.core.insulin_distribution import (
@@ -367,6 +367,10 @@ async def _aportes_por_beneficiario(db: AsyncSession, rows, meses: list[str], de
 # --- Solicitud de cantidades requeridas de donación -----------------------------
 @router.get("/donation-request", summary="Cantidades de insulina requeridas para 60 días de tratamiento")
 async def get_donation_request_report(
+    pct_3ml_u100: Optional[float] = Query(None, description="% de la insulina que se pide en envases de 3 ml U100"),
+    pct_3ml_u200: Optional[float] = Query(None, description="% en envases de 3 ml U200"),
+    pct_3ml_u300: Optional[float] = Query(None, description="% en envases de 3 ml U300"),
+    pct_10ml_u100: Optional[float] = Query(None, description="% en frascos de 10 ml U100"),
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_super_user),
 ):
@@ -375,7 +379,19 @@ async def get_donation_request_report(
     beneficiarios registrados, por tipo de insulina, por 60 días. No filtra por
     aporte al día ni por documentos pendientes. Incluye el perfil de la
     población (menores de 18, mayores de 65, tipo 1 y tipo 2) sobre el total.
+
+    Opcionalmente, un reparto por porcentajes entre las presentaciones (`pct_*`; las cuatro y sumando
+    100): cada insulina trae entonces su `plan` con las UI y los envases de cada presentación.
     """
+    porcentajes = {
+        "3ml_U100": pct_3ml_u100, "3ml_U200": pct_3ml_u200, "3ml_U300": pct_3ml_u300, "10ml_U100": pct_10ml_u100,
+    }
+    reparto = None
+    if any(v is not None for v in porcentajes.values()):
+        faltan = [k for k in PRESENTACIONES_UI if porcentajes[k] is None]
+        if faltan:
+            raise HTTPException(status_code=422, detail="Indique el porcentaje de las cuatro presentaciones.")
+        reparto = porcentajes
     result = await db.execute(
         select(models.Patient)
         .options(selectinload(models.Patient.treatments), selectinload(models.Patient.medical))
@@ -387,7 +403,12 @@ async def get_donation_request_report(
         .options(selectinload(models.AssistedRegistration.treatments))
         .where(models.AssistedRegistration.estado == "ACTIVO")
     )
-    return build_donation_request(result.scalars().unique().all(), assisted=asistidos.scalars().unique().all())
+    try:
+        return build_donation_request(
+            result.scalars().unique().all(), assisted=asistidos.scalars().unique().all(), reparto=reparto
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 # --- Distribución de insulina a partir del Excel de una donación ---------------
