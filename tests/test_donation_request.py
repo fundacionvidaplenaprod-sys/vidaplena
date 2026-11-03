@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from app import models
-from app.core.donation_request import SIN_CLASIFICAR, build_donation_request
+from app.core.donation_request import SIN_CLASIFICAR, build_donation_request, viales_3ml
 
 URL = "/reports/donation-request"
 
@@ -44,6 +44,30 @@ def test_suma_la_dosis_diaria_por_60_dias_y_por_tipo_de_insulina():
     # mayor cantidad primero
     assert [i["insulina"] for i in reporte["insulinas"]] == ["Glargina", "Mixta", "Lispro"]
     assert reporte["sin_insulina_registrada"] == 1
+
+
+def test_viales_de_3_ml_por_concentracion_redondeando_hacia_arriba():
+    # los ejemplos de la Fundación: Glargina 156.180 UI y NPH 113.820 UI
+    assert viales_3ml(156180) == {"U100": 521, "U200": 261, "U300": 174}
+    assert viales_3ml(113820) == {"U100": 380, "U200": 190, "U300": 127}
+    # un múltiplo exacto no suma un vial de más, y un solo UI de más sí
+    assert viales_3ml(1200) == {"U100": 4, "U200": 2, "U300": 2}
+    assert viales_3ml(1201) == {"U100": 5, "U200": 3, "U300": 2}
+    assert viales_3ml(900) == {"U100": 3, "U200": 2, "U300": 1}
+    # el ruido de los decimales de la suma no cambia el resultado
+    assert viales_3ml(0.1 * 12000) == {"U100": 4, "U200": 2, "U300": 2}
+    assert viales_3ml(0) == {"U100": 0, "U200": 0, "U300": 0}
+
+
+def test_cada_insulina_del_cuadro_trae_sus_viales_por_concentracion():
+    fichas = [
+        _ficha(1, 40, "Tipo 1", [("Glargina", 20)]),
+        _ficha(2, 40, "Tipo 1", [("Glargina", 15), ("Lispro", 3)]),
+    ]
+    por_insulina = {i["insulina"]: i for i in build_donation_request(fichas)["insulinas"]}
+    assert por_insulina["Glargina"]["cantidad_ui"] == 2100  # (20 + 15) x 60
+    assert por_insulina["Glargina"]["viales_3ml"] == {"U100": 7, "U200": 4, "U300": 3}
+    assert por_insulina["Lispro"]["viales_3ml"] == {"U100": 1, "U200": 1, "U300": 1}  # 180 UI: un vial
 
 
 def test_porcentajes_por_rango_etario_y_tipo_de_diabetes_sobre_el_total():
@@ -80,7 +104,9 @@ def test_la_protamina_pasa_a_llamarse_mixta_y_el_nombre_anterior_se_sigue_recono
 
 def test_una_insulina_fuera_del_catalogo_se_cuenta_aparte_y_sin_beneficiarios_no_divide_por_cero():
     reporte = build_donation_request([_ficha(1, 30, "Tipo 1", [("Marca desconocida", 10)])])
-    assert reporte["insulinas"] == [{"insulina": SIN_CLASIFICAR, "cantidad_ui": 600.0, "beneficiarios": 1}]
+    assert reporte["insulinas"] == [
+        {"insulina": SIN_CLASIFICAR, "cantidad_ui": 600.0, "viales_3ml": {"U100": 2, "U200": 1, "U300": 1}, "beneficiarios": 1}
+    ]
 
     vacio = build_donation_request([])
     assert vacio["total_beneficiarios"] == 0

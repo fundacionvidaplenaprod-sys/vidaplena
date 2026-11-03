@@ -33,6 +33,16 @@ vi.mock('xlsx', () => ({
   writeFile: xlsx.writeFile,
 }));
 vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const pdf = vi.hoisted(() => ({
+  doc: {
+    internal: { pageSize: { getWidth: () => 216 } },
+    setFillColor: vi.fn(), rect: vi.fn(), addImage: vi.fn(), setFontSize: vi.fn(), setTextColor: vi.fn(),
+    setFont: vi.fn(), text: vi.fn(), save: vi.fn(), lastAutoTable: { finalY: 100 },
+  },
+  tables: [],
+}));
+vi.mock('jspdf', () => ({ default: function JsPdfFalso() { return pdf.doc; } }));
+vi.mock('jspdf-autotable', () => ({ default: (doc, options) => pdf.tables.push(options) }));
 vi.mock('../utils/imageToBase64', () => ({ imageToBase64: () => Promise.resolve('data:image/png;base64,AAAA') }));
 
 beforeEach(() => {
@@ -222,8 +232,9 @@ const solicitud = () => ({
   total_beneficiarios: 208,
   sin_insulina_registrada: 3,
   insulinas: [
-    { insulina: 'Glargina', cantidad_ui: 125400, beneficiarios: 90 },
-    { insulina: 'Lispro', cantidad_ui: 48000, beneficiarios: 40 },
+    // los ejemplos de la Fundación: 156.180 UI y 113.820 UI, en viales de 3 ml por concentración
+    { insulina: 'Glargina', cantidad_ui: 156180, viales_3ml: { U100: 521, U200: 261, U300: 174 }, beneficiarios: 90 },
+    { insulina: 'NPH', cantidad_ui: 113820, viales_3ml: { U100: 380, U200: 190, U300: 127 }, beneficiarios: 40 },
   ],
   menores_18: { cantidad: 30, porcentaje: 14.4 },
   entre_18_y_60: { cantidad: 140, porcentaje: 67.3 },
@@ -239,9 +250,14 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
 
     await screen.findByText('Glargina');
     const encabezados = screen.getAllByRole('columnheader').map((th) => th.textContent);
-    expect(encabezados).toEqual(['Tipo de insulina', 'Cantidad requerida (60 días)']);
-    expect(screen.getByText(`${(125400).toLocaleString('es-BO')} UI`)).toBeInTheDocument();
-    expect(screen.getByText('Lispro')).toBeInTheDocument();
+    // el cuadro tiene 5 columnas: la cantidad en UI y los viales de 3 ml por concentración
+    expect(encabezados).toEqual([
+      'Tipo de insulina', 'Cantidad requerida (60 días)', 'Cant. Vial 3ml U100', 'Cant. Vial 3ml U200', 'Cant. Vial 3ml U300',
+    ]);
+    const celdas = (nombre) => Array.from(screen.getByText(nombre).closest('tr').querySelectorAll('td')).map((td) => td.textContent);
+    const n = (valor) => valor.toLocaleString('es-BO');
+    expect(celdas('Glargina')).toEqual(['Glargina', `${n(156180)} UI`, '521', '261', '174']);
+    expect(celdas('NPH')).toEqual(['NPH', `${n(113820)} UI`, '380', '190', '127']);
 
     // dos bloques con título: rango etario y tipo de diabetes
     expect(screen.getByText('Porcentajes por Rango Etario')).toBeInTheDocument();
@@ -267,6 +283,23 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
     expect(filas[filas.length - 1]).toBe('Total de beneficiarios');
   });
 
+  it('el PDF lleva el cuadro de 5 columnas con los viales de 3 ml por concentración', async () => {
+    pdf.tables.length = 0;
+    api.getDonationRequestReport.mockResolvedValue(solicitud());
+    render(<DonationRequestReport />);
+    await screen.findByText('Glargina');
+
+    fireEvent.click(screen.getByRole('button', { name: /PDF/ }));
+    await waitFor(() => expect(pdf.tables.length).toBeGreaterThanOrEqual(1));
+    const cuadro = pdf.tables[0];
+    expect(cuadro.head[0]).toEqual([
+      'Tipo de insulina', 'Cantidad requerida (60 días)', 'Cant. Vial 3ml U100', 'Cant. Vial 3ml U200', 'Cant. Vial 3ml U300',
+    ]);
+    expect(cuadro.body[0]).toEqual(['Glargina', `${(156180).toLocaleString('es-BO')} UI`, '521', '261', '174']);
+    expect(cuadro.body[1]).toEqual(['NPH', `${(113820).toLocaleString('es-BO')} UI`, '380', '190', '127']);
+    expect(pdf.doc.save).toHaveBeenCalledWith(expect.stringMatching(/^Solicitud_Donacion_.*\.pdf$/));
+  });
+
   it('el Excel trae el cuadro, una fila en blanco y los datos finales con el total al final', async () => {
     api.getDonationRequestReport.mockResolvedValue(solicitud());
     render(<DonationRequestReport />);
@@ -275,8 +308,11 @@ describe('Reporte de solicitud de cantidades requeridas de donación', () => {
     fireEvent.click(screen.getByRole('button', { name: /Excel/ }));
     await waitFor(() => expect(xlsx.writeFile).toHaveBeenCalledTimes(1));
     const filas = xlsx.aoa_to_sheet.mock.calls[0][0];
-    expect(filas[0]).toEqual(['Tipo de insulina', 'Cantidad requerida (60 días)']);
-    expect(filas[1]).toEqual(['Glargina', 125400]);
+    expect(filas[0]).toEqual([
+      'Tipo de insulina', 'Cantidad requerida (60 días)', 'Cant. Vial 3ml U100', 'Cant. Vial 3ml U200', 'Cant. Vial 3ml U300',
+    ]);
+    expect(filas[1]).toEqual(['Glargina', 156180, 521, 261, 174]);
+    expect(filas[2]).toEqual(['NPH', 113820, 380, 190, 127]);
     expect(filas[3]).toEqual([]);
     expect(filas[4]).toEqual(['Porcentajes por Rango Etario']);
     expect(filas[7]).toEqual(['Porcentaje de adultos mayores de 61 años en adelante', expect.stringMatching(/^18,3\s?%$/)]);

@@ -10,6 +10,15 @@ import logoUrl from '../../assets/logo.png';
 import { imageToBase64 } from '../../utils/imageToBase64';
 
 const formatUi = (value) => `${Number(value).toLocaleString('es-BO')} UI`;
+const formatCount = (value) => Number(value).toLocaleString('es-BO');
+
+// Viales de 3 ml por concentración (U100 = 300 UI por vial, U200 = 600 UI, U300 = 900 UI), redondeados hacia arriba.
+const CONCENTRACIONES = ['U100', 'U200', 'U300'];
+const encabezados = (dias) => [
+  'Tipo de insulina',
+  `Cantidad requerida (${dias} días)`,
+  ...CONCENTRACIONES.map((c) => `Cant. Vial 3ml ${c}`),
+];
 const formatPct = (value) => `${Number(value).toLocaleString('es-BO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
 
 // Los datos de abajo del cuadro, en dos bloques (rango etario y tipo de diabetes) y, al final, el total.
@@ -79,14 +88,22 @@ export default function DonationRequestReport() {
     doc.text(`Cantidad requerida calculada para ${data.dias} días de tratamiento`, margin + 30, 32);
 
     autoTable(doc, {
-      head: [['Tipo de insulina', `Cantidad requerida (${data.dias} días)`]],
-      body: data.insulinas.map((i) => [i.insulina, formatUi(i.cantidad_ui)]),
+      head: [encabezados(data.dias)],
+      body: data.insulinas.map((i) => [
+        i.insulina,
+        formatUi(i.cantidad_ui),
+        ...CONCENTRACIONES.map((c) => formatCount(i.viales_3ml[c])),
+      ]),
       startY: 42,
       margin: { left: margin, right: margin },
-      styles: { fontSize: 10, cellPadding: 3, font: 'helvetica' },
-      headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 3, font: 'helvetica' },
+      headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold', halign: 'right' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
-      columnStyles: { 1: { halign: 'right' } },
+      columnStyles: { 0: { halign: 'left' }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      // El título de la primera columna va a la izquierda, como sus datos.
+      didParseCell: (hook) => {
+        if (hook.section === 'head' && hook.column.index === 0) hook.cell.styles.halign = 'left';
+      },
     });
 
     const resumen = resumenDe(data);
@@ -112,13 +129,13 @@ export default function DonationRequestReport() {
 
   const exportXLS = () => {
     const rows = [
-      ['Tipo de insulina', `Cantidad requerida (${data.dias} días)`],
-      ...data.insulinas.map((i) => [i.insulina, i.cantidad_ui]),
+      encabezados(data.dias),
+      ...data.insulinas.map((i) => [i.insulina, i.cantidad_ui, ...CONCENTRACIONES.map((c) => i.viales_3ml[c])]),
       [],
       ...resumenDe(data),
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(rows);
-    worksheet['!cols'] = [{ wch: 48 }, { wch: 26 }];
+    worksheet['!cols'] = [{ wch: 48 }, { wch: 26 }, { wch: 20 }, { wch: 20 }, { wch: 20 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Solicitud');
     XLSX.writeFile(workbook, `Solicitud_Donacion_${fileDate}.xlsx`);
@@ -134,6 +151,8 @@ export default function DonationRequestReport() {
           </h2>
           <p className="text-sm text-gray-500">
             Insulina necesaria para 60 días de tratamiento, sumando la dosis diaria de todos los beneficiarios registrados.
+            Además se indica cuántos viales de 3 ml hacen falta por concentración (U100 = 300 UI, U200 = 600 UI, U300 = 900 UI),
+            redondeando siempre hacia arriba.
           </p>
         </div>
         <div className="flex gap-2">
@@ -164,20 +183,24 @@ export default function DonationRequestReport() {
       ) : !data ? (
         <div className="bg-white border border-gray-100 rounded-xl p-6 text-sm text-gray-500">No se pudo cargar el reporte.</div>
       ) : (
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden max-w-3xl">
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden max-w-5xl">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Tipo de insulina</th>
-                <th className="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Cantidad requerida ({data.dias} días)
-                </th>
+                {encabezados(data.dias).map((titulo, index) => (
+                  <th
+                    key={titulo}
+                    className={`px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider ${index === 0 ? 'text-left' : 'text-right'}`}
+                  >
+                    {titulo}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {data.insulinas.length === 0 ? (
                 <tr>
-                  <td colSpan="2" className="px-4 py-6 text-center text-gray-400">
+                  <td colSpan="5" className="px-4 py-6 text-center text-gray-400">
                     Ningún beneficiario tiene insulina con dosis diaria registrada.
                   </td>
                 </tr>
@@ -186,6 +209,9 @@ export default function DonationRequestReport() {
                   <tr key={i.insulina} className="hover:bg-gray-50/70 transition-colors">
                     <td className="px-4 py-3 text-sm text-gray-800 font-medium">{i.insulina}</td>
                     <td className="px-4 py-3 text-sm text-right text-gray-700">{formatUi(i.cantidad_ui)}</td>
+                    {CONCENTRACIONES.map((c) => (
+                      <td key={c} className="px-4 py-3 text-sm text-right text-gray-700">{formatCount(i.viales_3ml[c])}</td>
+                    ))}
                   </tr>
                 ))
               )}

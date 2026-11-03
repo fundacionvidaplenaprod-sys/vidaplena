@@ -12,6 +12,7 @@ caso, del rango de edad (con una edad representativa del rango).
 """
 from __future__ import annotations
 
+import math
 from typing import Iterable, Optional
 
 from app.core.assisted import assisted_age
@@ -29,6 +30,20 @@ DONATION_REQUEST_ESTADOS = ("ACTIVO", "PENDIENTE_DOC", "HABILITADO")
 ADULT_MAX_AGE = 60
 OLDER_ADULT_AGE = ADULT_MAX_AGE + 1
 SIN_CLASIFICAR = "Otras (sin clasificar)"
+
+# Viales de 3 ml por concentración: la solicitud indica cuántos se necesitan de cada una. Un vial de 3 ml
+# U100 trae 300 UI; U200, 600 UI; U300, 900 UI.
+VIAL_ML = 3
+CONCENTRACIONES_UI_ML = (100, 200, 300)
+
+
+def viales_3ml(ui: float) -> dict:
+    """Viales de 3 ml necesarios para `ui` unidades, por concentración, redondeando siempre hacia arriba."""
+    ui = round(ui, 2)
+    return {
+        f"U{concentracion}": math.ceil(ui / (VIAL_ML * concentracion) - 1e-9)
+        for concentracion in CONCENTRACIONES_UI_ML
+    }
 
 
 def _age(patient) -> Optional[int]:
@@ -90,6 +105,7 @@ def build_donation_request(patients: Iterable, days: int = DISTRIBUTION_DAYS, as
         {
             "insulina": nombre,
             "cantidad_ui": round(ui, 2),
+            "viales_3ml": viales_3ml(ui),
             "beneficiarios": len(patients_per_insulin[nombre]),
         }
         # Mayor cantidad primero; «sin clasificar» siempre al final.
