@@ -36,7 +36,7 @@ from app.api import deps
 from app.db import get_db
 from app.core.text_normalize import normalize_name
 from app.core.departamentos import DEPARTAMENTOS
-from app.core.contributions import current_periodo, is_patient_current_on_contribution
+from app.core.contributions import current_periodo, is_patient_current_on_contribution, ultimos_periodos
 
 router = APIRouter()
 
@@ -184,6 +184,8 @@ async def list_active_beneficiaries(
     periodo_actual = current_periodo()
     ultimo_dia_mes_anterior = date.today().replace(day=1) - timedelta(days=1)
     periodo_anterior = current_periodo(ultimo_dia_mes_anterior)
+    # Los últimos 4 meses (el actual y los 3 anteriores), el más reciente primero.
+    periodos_visibles = ultimos_periodos()
 
     total = len(candidates)
     page = candidates[skip: skip + limit]
@@ -203,6 +205,13 @@ async def list_active_beneficiaries(
             periodo_actual=periodo_actual,
             al_dia_mes_anterior=is_patient_current_on_contribution(p, periodo_anterior, include_exonerados=True),
             periodo_anterior=periodo_anterior,
+            aportes_recientes=[
+                schemas.DepartmentalAporteMes(
+                    periodo=periodo,
+                    al_dia=is_patient_current_on_contribution(p, periodo, include_exonerados=True),
+                )
+                for periodo in periodos_visibles
+            ],
             tratamientos=[
                 schemas.PatientTreatmentResponse.model_validate(t) for t in p.treatments
             ],

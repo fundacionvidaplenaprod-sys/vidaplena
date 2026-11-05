@@ -59,6 +59,23 @@ def periodos_en_rango(desde: Optional[str], hasta: Optional[str]) -> list[str]:
     return periodos
 
 
+# Meses de aporte que ven la Coordinación Nacional y los responsables de departamento: el actual y los 3 anteriores.
+MESES_APORTE_VISIBLES = 4
+
+
+def ultimos_periodos(cantidad: int = MESES_APORTE_VISIBLES, ref_date: Optional[date] = None) -> list[str]:
+    """Los últimos `cantidad` periodos 'YYYY-MM', del mes de `ref_date` hacia atrás (el más reciente primero)."""
+    d = ref_date or date.today()
+    anio, mes = d.year, d.month
+    periodos = []
+    for _ in range(cantidad):
+        periodos.append(f"{anio}-{mes:02d}")
+        mes -= 1
+        if mes == 0:
+            anio, mes = anio - 1, 12
+    return periodos
+
+
 def periodo_anterior(ref_date: Optional[date] = None) -> str:
     """Periodo del mes anterior a `ref_date` (por defecto hoy), formato 'YYYY-MM'."""
     d = ref_date or date.today()

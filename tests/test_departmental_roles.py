@@ -679,6 +679,40 @@ async def test_al_dia_aporte_mes_anterior(client, db_session):
     assert by_id[debe_mes_anterior.id]["al_dia_mes_anterior"] is False
 
 
+def test_ultimos_periodos_cuenta_hacia_atras_y_cruza_el_cambio_de_anio():
+    from app.core.contributions import ultimos_periodos
+
+    assert ultimos_periodos(4, date(2026, 11, 4)) == ["2026-11", "2026-10", "2026-09", "2026-08"]
+    assert ultimos_periodos(4, date(2027, 2, 15)) == ["2027-02", "2027-01", "2026-12", "2026-11"]
+    assert len(ultimos_periodos()) == 4
+
+
+@pytest.mark.asyncio
+async def test_se_ven_los_aportes_de_los_ultimos_4_meses(client, db_session):
+    from app.core.contributions import ultimos_periodos
+
+    actual, mes1, mes2, mes3 = ultimos_periodos(4)
+    paga_alternado = await _crear_patient(db_session, depto="La Paz")
+    await _crear_contribution(db_session, paga_alternado, actual, estado="ACEPTADO")
+    await _crear_contribution(db_session, paga_alternado, mes2, estado="ACEPTADO")
+    await _crear_contribution(db_session, paga_alternado, mes3, estado="DECLARADO")  # declarado, aún sin validar: no cuenta
+    exonerado = await _crear_patient(db_session, depto="La Paz", exonerado_aporte=True)
+
+    for rol, depto in (("RESPONSABLE_DEPARTAMENTAL", "La Paz"), ("COORDINADOR_NACIONAL", None)):
+        await _switch_identity(db_session, rol, depto_asignado=depto)
+        resp = await client.get("/departmental/beneficiarios/activos", params={"limit": 5000})
+        assert resp.status_code == 200, resp.text
+        by_id = {item["id"]: item for item in resp.json()["items"]}
+
+        meses = by_id[paga_alternado.id]["aportes_recientes"]
+        assert [m["periodo"] for m in meses] == [actual, mes1, mes2, mes3]  # el más reciente primero
+        assert [m["al_dia"] for m in meses] == [True, False, True, False]
+        assert all(m["al_dia"] for m in by_id[exonerado.id]["aportes_recientes"])  # un exonerado no debe aporte
+        # los campos anteriores siguen
+        assert by_id[paga_alternado.id]["al_dia_aporte"] is True
+        assert by_id[paga_alternado.id]["periodo_anterior"] == mes1
+
+
 # ─────────────────────────────────────────────────────────────────────────
 #  DOCUMENTOS PENDIENTES: DETALLE DE CUÁLES FALTAN
 # ─────────────────────────────────────────────────────────────────────────

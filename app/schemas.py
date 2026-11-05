@@ -808,6 +808,11 @@ class PaginatedPatientResponse(BaseModel):
 #   9.5 MÓDULO DEPARTAMENTAL (Responsable Departamental / Coordinador Nacional)
 # ==========================================
 
+class DepartmentalAporteMes(BaseModel):
+    periodo: str  # YYYY-MM
+    al_dia: bool
+
+
 class DepartmentalBeneficiaryItem(BaseModel):
     id: int
     nombres: str
@@ -826,6 +831,9 @@ class DepartmentalBeneficiaryItem(BaseModel):
     periodo_actual: str
     al_dia_mes_anterior: bool
     periodo_anterior: str
+    # Estado del aporte en los últimos 4 meses (el actual y los 3 anteriores), el más reciente primero.
+    # `al_dia_aporte` y `al_dia_mes_anterior` se conservan por compatibilidad.
+    aportes_recientes: List[DepartmentalAporteMes] = []
     # Tratamiento de insulina prescrito (tipo y dosis diaria). Lo consulta el
     # Coordinador Nacional para planificar envíos acordes a lo que cada
     # beneficiario realmente necesita, en vez de un catálogo fijo. El

@@ -474,22 +474,26 @@ export default function DepartmentalDashboardPage() {
                                     </span>
                                 ) : (
                                     <>
-                                        <span className={`text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 ${
-                                            p.al_dia_aporte
-                                                ? 'bg-green-100 text-green-700 border-green-200'
-                                                : 'bg-red-100 text-red-700 border-red-200'
-                                        }`}>
-                                            {p.al_dia_aporte ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
-                                            {p.al_dia_aporte ? `Al día (${p.periodo_actual})` : `Sin aporte (${p.periodo_actual})`}
-                                        </span>
-                                        <span className={`text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 ${
-                                            p.al_dia_mes_anterior
-                                                ? 'bg-green-50 text-green-600 border-green-200'
-                                                : 'bg-red-50 text-red-600 border-red-200'
-                                        }`}>
-                                            {p.al_dia_mes_anterior ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
-                                            {p.al_dia_mes_anterior ? `Al día (${p.periodo_anterior})` : `Sin aporte (${p.periodo_anterior})`}
-                                        </span>
+                                        {/* Aporte de los últimos 4 meses (el actual y los 3 anteriores), el más reciente primero. */}
+                                        {(p.aportes_recientes?.length
+                                            ? p.aportes_recientes
+                                            : [
+                                                { periodo: p.periodo_actual, al_dia: p.al_dia_aporte },
+                                                { periodo: p.periodo_anterior, al_dia: p.al_dia_mes_anterior },
+                                            ]
+                                        ).map((mes, index) => (
+                                            <span
+                                                key={mes.periodo}
+                                                className={`text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1 ${
+                                                    mes.al_dia
+                                                        ? (index === 0 ? 'bg-green-100 text-green-700 border-green-200' : 'bg-green-50 text-green-600 border-green-200')
+                                                        : (index === 0 ? 'bg-red-100 text-red-700 border-red-200' : 'bg-red-50 text-red-600 border-red-200')
+                                                }`}
+                                            >
+                                                {mes.al_dia ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+                                                {mes.al_dia ? `Al día (${mes.periodo})` : `Sin aporte (${mes.periodo})`}
+                                            </span>
+                                        ))}
                                     </>
                                 )}
                                 {puedeRegistrarEntrega && (
