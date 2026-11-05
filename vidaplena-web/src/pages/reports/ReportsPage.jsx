@@ -10,6 +10,7 @@ import MorososReport from './MorososReport';
 import InsulinDistributionReport from './InsulinDistributionReport';
 import DirectorNotebookReport from './DirectorNotebookReport';
 import DonationRequestReport from './DonationRequestReport';
+import ContributionAmountsCard from './ContributionAmountsCard';
 import AssistedBeneficiariesReport from './AssistedBeneficiariesReport';
 import { useAuth } from '../../context/AuthContext';
 
@@ -221,6 +222,8 @@ export default function ReportsPage() {
           <p className="text-xs text-gray-400 mt-1">Habilitados, pend. aporte, no registrados</p>
         </div>
       </div>
+
+      <ContributionAmountsCard />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <section className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">

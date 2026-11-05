@@ -156,6 +156,75 @@ async def get_population_stats(
     }
 
 
+# --- Beneficiarios según su aporte mensual (exonerados y montos) ----------------------------
+@router.get("/contribution-amounts", summary="Cuántos beneficiarios activos pagan cada monto y cuántos están exonerados")
+async def get_contribution_amounts_report(
+    depto: str | None = Query(None, description="Filtra por departamento"),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_staff_user),
+):
+    """
+    Cuántos beneficiarios ACTIVOS pagan cada aporte mensual comprometido (Bs. 25, 50, 100…) y cuántos
+    están exonerados. Cada beneficiario cae en un solo grupo, por este orden:
+
+    1. exonerado por vulnerabilidad (evaluación socioeconómica ALTA);
+    2. exonerado por cargo (responsable departamental);
+    3. el monto de su aporte comprometido (los menores de Bs. 100 son aportes reducidos de una
+       evaluación MEDIA);
+    4. sin monto definido (todavía no descargó su compromiso).
+
+    Las personas activas del Registro Asistido no pagan (gratuidad absoluta): van aparte, sin sumarse a
+    los grupos de arriba, y se muestran para que el total cuadre con «Beneficiarios totales».
+    """
+    result = await db.execute(
+        select(
+            models.Patient.exonerado_aporte,
+            models.Patient.exonerado_por_cargo,
+            models.Patient.monto_aporte_comprometido,
+            models.Patient.depto,
+        ).where(models.Patient.estado == "ACTIVO")
+    )
+    exonerados_vulnerabilidad = exonerados_cargo = sin_monto = 0
+    por_monto: dict[float, int] = {}
+    for exonerado_aporte, exonerado_cargo, monto, depto_paciente in result.all():
+        if depto and normalize_name(depto_paciente) != normalize_name(depto):
+            continue
+        if exonerado_aporte:
+            exonerados_vulnerabilidad += 1
+        elif exonerado_cargo:
+            exonerados_cargo += 1
+        elif monto is None:
+            sin_monto += 1
+        else:
+            por_monto[float(monto)] = por_monto.get(float(monto), 0) + 1
+
+    asistidos_query = select(models.AssistedRegistration.depto).where(models.AssistedRegistration.estado == "ACTIVO")
+    asistidos = sum(
+        1
+        for (depto_asistido,) in (await db.execute(asistidos_query)).all()
+        if not depto or normalize_name(depto_asistido) == normalize_name(depto)
+    )
+
+    montos = [
+        {"monto": monto, "cantidad": cantidad, "total_bs": round(monto * cantidad, 2), "reducido": monto < 100}
+        for monto, cantidad in sorted(por_monto.items())
+    ]
+    exonerados = exonerados_vulnerabilidad + exonerados_cargo
+    pagan = sum(item["cantidad"] for item in montos)
+    return {
+        "depto": depto,
+        "total_activos": exonerados + pagan + sin_monto,
+        "exonerados_total": exonerados,
+        "exonerados_vulnerabilidad": exonerados_vulnerabilidad,
+        "exonerados_cargo": exonerados_cargo,
+        "pagan": pagan,
+        "sin_monto": sin_monto,
+        "montos": montos,
+        "ingreso_mensual_comprometido_bs": round(sum(item["total_bs"] for item in montos), 2),
+        "registro_asistido": asistidos,
+    }
+
+
 @router.get("/morosos", summary="Beneficiarios activos sin aporte aceptado en un periodo")
 async def get_morosos_report(
     periodo: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="YYYY-MM; por defecto, el mes anterior"),

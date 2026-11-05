@@ -6,12 +6,27 @@ import { getPatients } from '../../api/patients';
 import { getContributionsReview } from '../../api/contributions';
 import { listAssistedRegistrations } from '../../api/assistedRegistrations';
 import { assistedToBeneficiary, canSeeAssisted } from '../../utils/assistedAsBeneficiary';
-import { Download, Filter, Search, Columns, RefreshCcw, FileSpreadsheet } from 'lucide-react';
+import { Download, Filter, Search, Columns, RefreshCcw, FileSpreadsheet, Wallet } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
 import logoUrl from '../../assets/logo.png';
 import { imageToBase64 } from '../../utils/imageToBase64';
 import { formatComplications, formatEvolutionTime, formatTreatments } from '../../utils/beneficiaryFormat';
+
+// Grupo de aporte de un beneficiario: exonerado, registro asistido (gratuito), un monto (25, 50, 100…) o sin definir.
+const aporteGrupo = (p) => {
+  if (p._origen === 'Registro asistido') return 'ASISTIDO';
+  if (p.exonerado_aporte || p.exonerado_por_cargo) return 'EXONERADO';
+  const monto = Number(p.monto_aporte_comprometido);
+  return p.monto_aporte_comprometido != null && monto > 0 ? `MONTO-${monto}` : 'SIN_MONTO';
+};
+const aporteLabel = (p) => {
+  const grupo = aporteGrupo(p);
+  if (grupo === 'ASISTIDO') return 'Gratuito (registro asistido)';
+  if (grupo === 'EXONERADO') return p.exonerado_aporte ? 'Exonerado (vulnerabilidad)' : 'Exonerado (cargo)';
+  if (grupo === 'SIN_MONTO') return 'Sin definir';
+  return `Bs. ${Number(p.monto_aporte_comprometido)}`;
+};
 
 const ALL_COLUMNS = [
   { id: 'nombres', label: 'Nombres', getValue: p => p.nombres },
@@ -39,6 +54,7 @@ const ALL_COLUMNS = [
   // Una complicación por línea.
   { id: 'complicaciones', label: 'Complicaciones/Otros', multiline: true, getValue: p => formatComplications(p.complications) },
   { id: 'estado', label: 'Estado', getValue: p => p.estado || '-' },
+  { id: 'aporte_monto', label: 'Aporte comprometido', getValue: aporteLabel },
   { id: 'aporte_estado', label: 'Estado Aporte', getValue: p => p._aporteEstado || 'NO REALIZADO' },
   // Las personas del Registro Asistido por Situación Excepcional también son beneficiarias.
   { id: 'origen', label: 'Origen', getValue: p => p._origen || 'Ordinario' },
@@ -55,6 +71,7 @@ export default function DynamicBeneficiaryReport() {
   // States for filters
   const [searchTerm, setSearchTerm] = useState('');
   const [filterEstado, setFilterEstado] = useState('');
+  const [filterAporte, setFilterAporte] = useState('');
   const [page, setPage] = useState(1);
 
   // Columns
@@ -129,16 +146,24 @@ export default function DynamicBeneficiaryReport() {
         `${p.nombres || ""} ${p.ap_paterno || ""} ${p.ap_materno || ""} ${p.ci || ""} ${p._codigo || ""}`.toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchEstado = filterEstado === '' || p.estado === filterEstado;
+      const matchAporte = filterAporte === '' || aporteGrupo(p) === filterAporte;
 
-      return matchSearch && matchEstado;
+      return matchSearch && matchEstado && matchAporte;
     });
-  }, [patients, searchTerm, filterEstado]);
+  }, [patients, searchTerm, filterEstado, filterAporte]);
+
+  // Montos de aporte que hay entre los beneficiarios (25, 50, 100…) para el filtro «Aporte».
+  const montosDisponibles = useMemo(
+    () => [...new Set(patients.map(aporteGrupo).filter((g) => g.startsWith('MONTO-')))]
+      .sort((a, b) => Number(a.slice(6)) - Number(b.slice(6))),
+    [patients],
+  );
 
   // Vuelve a la página 1 cuando cambian los filtros/búsqueda (evita quedar
   // en una página que ya no existe para el nuevo resultado filtrado).
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, filterEstado]);
+  }, [searchTerm, filterEstado, filterAporte]);
 
   const totalPages = Math.max(1, Math.ceil(filteredPatients.length / PAGE_SIZE));
 
@@ -198,7 +223,9 @@ export default function DynamicBeneficiaryReport() {
       doc.setFont("helvetica", "normal");
       doc.text(`Fecha de generación: ${new Date().toLocaleDateString('es-BO')} ${new Date().toLocaleTimeString('es-BO')}`, margin + 30, 27);
       
-      const filterText = `Total Registros: ${filteredPatients.length} ${filterEstado ? `| Filtro Estado: ${filterEstado}` : ''}`;
+      const aporteTexto = { EXONERADO: 'Exonerados', SIN_MONTO: 'Sin monto definido', ASISTIDO: 'Registro asistido (gratuito)' }[filterAporte]
+        || (filterAporte ? `Pagan Bs. ${filterAporte.slice(6)}` : '');
+      const filterText = `Total Registros: ${filteredPatients.length} ${filterEstado ? `| Filtro Estado: ${filterEstado}` : ''}${aporteTexto ? ` | Aporte: ${aporteTexto}` : ''}`;
       doc.text(filterText, margin + 30, 32);
     };
 
@@ -289,6 +316,25 @@ export default function DynamicBeneficiaryReport() {
               <option value="PENDIENTE_DOC">Pendiente Documentos</option>
               <option value="NO_REGISTRADO">No Registrado</option>
               <option value="ASISTIDO">Registro asistido</option>
+            </select>
+          </div>
+
+          {/* Filtro por aporte: exonerados o quienes pagan un monto (25, 50, 100…) */}
+          <div className="relative">
+            <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <select
+              aria-label="Aporte"
+              value={filterAporte}
+              onChange={(e) => setFilterAporte(e.target.value)}
+              className="pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-vida-main w-full md:w-52 appearance-none bg-white"
+            >
+              <option value="">Todos los aportes</option>
+              <option value="EXONERADO">Exonerados</option>
+              {montosDisponibles.map((g) => (
+                <option key={g} value={g}>Pagan Bs. {g.slice(6)}</option>
+              ))}
+              <option value="SIN_MONTO">Sin monto definido</option>
+              <option value="ASISTIDO">Registro asistido (gratuito)</option>
             </select>
           </div>
 

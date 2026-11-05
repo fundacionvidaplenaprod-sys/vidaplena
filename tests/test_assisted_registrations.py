@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from app import models
 from app.api import deps
@@ -501,8 +501,11 @@ async def test_la_bitacora_no_guarda_datos_personales(client, superuser_token, d
     logs = (
         await db_session.execute(
             select(models.AuditLog).where(
-                models.AuditLog.entidad.in_(["assisted_registration", "assisted_referent"]),
-                models.AuditLog.entidad_id.in_([reg["id"], persona["id"]]),
+                # los pares exactos (tipo, id): el id de una persona referente puede coincidir con el de otro registro
+                or_(
+                    and_(models.AuditLog.entidad == "assisted_registration", models.AuditLog.entidad_id == reg["id"]),
+                    and_(models.AuditLog.entidad == "assisted_referent", models.AuditLog.entidad_id == persona["id"]),
+                )
             )
         )
     ).scalars().all()

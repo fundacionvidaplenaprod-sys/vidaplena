@@ -115,3 +115,17 @@ export const getDonationRequestReport = async (reparto = null) => {
     throw error.response?.data?.detail || 'Error al cargar la solicitud de donación';
   }
 };
+
+/**
+ * Cuántos beneficiarios activos pagan cada aporte mensual (Bs. 25, 50, 100…) y cuántos están exonerados.
+ * @param {string} [depto] Filtra por departamento.
+ */
+export const getContributionAmountsReport = async (depto = '') => {
+  try {
+    const response = await client.get('/reports/contribution-amounts', { params: { depto: depto || undefined } });
+    return response.data;
+  } catch (error) {
+    console.error('Error al cargar los aportes por monto:', error);
+    throw error.response?.data?.detail || 'Error al cargar los aportes por monto';
+  }
+};
