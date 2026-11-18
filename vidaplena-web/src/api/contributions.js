@@ -91,8 +91,10 @@ export const createContributionAdmin = async (patientId, { monto, periodo, fecha
 };
 
 // SUPER_ADMIN corrige el periodo (gestión) de un aporte que el beneficiario
-// declaró en un mes equivocado. `periodo` en formato AAAA-MM.
-export const updateContributionPeriodo = async (contributionId, periodo) => {
-  const response = await client.put(`/contributions/${contributionId}/periodo`, { periodo });
+// declaró en un mes equivocado. `periodo` en formato AAAA-MM. Si el beneficiario ya tiene un aporte sin
+// validar (observado o declarado) en ese periodo, el servidor responde 409 con code PERIODO_OCUPADO; con
+// `reemplazar = true` el aporte que se reasigna ocupa su lugar.
+export const updateContributionPeriodo = async (contributionId, periodo, reemplazar = false) => {
+  const response = await client.put(`/contributions/${contributionId}/periodo`, { periodo, reemplazar });
   return response.data;
 };

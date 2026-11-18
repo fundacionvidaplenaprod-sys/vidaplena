@@ -725,6 +725,9 @@ async def validate_contribution(
 # 4. SUPER_ADMIN: CORREGIR EL PERIODO (GESTIÓN) DE UN APORTE
 class ContributionPeriodoSchema(schemas.BaseModel):
     periodo: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    # Si el beneficiario ya tiene un aporte NO validado en ese periodo (observado o declarado), el que se
+    # está reasignando lo reemplaza. Sin esta confirmación expresa, el sistema avisa y no toca nada.
+    reemplazar: bool = False
 
 
 @router.put("/{contribution_id}/periodo", response_model=schemas.ContributionResponse)
@@ -741,6 +744,11 @@ async def update_contribution_periodo(
     voucher puede reasignarlo. Es exclusivo de SUPER_ADMIN: el periodo decide
     quién figura "al día" y quién entra al reparto de insulina, por lo que
     corregirlo no puede quedar al alcance de cualquier revisor.
+
+    Caso típico: el voucher de octubre fue OBSERVADO; el beneficiario sube el corregido ya en noviembre y
+    queda como un aporte de noviembre. Al reasignarlo a octubre choca con el aporte observado de octubre.
+    Con `reemplazar` el corregido ocupa su lugar (el observado se elimina, y sus datos quedan en la
+    auditoría). Un aporte ya ACEPTADO en ese periodo nunca se reemplaza.
     """
     contribution = await db.get(models.MonthlyContribution, contribution_id)
     if not contribution:
@@ -752,18 +760,55 @@ async def update_contribution_periodo(
         return contribution
 
     # Un beneficiario solo puede tener un aporte por periodo (uq_contrib_patient_periodo).
-    existente = await db.execute(
-        select(models.MonthlyContribution.id).where(
-            models.MonthlyContribution.patient_id == contribution.patient_id,
-            models.MonthlyContribution.periodo == nuevo,
-            models.MonthlyContribution.id != contribution.id,
+    existente = (
+        await db.execute(
+            select(models.MonthlyContribution).where(
+                models.MonthlyContribution.patient_id == contribution.patient_id,
+                models.MonthlyContribution.periodo == nuevo,
+                models.MonthlyContribution.id != contribution.id,
+            )
         )
-    )
-    if existente.scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Este beneficiario ya tiene un aporte registrado para el periodo {nuevo}.",
-        )
+    ).scalars().first()
+
+    reemplazado = None
+    if existente is not None:
+        if existente.estado == "ACEPTADO":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Este beneficiario ya tiene un aporte ACEPTADO para el periodo {nuevo}: no se puede reemplazar.",
+            )
+        reemplazado = {
+            "id": existente.id,
+            "estado": existente.estado,
+            "observacion_admin": existente.observacion_admin,
+            "fecha_pago": existente.fecha_pago.isoformat() if existente.fecha_pago else None,
+            "monto": float(existente.monto),
+            "metodo_pago": existente.metodo_pago,
+            "url_comprobante": existente.url_comprobante,
+        }
+        if not periodo_in.reemplazar:
+            # Aviso para que quien corrige confirme: el aporte de ese periodo está sin validar (observado o declarado).
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "PERIODO_OCUPADO",
+                    "message": (
+                        f"Este beneficiario ya tiene un aporte {existente.estado} para el periodo {nuevo}. "
+                        "Si lo reasigna, este aporte lo reemplaza."
+                    ),
+                    "periodo": nuevo,
+                    "existente": {
+                        "id": existente.id,
+                        "estado": existente.estado,
+                        "fecha_pago": reemplazado["fecha_pago"],
+                        "monto": reemplazado["monto"],
+                        "observacion_admin": existente.observacion_admin,
+                    },
+                },
+            )
+        # El corregido toma el lugar del no validado: primero se libera el periodo (restricción única).
+        await db.delete(existente)
+        await db.flush()
 
     contribution.periodo = nuevo
     db.add(
@@ -777,6 +822,8 @@ async def update_contribution_periodo(
                 "periodo_anterior": anterior,
                 "periodo_nuevo": nuevo,
                 "estado": contribution.estado,
+                # Lo que se reemplazó, para poder reconstruirlo (incluida la URL del voucher anterior).
+                **({"aporte_reemplazado": reemplazado} if reemplazado else {}),
             },
         )
     )

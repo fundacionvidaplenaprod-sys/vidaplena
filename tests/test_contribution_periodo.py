@@ -78,6 +78,9 @@ async def test_corregir_periodo_a_uno_ya_ocupado_es_409(client, superuser_token,
     resp = await client.put(f"/contributions/{aporte.id}/periodo", json={"periodo": "2026-09"})
     assert resp.status_code == 409
     assert "2026-09" in resp.json()["detail"]
+    # un aporte ya ACEPTADO nunca se reemplaza, ni siquiera confirmando
+    forzado = await client.put(f"/contributions/{aporte.id}/periodo", json={"periodo": "2026-09", "reemplazar": True})
+    assert forzado.status_code == 409
 
     assert (await _releer(db_session, aporte.id)).periodo == "2026-10"
 
@@ -136,3 +139,101 @@ async def test_mismo_periodo_no_hace_nada(client, superuser_token, db_session):
         )
     ).scalars().all()
     assert logs == []
+
+
+async def _caso_octubre_observado_y_voucher_corregido_en_noviembre(db_session):
+    """El voucher de octubre fue observado; el beneficiario sube el corregido en noviembre."""
+    patient = await _crear_patient(db_session)
+    observado = await _crear_aporte(db_session, patient, "2026-10", estado="OBSERVADO")
+    observado.observacion_admin = "El voucher no se lee"
+    observado.url_comprobante = "https://fake-storage.test/voucher_viejo.jpg"
+    db_session.add(observado)
+    corregido = await _crear_aporte(db_session, patient, "2026-11")
+    corregido.url_comprobante = "https://fake-storage.test/voucher_corregido.jpg"
+    db_session.add(corregido)
+    await db_session.commit()
+    return patient, observado, corregido
+
+
+async def _aportes_del(db_session, patient_id):
+    res = await db_session.execute(
+        select(models.MonthlyContribution)
+        .where(models.MonthlyContribution.patient_id == patient_id)
+        .order_by(models.MonthlyContribution.periodo)
+        .execution_options(populate_existing=True)
+    )
+    return res.scalars().all()
+
+
+@pytest.mark.asyncio
+async def test_reasignar_a_un_periodo_con_aporte_observado_avisa_sin_tocar_nada(client, superuser_token, db_session):
+    patient, observado, corregido = await _caso_octubre_observado_y_voucher_corregido_en_noviembre(db_session)
+
+    resp = await client.put(f"/contributions/{corregido.id}/periodo", json={"periodo": "2026-10"})
+    assert resp.status_code == 409
+    detalle = resp.json()["detail"]
+    assert detalle["code"] == "PERIODO_OCUPADO"
+    assert "OBSERVADO" in detalle["message"] and "2026-10" in detalle["message"]
+    assert detalle["existente"]["id"] == observado.id
+    assert detalle["existente"]["observacion_admin"] == "El voucher no se lee"
+
+    assert [(a.periodo, a.estado) for a in await _aportes_del(db_session, patient.id)] == [
+        ("2026-10", "OBSERVADO"), ("2026-11", "DECLARADO"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_confirmando_el_voucher_corregido_reemplaza_al_observado_y_queda_auditado(client, superuser_token, db_session):
+    patient, observado, corregido = await _caso_octubre_observado_y_voucher_corregido_en_noviembre(db_session)
+    observado_id, corregido_id = observado.id, corregido.id
+
+    resp = await client.put(f"/contributions/{corregido_id}/periodo", json={"periodo": "2026-10", "reemplazar": True})
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["id"], resp.json()["periodo"], resp.json()["estado"]) == (corregido_id, "2026-10", "DECLARADO")
+
+    # queda un solo aporte, el nuevo voucher en octubre, pendiente de revisión; noviembre queda libre
+    [unico] = await _aportes_del(db_session, patient.id)
+    assert (unico.id, unico.periodo, unico.estado) == (corregido_id, "2026-10", "DECLARADO")
+    assert unico.url_comprobante.endswith("voucher_corregido.jpg")
+    assert await db_session.get(models.MonthlyContribution, observado_id) is None
+
+    log = (
+        await db_session.execute(
+            select(models.AuditLog).where(
+                models.AuditLog.entidad == "monthly_contribution",
+                models.AuditLog.entidad_id == corregido_id,
+                models.AuditLog.accion == "CAMBIO_PERIODO_APORTE",
+            )
+        )
+    ).scalars().first()
+    assert (log.payload["periodo_anterior"], log.payload["periodo_nuevo"]) == ("2026-11", "2026-10")
+    reemplazado = log.payload["aporte_reemplazado"]
+    assert reemplazado["id"] == observado_id and reemplazado["estado"] == "OBSERVADO"
+    assert reemplazado["observacion_admin"] == "El voucher no se lee"
+    assert reemplazado["url_comprobante"].endswith("voucher_viejo.jpg")  # el voucher anterior se puede recuperar
+
+
+@pytest.mark.asyncio
+async def test_tambien_se_puede_reemplazar_un_aporte_declarado_sin_revisar_si_se_confirma(client, superuser_token, db_session):
+    patient = await _crear_patient(db_session)
+    declarado = await _crear_aporte(db_session, patient, "2026-10", estado="DECLARADO")
+    otro = await _crear_aporte(db_session, patient, "2026-11")
+
+    sin_confirmar = await client.put(f"/contributions/{otro.id}/periodo", json={"periodo": "2026-10"})
+    assert sin_confirmar.status_code == 409 and sin_confirmar.json()["detail"]["existente"]["estado"] == "DECLARADO"
+
+    ok = await client.put(f"/contributions/{otro.id}/periodo", json={"periodo": "2026-10", "reemplazar": True})
+    assert ok.status_code == 200
+    assert [a.id for a in await _aportes_del(db_session, patient.id)] == [otro.id]
+    assert declarado.id != otro.id
+
+
+@pytest.mark.asyncio
+async def test_reemplazar_solo_afecta_al_mismo_beneficiario(client, superuser_token, db_session):
+    patient, observado, corregido = await _caso_octubre_observado_y_voucher_corregido_en_noviembre(db_session)
+    otro_beneficiario = await _crear_patient(db_session)
+    ajeno = await _crear_aporte(db_session, otro_beneficiario, "2026-10", estado="OBSERVADO")
+
+    resp = await client.put(f"/contributions/{corregido.id}/periodo", json={"periodo": "2026-10", "reemplazar": True})
+    assert resp.status_code == 200
+    assert await db_session.get(models.MonthlyContribution, ajeno.id) is not None  # el aporte ajeno sigue ahí

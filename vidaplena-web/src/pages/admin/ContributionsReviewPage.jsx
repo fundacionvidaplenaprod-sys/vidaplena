@@ -24,6 +24,8 @@ export default function ContributionsReviewPage() {
     const [periodoModal, setPeriodoModal] = useState({ open: false, item: null });
     const [periodoValue, setPeriodoValue] = useState('');
     const [savingPeriodo, setSavingPeriodo] = useState(false);
+    // El periodo elegido ya tiene un aporte sin validar (p. ej. el de octubre fue observado y el corregido se subió en noviembre).
+    const [periodoConflicto, setPeriodoConflicto] = useState(null);
 
     const [registerModalOpen, setRegisterModalOpen] = useState(false);
     const [patientSearch, setPatientSearch] = useState('');
@@ -123,9 +125,10 @@ export default function ContributionsReviewPage() {
     const closePeriodoModal = () => {
         setPeriodoModal({ open: false, item: null });
         setPeriodoValue('');
+        setPeriodoConflicto(null);
     };
 
-    const submitPeriodo = async () => {
+    const submitPeriodo = async (reemplazar = false) => {
         const item = periodoModal.item;
         if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodoValue)) {
             toast.error('Seleccione un mes válido.');
@@ -137,14 +140,23 @@ export default function ContributionsReviewPage() {
         }
         try {
             setSavingPeriodo(true);
-            await updateContributionPeriodo(item.id, periodoValue);
-            toast.success(`Aporte reasignado al periodo ${periodoValue}.`);
+            await updateContributionPeriodo(item.id, periodoValue, reemplazar);
+            toast.success(
+                reemplazar
+                    ? `Aporte reasignado al periodo ${periodoValue}; reemplazó al aporte ${periodoConflicto?.existente?.estado?.toLowerCase() || 'anterior'}.`
+                    : `Aporte reasignado al periodo ${periodoValue}.`,
+            );
             closePeriodoModal();
             await fetchContributions();
         } catch (error) {
             console.error(error);
             const detail = error?.response?.data?.detail;
-            toast.error(typeof detail === 'string' ? detail : 'No se pudo cambiar el periodo.');
+            if (detail?.code === 'PERIODO_OCUPADO') {
+                // No se reemplaza nada sin que quien corrige lo confirme.
+                setPeriodoConflicto(detail);
+            } else {
+                toast.error(typeof detail === 'string' ? detail : 'No se pudo cambiar el periodo.');
+            }
         } finally {
             setSavingPeriodo(false);
         }
@@ -398,9 +410,31 @@ export default function ContributionsReviewPage() {
                         <input
                             type="month"
                             value={periodoValue}
-                            onChange={(event) => setPeriodoValue(event.target.value)}
+                            onChange={(event) => {
+                                setPeriodoValue(event.target.value);
+                                setPeriodoConflicto(null);
+                            }}
                             className="w-full border rounded-lg px-3 py-2 text-sm"
                         />
+                        {periodoConflicto && (
+                            <div role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                <p className="font-semibold">{periodoConflicto.message}</p>
+                                <p className="mt-1">
+                                    Aporte actual de {periodoConflicto.periodo}: <b>{periodoConflicto.existente.estado}</b>
+                                    {periodoConflicto.existente.fecha_pago ? ` · pago del ${periodoConflicto.existente.fecha_pago}` : ''}
+                                    {periodoConflicto.existente.observacion_admin ? ` · «${periodoConflicto.existente.observacion_admin}»` : ''}.
+                                    Se elimina y queda registrado en la auditoría; el voucher que está reasignando pasa a revisión en {periodoConflicto.periodo}.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => submitPeriodo(true)}
+                                    disabled={savingPeriodo}
+                                    className="mt-2 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold disabled:opacity-50"
+                                >
+                                    {savingPeriodo ? 'Guardando...' : `Reemplazar el de ${periodoConflicto.periodo} con este voucher`}
+                                </button>
+                            </div>
+                        )}
                         <div className="mt-5 flex justify-end gap-2">
                             <button
                                 type="button"
@@ -412,7 +446,7 @@ export default function ContributionsReviewPage() {
                             </button>
                             <button
                                 type="button"
-                                onClick={submitPeriodo}
+                                onClick={() => submitPeriodo(false)}
                                 disabled={savingPeriodo || !periodoValue}
                                 className="px-4 py-2 rounded-lg bg-vida-main hover:bg-vida-hover text-white disabled:opacity-50"
                             >
