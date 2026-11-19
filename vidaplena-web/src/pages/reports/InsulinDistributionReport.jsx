@@ -32,7 +32,7 @@ const FILTERS = [
 // los días del reporte (166 % de 60 días = 100 días): no se puede entregar medio pen.
 const diasCubiertos = (cobertura, dias) => Math.round((cobertura * dias) / 100);
 
-// «85–125 %»: margen de cobertura de la insulina (el mismo para todos los beneficiarios).
+// «80–120 %»: margen de cobertura del grupo de prioridad del beneficiario.
 const margenTexto = (i) =>
     i.margen_min_pct !== undefined && i.margen_max_pct !== undefined
         ? `${i.margen_min_pct}–${i.margen_max_pct} %`
@@ -49,7 +49,7 @@ const estadoMargen = (i) => {
 
 const MOTIVO_BAJO_MINIMO = {
     STOCK: 'falta stock de su insulina y de sus sustitutos',
-    ENVASE: 'el envase siguiente pasaría del máximo de su margen',
+    ENVASE: 'el envase siguiente pasaría del 120 %',
     OTRO: 'revisar',
 };
 
@@ -189,13 +189,12 @@ export default function InsulinDistributionReport() {
 
         // 1) Resumen por insulina
         autoTable(doc, {
-            head: [['Insulina', 'Stock (UI)', 'Necesidad', 'Reserva', 'Margen', 'Asignado', 'Falta', 'Sobra', 'Sin cubrir']],
+            head: [['Insulina', 'Stock (UI)', 'Necesidad', 'Reserva', 'Asignado', 'Falta', 'Sobra', 'Sin cubrir']],
             body: data.insulinas.map((s) => [
                 s.insulina,
                 fmt(s.stock_ui),
                 fmt(s.necesidad_ui),
                 fmt(s.reserva_ui),
-                margenTexto(s) || '-',
                 fmt(s.asignado_ui),
                 fmt(s.faltante_ui),
                 fmt(s.sobrante_ui),
@@ -388,8 +387,6 @@ export default function InsulinDistributionReport() {
             'Necesidad (UI)': Math.round(s.necesidad_ui),
             'Reserva guardada (UI)': Math.round(s.reserva_ui),
             'Reserva liberada (UI)': Math.round(s.reserva_liberada_ui || 0),
-            'Margen aplicado': margenTexto(s),
-            'Falta stock': s.en_escasez ? 'Sí' : 'No',
             'Asignado (UI)': Math.round(s.asignado_ui),
             'Cubierto con otra insulina (UI)': Math.round(s.sustituido_ui),
             'Entregado como sustituto (UI)': Math.round(s.entregado_como_sustituto_ui),
@@ -451,8 +448,8 @@ export default function InsulinDistributionReport() {
                     </h2>
                     <p className="text-sm text-gray-500 max-w-3xl">
                         Sube el Excel con la insulina que llegó. Se calcula el reparto a 60 días con las reglas
-                        definidas (menores primero, reparto parejo entre los demás con un mismo margen de cobertura
-                        por insulina; Lantus para menores, reserva del 3 % y sustituciones) para los
+                        definidas (menores, tipo 1, adultos mayores con tipo 2 y el resto, cada grupo con su
+                        margen de cobertura; Lantus para menores, reserva del 5 % y sustituciones) para los
                         beneficiarios <b>activos, pendientes de documentos y habilitados</b>, sin exigir aporte
                         al día. Es solo un reporte: no guarda nada ni descuenta stock.
                     </p>
@@ -553,7 +550,7 @@ export default function InsulinDistributionReport() {
                     {data.asistidos_incluidos > 0 && (
                         <div className="mb-6 border border-blue-100 bg-blue-50 rounded-xl p-4 text-sm text-blue-800">
                             <b>{data.asistidos_incluidos}</b> persona(s) del <b>Registro Asistido por Situación Excepcional</b> entran
-                            en este reparto, con las mismas reglas (menores primero, reparto parejo) y sin exigir aporte: su
+                            en este reparto, con las mismas reglas y prioridades (edad y tipo de diabetes) y sin exigir aporte: su
                             beneficio es el registro y la dotación gratuita. Se identifican por su Código Interno. Solo entran las que
                             tienen insulina con dosis diaria registrada; las demás figuran entre los excluidos.
                         </div>
@@ -673,9 +670,9 @@ export default function InsulinDistributionReport() {
                                 Por debajo del mínimo de su margen ({data.bajo_minimo.length})
                             </h3>
                             <p className="text-sm text-red-800 mb-3">
-                                Estos tratamientos no llegan al mínimo del margen de su insulina. «Falta stock» quiere decir que no
+                                Estos tratamientos no llegan al mínimo de su grupo. «Falta stock» quiere decir que no
                                 queda envase de su insulina ni de sus sustitutos (hay que conseguir esa insulina);
-                                «el envase siguiente pasaría del máximo de su margen» es un límite del envase entero.
+                                «el envase siguiente pasaría del 120 %» es un límite del envase entero.
                             </p>
                             <div className="overflow-x-auto bg-white border border-red-100 rounded-lg max-h-64 overflow-y-auto">
                                 <table className="w-full">
@@ -722,7 +719,7 @@ export default function InsulinDistributionReport() {
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b border-gray-100">
                                 <tr>
-                                    {['Insulina', 'Stock', 'Necesidad', 'Reserva', 'Margen', 'Asignado', 'Sustitución', 'Falta', 'Sobra', 'Sin cubrir'].map((h) => (
+                                    {['Insulina', 'Stock', 'Necesidad', 'Reserva', 'Asignado', 'Sustitución', 'Falta', 'Sobra', 'Sin cubrir'].map((h) => (
                                         <th key={h} className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
                                             {h}
                                         </th>
@@ -736,16 +733,6 @@ export default function InsulinDistributionReport() {
                                         <td className="px-4 py-3 text-sm text-gray-700">{fmt(s.stock_ui)}</td>
                                         <td className="px-4 py-3 text-sm text-gray-700">{fmt(s.necesidad_ui)}</td>
                                         <td className="px-4 py-3 text-sm text-gray-700">{fmt(s.reserva_ui)}</td>
-                                        <td className="px-4 py-3 text-sm text-gray-700">
-                                            {margenTexto(s) || '—'}
-                                            {s.en_escasez !== undefined && s.en_escasez !== null && (
-                                                <span
-                                                    className={`block text-[10px] font-semibold ${s.en_escasez ? 'text-red-600' : 'text-green-600'}`}
-                                                >
-                                                    {s.en_escasez ? 'falta stock' : 'alcanza'}
-                                                </span>
-                                            )}
-                                        </td>
                                         <td className="px-4 py-3 text-sm text-gray-700">{fmt(s.asignado_ui)}</td>
                                         <td className="px-4 py-3 text-xs text-gray-600">
                                             {s.sustituido_ui > 0 && <span>−{fmt(s.sustituido_ui)} cubiertas con otra </span>}
@@ -775,18 +762,18 @@ export default function InsulinDistributionReport() {
                         tiene 300 UI: depende de la concentración (U100 = 300 UI, U200 = 600 UI, U300 = 900 UI), por
                         eso cada envase muestra sus UI. Con la reserva ya separada, los <b>viales de 10 ml</b>
                         (1.000 UI) se reparten primero a quienes usan una insulina rápida con <b>14 a 20 UI/día</b>
-                        (un vial cubre del 83 % al 119 % de 60 días). Después el <b>margen de cobertura es el mismo
-                        para todos</b> y lo define el stock de cada insulina (ya apartada la reserva): si <b>falta</b>,
-                        el margen es <b>75–100 %</b>; si <b>alcanza</b>, <b>85–125 %</b>. El máximo es un tope: nadie
-                        recibe más. Los <b>menores</b> se cubren primero y por completo. Con los demás el reparto es
-                        <b> parejo</b>: si falta insulina, los envases se dan de a uno a quien lleva menos cobertura,
-                        así todos quedan con un porcentaje parecido y nadie queda en 0 % mientras haya envases; el
-                        grupo de prioridad (tipo 1, adulto mayor, tipo 2) ya no da ventaja. Cuando los envases
-                        enteros no permiten caer dentro del margen, manda el mínimo si cabe bajo el máximo y, si no,
-                        el tratamiento queda marcado como fuera de margen (p. ej. 8 UI/día: con stock suficiente,
-                        2 pens = 125 % antes que 1 pen = 62,5 %). Una dosis muy baja, a la que ni un envase cabe
-                        en el máximo, recibe un único envase (el más chico). La
-                        reserva (3 %) se aparta antes de repartir y se libera <b>solo lo necesario</b> para que
+                        (un vial cubre del 83 % al 119 % de 60 días). Después cada grupo tiene un <b>margen de
+                        cobertura que no se debe romper</b> y se atiende en este orden: <b>1.</b> menores de 18 (80–120 %, con su
+                        insulina específica), <b>2.</b> tipo 1 (75–110 %), <b>3.</b> adultos mayores con tipo 2
+                        (65–100 %) y <b>4.</b> tipo 2 y el resto (65–100 %). Un grupo no cede stock a otro de menor
+                        prioridad: si una insulina no alcanza, el que queda por debajo de su mínimo (o en 0 %) es
+                        el último grupo. Cuando los envases enteros no permiten caer dentro del margen, manda el
+                        mínimo (se entrega el menor exceso) y el tratamiento se marca como fuera de margen, pero
+                        <b> nadie recibe más del 120 %</b>: si no hay forma de llegar al mínimo sin pasarlo, queda
+                        por debajo. En menores, si ninguna combinación cae entre 80 % y 120 %, se entrega lo más
+                        cercano al 100 % (p. ej. 8 UI/día: 2 pens = 125 % antes que 1 pen = 62,5 %). Una dosis muy
+                        baja, a la que ni un envase cabe en el 120 %, recibe un único envase (el más chico). La
+                        reserva (5 %) se aparta antes de repartir y se libera <b>solo lo necesario</b> para que
                         nadie quede en 0 % ni bajo el mínimo de su margen; lo que no hace falta queda guardado.
                         Si falta una insulina que otros reciben como sustituto, esos pasan a otra alternativa y le
                         dejan los envases. Los que aun así quedan bajo el mínimo se listan con lo que les falta.
@@ -911,7 +898,7 @@ export default function InsulinDistributionReport() {
                                                 {i.fuera_de_margen && i.cobertura_pct > (i.margen_max_pct ?? 100) && (
                                                     <span className="block text-[10px] font-semibold text-amber-600">
                                                         {i.envase_minimo
-                                                            ? `dosis muy baja: un solo envase pasa de ${i.margen_max_pct} %`
+                                                            ? 'dosis muy baja: un solo envase pasa del 120 %'
                                                             : `pasa de ${i.margen_max_pct} % (envase entero)`}
                                                     </span>
                                                 )}

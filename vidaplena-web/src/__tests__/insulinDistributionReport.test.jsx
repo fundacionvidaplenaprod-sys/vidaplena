@@ -56,7 +56,6 @@ const report = () => ({
       insulina: 'Glargina', stock_ui: 10000, necesidad_ui: 12000, reserva_ui: 1050, asignado_ui: 8000,
       faltante_ui: 0, sobrante_ui: 950, pacientes_con_necesidad: 3, pacientes_sin_cubrir: 1,
       sustituido_ui: 600, entregado_como_sustituto_ui: 0,
-      margen_min_pct: 75, margen_max_pct: 100, en_escasez: true,
     },
   ],
   reserva: [{ lot_id: 7, insulina: 'Glargina', producto: 'Abasaglar', unidades: 4, ui: 1050, lote: 'LOTE-ABA', fecha_venc: '2027-01-01' }],
@@ -153,8 +152,6 @@ describe('InsulinDistributionReport', () => {
     expect(screen.getByText('3. Adultos mayores con diabetes tipo 2')).toBeInTheDocument();
     expect(screen.getByText('90–120 %')).toBeInTheDocument();
     expect(screen.getByText('bajo el mínimo de 75 %')).toBeInTheDocument();
-    // La insulina muestra el margen único que se le aplicó y si faltaba stock.
-    expect(screen.getByText('falta stock', { selector: 'span' })).toBeInTheDocument();
     // Fichas con dos insulinas del mismo grupo: se avisan para corregirlas.
     // Tratamientos bajo el mínimo: con lo que les falta y por qué.
     expect(screen.getByText('Por debajo del mínimo de su margen (1)')).toBeInTheDocument();
