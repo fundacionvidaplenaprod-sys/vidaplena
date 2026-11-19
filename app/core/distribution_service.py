@@ -316,14 +316,16 @@ def plan_priority_bands(pacientes: Sequence[schemas.DistributionReportPatient]) 
     """Por grupo de prioridad: cuántos tratamientos quedaron dentro, bajo el mínimo o sobre el máximo."""
     out: List[schemas.DistributionPriorityBand] = []
     for group in sorted(COVERAGE_BANDS):
-        lo, hi = COVERAGE_BANDS[group]
         members = [p for p in pacientes if p.grupo_prioridad == group]
         rows = [i for p in members for i in p.insulinas]
         need = sum(i.necesidad_ui for i in rows)
         got = sum(i.entregado_ui for i in rows)
         eps = 0.05  # los porcentajes del esquema van redondeados a 1 decimal
-        bajo = sum(1 for i in rows if i.cobertura_pct < lo * 100 - eps)
-        sobre = sum(1 for i in rows if i.cobertura_pct > hi * 100 + eps)
+        # El margen es el de cada tratamiento (único por insulina, según su stock): el grupo muestra el rango.
+        bajo = sum(1 for i in rows if i.cobertura_pct < i.margen_min_pct - eps)
+        sobre = sum(1 for i in rows if i.cobertura_pct > i.margen_max_pct + eps)
+        lo = min((i.margen_min_pct for i in rows), default=COVERAGE_BANDS[group][0] * 100) / 100
+        hi = max((i.margen_max_pct for i in rows), default=COVERAGE_BANDS[group][1] * 100) / 100
         out.append(
             schemas.DistributionPriorityBand(
                 grupo=group,
@@ -357,6 +359,9 @@ def plan_ingredient_items(plan) -> List[schemas.DistributionIngredientSummary]:
             pacientes_sin_cubrir=s.patients_unmet,
             sustituido_ui=s.substituted_out_ui,
             entregado_como_sustituto_ui=s.substituted_in_ui,
+            margen_min_pct=None if s.band_min is None else round(100 * s.band_min, 1),
+            margen_max_pct=None if s.band_max is None else round(100 * s.band_max, 1),
+            en_escasez=s.shortage,
         )
         for s in plan.ingredients
     ]

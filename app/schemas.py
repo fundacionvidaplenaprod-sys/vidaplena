@@ -655,6 +655,10 @@ class DistributionIngredientSummary(BaseModel):
     sustituido_ui: float = 0.0  # necesidad cubierta con otra insulina
     entregado_como_sustituto_ui: float = 0.0  # UI entregadas en lugar de otra insulina
     reserva_liberada_ui: float = 0.0  # UI de la reserva que se repartieron para llegar a los mínimos
+    # Margen único que se aplicó a esta insulina (75-100 % si faltaba stock, 85-125 % si alcanzaba).
+    margen_min_pct: Optional[float] = None
+    margen_max_pct: Optional[float] = None
+    en_escasez: Optional[bool] = None
 
 
 class DistributionReserveItem(BaseModel):

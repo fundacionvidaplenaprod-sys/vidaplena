@@ -1,6 +1,8 @@
 """Pruebas del motor de reparto de insulinas (puro, sin base de datos)."""
 from datetime import date
 
+import pytest
+
 from app.core.insulin_distribution import (
     DISTRIBUTION_DAYS as DAYS,
     INSULIN_GROUPS,
@@ -14,8 +16,19 @@ from app.core.insulin_distribution import (
     LotInput,
     PatientInput,
     is_type1_diabetes,
-    plan_distribution,
+    plan_distribution as _plan_distribution,
 )
+
+
+def plan_distribution(lots, patients, *args, **kwargs):
+    """Las pruebas de este archivo describen las reglas por grupos (margen por prioridad, tope 120 %).
+
+    Las reglas vigentes (margen único por insulina, menores primero, reparto parejo) se prueban en
+    `tests/test_distribution_uniform_bands.py`.
+    """
+    if "bands" not in kwargs:
+        kwargs["bands"] = COVERAGE_BANDS
+    return _plan_distribution(lots, patients, *args, **kwargs)
 
 
 def _lot(lot_id, ing, label, ui, units, expiry=None):
@@ -34,21 +47,21 @@ def _given(plan, pid, ing):
     return next(r.given_ui for r in plan.patients[pid] if r.ingredient == ing)
 
 
-def test_reserve_is_five_percent_of_total_and_never_assigned():
-    assert RESERVE_PCT == 0.05
+def test_reserve_is_three_percent_of_total_and_never_assigned():
+    assert RESERVE_PCT == 0.03
     # Stock 10.000 UI, demanda 5.000: sobra de sobra, la reserva sale del sobrante.
     lots = [_lot(1, "Aspart", "NovoRapid", 1000, 10)]
     pats = [PatientInput(1, False, {"Aspart": 5000 / DAYS})]
     plan = plan_distribution(lots, pats)
-    assert plan.reserve_pct == 0.05
-    assert plan.reserve_target_ui == 500
+    assert plan.reserve_pct == 0.03
+    assert plan.reserve_target_ui == pytest.approx(300)
     assert plan.reserve_ui == 1000  # un envase entero de 1.000 UI
     assert plan.allocated_ui == 5000
     assert sum(a.units for a in plan.assignments) + sum(r.units for r in plan.reserve_lots) <= 10
 
 
 def test_reserve_cuts_allocation_when_demand_exceeds_stock():
-    # Demanda = stock = 10.000. Para reservar el 5 % (un envase de 1.000 UI) se recorta lo asignado.
+    # Demanda = stock = 10.000. Para reservar el 3 % (un envase de 1.000 UI) se recorta lo asignado.
     lots = [_lot(1, "Aspart", "NovoRapid", 1000, 10)]
     pats = [PatientInput(1, False, {"Aspart": 10000 / DAYS})]
     plan = plan_distribution(lots, pats)
@@ -63,11 +76,11 @@ def test_reserve_comes_first_from_insulins_nobody_needs():
     ]
     pats = [PatientInput(1, False, {"Aspart": 10000 / DAYS})]
     plan = plan_distribution(lots, pats)
-    assert plan.reserve_target_ui == 950  # 5 % de 19.000 UI
+    assert plan.reserve_target_ui == pytest.approx(570)  # 3 % de 19.000 UI
     by_ing = {s.ingredient: s for s in plan.ingredients}
     assert by_ing["Aspart"].reserve_ui == 0
-    # Reserva de 950 UI en envases de 900 UI: 2 envases = 1.800, no los 9.000.
-    assert 950 <= by_ing["Glulisina"].reserve_ui <= 950 + 900
+    # Reserva de 570 UI en envases de 900 UI: 1 envase, no los 9.000.
+    assert 570 <= by_ing["Glulisina"].reserve_ui <= 570 + 900
     assert plan.allocated_ui == 10000
 
 
@@ -1160,7 +1173,7 @@ def test_nobody_is_left_at_zero_while_there_are_pens():
 
 
 def test_the_bands_never_touch_the_reserve_when_release_is_off():
-    lots = [_lot(1, "NPH", "Insulatard", 300, 10)]  # 3.000 UI, reserva 5 % = 150 -> 1 envase de 300
+    lots = [_lot(1, "NPH", "Insulatard", 300, 10)]  # 3.000 UI, reserva 3 % = 90 -> 1 envase de 300
     pats = [PatientInput(i, False, {"NPH": 3000 / DAYS}) for i in range(1, 4)]
     plan = plan_distribution(lots, pats, release_reserve=False)
     assert plan.reserve_ui >= 300

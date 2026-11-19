@@ -8,30 +8,29 @@ Reglas:
   * Todo se calcula en UI (un envase de Toujeo U300 1,5 ml tiene 450 UI; uno
     de Lantus 3 ml, 300 UI) y recién al final se convierte a envases enteros.
     La dosis diaria nunca depende de la concentración.
-  * Horizonte de 60 días. Reserva: el 5 % del total de UI se aparta antes de repartir y se
+  * Horizonte de 60 días. Reserva: el 3 % del total de UI se aparta antes de repartir y se
     cubre primero con el sobrante de cada insulina. La reserva se libera solo en la medida
     necesaria: cuando todo está repartido, a los tratamientos que siguen bajo el mínimo de su
     banda (o en 0 %) se les completa con envases de la reserva, en orden de prioridad y con el
     menor número de envases posible. Lo que no hace falta queda guardado.
-  * Prioridad y margen de cobertura (cobertura = UI recibidas / UI necesarias en el
-    periodo). Cada grupo tiene una banda que NO se debe romper:
-        1. Menores de 18 años ........ 80 % - 120 %   y su insulina específica
-        2. Diabéticos tipo 1 ......... 75 % - 110 %
-        3. Adultos mayores, tipo 2 ... 65 % - 100 %
-        4. Diabéticos tipo 2 ......... 65 % - 100 %
-    Los grupos se atienden en ese orden y con prioridad estricta: menores y tipo 1
-    reciben primero el mínimo de su banda; en los grupos 3 y 4 entran primero los que
-    caben en su banda, luego un envase a cada uno (nadie queda en 0 % mientras haya
-    envases) y luego hasta el mínimo. Con lo que sobra se acerca a cada uno al 100 %
-    sin pasar del máximo. Los envases enteros no siempre permiten caer en la banda:
-    entonces gana la garantía del mínimo (el mínimo cubierto con el menor exceso) y el
-    caso queda marcado, pero NUNCA por encima del 120 % (`MAX_COVERAGE`): si para llegar
-    al mínimo hay que pasar del 120 %, se queda por debajo del mínimo. Para menores, cuando
-    ningún envase cae entre su mínimo y el 120 %, se elige lo más cercano al 100 % (p. ej.
-    8 UI/día = 480 UI: 2 pens = 125 % antes que 1 pen = 62,5 %). Otra excepción:
-    si ningún envase de esa insulina (ni de sus sustitutos) cabe en el 120 % —una dosis de
-    3 o 4 UI/día frente a un pen de 300 UI—, recibe un solo envase del tamaño más chico,
-    porque un envase no se parte; el caso queda marcado (`min_pen_exception`).
+  * Margen de cobertura (cobertura = UI recibidas / UI necesarias en el periodo), IGUAL PARA
+    TODOS los beneficiarios y definido por insulina según su stock:
+        - si de esa insulina FALTA stock (stock menos reserva < necesidad) ... 75 % - 100 %
+        - si ALCANZA ........................................................ 85 % - 125 %
+    El máximo es un tope: nadie recibe más (`BAND_SHORTAGE`, `BAND_SUFFICIENT`). Los menores se
+    cubren primero y por completo (mínimo y luego hasta el 100 %). Con el resto el reparto es
+    PAREJO: donde alcanza, cada uno recibe su mínimo y se acerca al 100 %; donde falta stock,
+    los envases se reparten de a uno al tratamiento con menor cobertura, de modo que todos
+    quedan con un porcentaje parecido y nadie queda en 0 % mientras haya envases. Los grupos de
+    prioridad (menores, tipo 1, adultos mayores, tipo 2) solo se informan: ya no dan ventaja,
+    salvo los menores. Los envases enteros no siempre permiten caer en el margen: entonces gana
+    la garantía del mínimo cuando cabe bajo el máximo y, si no, el caso queda bajo el mínimo y
+    marcado. Excepción: si ningún envase de esa insulina (ni de sus sustitutos) cabe en el
+    máximo —una dosis de 3 o 4 UI/día frente a un pen de 300 UI—, recibe un solo envase del
+    tamaño más chico, porque un envase no se parte; el caso queda marcado (`min_pen_exception`).
+  * Reglas anteriores: pasando `bands` (margen por grupo de prioridad) se usa la prioridad
+    estricta por grupos con el tope del 120 % (`COVERAGE_BANDS`, `MAX_COVERAGE`). Solo se
+    conserva para comparar y para las pruebas del motor.
   * Menores: reciben su insulina específica todo lo que haya y solo el faltante sale de la
     tabla de sustituciones (la NPH puede pasar a degludec o detemir, nunca al revés). Un adulto
     pasa entero al sustituto cuando este solo alcanza su banda.
@@ -72,7 +71,7 @@ from datetime import date
 from typing import Dict, List, Optional, Sequence, Tuple
 
 DISTRIBUTION_DAYS = 60
-RESERVE_PCT = 0.05
+RESERVE_PCT = 0.03
 MINOR_AGE = 18
 OLDER_ADULT_AGE = 60
 # insulina canónica -> fragmentos del nombre comercial que se reservan a menores
@@ -89,8 +88,11 @@ COVERAGE_BANDS: Dict[int, Tuple[float, float]] = {
     PRIORITY_OLDER_TYPE2: (0.65, 1.00),
     PRIORITY_TYPE2: (0.65, 1.00),
 }
-# Tope absoluto de cobertura: nadie recibe más del 120 % de su necesidad del periodo.
+# Tope absoluto de cobertura de las reglas anteriores (por grupos): nadie recibe más del 120 %.
 MAX_COVERAGE = 1.20
+# Margen único para todos los beneficiarios, según el stock de la insulina (mínimo, máximo).
+BAND_SHORTAGE = (0.75, 1.00)  # falta stock de esa insulina
+BAND_SUFFICIENT = (0.85, 1.25)  # alcanza
 # Viales (10 ml = 1.000 UI): se reparten primero, ya separada la reserva, a quienes usan una
 # insulina rápida con una dosis entre estos dos valores (UI/día); a esa dosis un vial cubre
 # del 83 % al 119 % de los 60 días. El resto del reparto sigue las bandas de cada grupo.
@@ -216,6 +218,10 @@ class IngredientSummary:
     leftover_ui: float
     patients_with_need: int
     patients_unmet: int
+    # Margen de cobertura que se aplicó a esta insulina y si faltaba stock (None con las reglas por grupos).
+    band_min: Optional[float] = None
+    band_max: Optional[float] = None
+    shortage: Optional[bool] = None
     # Parte de la necesidad (en UI de esta insulina) cubierta con otra insulina,
     # y UI de esta insulina entregadas como sustituto de otra.
     substituted_out_ui: float = 0.0
@@ -664,8 +670,10 @@ class _Entry:
     need: float
     lo: float
     hi: float
-    cap: float  # tope absoluto (MAX_COVERAGE de la necesidad)
+    cap: float  # tope absoluto (en las reglas por grupos, MAX_COVERAGE de la necesidad; si no, el máximo)
     daily: float = 0.0  # dosis diaria usada en el cálculo (UI/día)
+    lo_f: float = 0.0  # margen aplicado, como fracción de la necesidad
+    hi_f: float = 1.0
     own: float = 0.0
     subs: Dict[str, List[float]] = field(default_factory=dict)  # destino -> [UI del destino, UI que cubre]
     min_pen: bool = False  # recibió un envase sobre el tope porque ninguno cabía
@@ -689,8 +697,10 @@ def plan_distribution(
 ) -> DistributionPlan:
     """Reparte la donación entre los pacientes. Ver el encabezado del módulo para las reglas.
 
-    La prioridad es estricta: un grupo no cede stock a otro de menor prioridad para llegar a
-    su mínimo. Si una insulina no alcanza, quedan por debajo (incluso en 0 %) los últimos.
+    Menores primero y reparto parejo entre los demás, con un margen único por insulina
+    (`BAND_SHORTAGE` / `BAND_SUFFICIENT`). Con `bands` (margen por grupo) se aplican las reglas
+    anteriores: prioridad estricta por grupos, en la que si una insulina no alcanza quedan por
+    debajo (incluso en 0 %) los últimos.
 
     `release_reserve`: con True, lo que haga falta de la reserva se reparte al final a los
     tratamientos que siguen bajo su mínimo; con False la reserva no se toca. Si aun así alguien
@@ -699,7 +709,8 @@ def plan_distribution(
     """
     preferred_map = MINOR_PREFERRED_BRANDS if minor_preferred_brands is None else minor_preferred_brands
     rules = DEFAULT_SUBSTITUTIONS if substitutions is None else tuple(substitutions)
-    band_of = COVERAGE_BANDS if bands is None else bands
+    legacy = bands is not None  # reglas anteriores: margen por grupo y prioridad estricta
+    band_of = bands if legacy else None
     for rule in rules:
         if (
             rule.target in PREMIX_INSULINS
@@ -726,7 +737,7 @@ def plan_distribution(
     applied: Dict[Tuple[int, str], float] = {}
     entries: List[_Entry] = []
     for p in patients:
-        lo_f, hi_f = band_of[p.group]
+        lo_f, hi_f = band_of[p.group] if legacy else BAND_SUFFICIENT
         for ing, daily in effective[p.patient_id].items():
             if not daily or daily <= 0:
                 continue
@@ -743,8 +754,8 @@ def plan_distribution(
             need = daily * days
             entries.append(
                 _Entry(
-                    p.patient_id, ing, p.group, p.is_minor, need, need * lo_f, need * hi_f, need * MAX_COVERAGE,
-                    daily=daily,
+                    p.patient_id, ing, p.group, p.is_minor, need, need * lo_f, need * hi_f,
+                    need * (MAX_COVERAGE if legacy else hi_f), daily=daily, lo_f=lo_f, hi_f=hi_f,
                 )
             )
 
@@ -777,6 +788,18 @@ def plan_distribution(
         adult_class = {l.lot_id: (1 if _is_preferred(l, preferred) else 0) for l in base_order}
         minor_orders[ing] = _Order(sorted(base_order, key=lambda l: minor_class[l.lot_id]), minor_class)
         adult_orders[ing] = _Order(sorted(base_order, key=lambda l: adult_class[l.lot_id]), adult_class)
+
+    # Margen único para todos, según el stock de cada insulina una vez apartada la reserva: si
+    # falta, 75-100 %; si alcanza, 85-125 %. El máximo es también el tope de envases.
+    shortage_ings: set = set()
+    if not legacy:
+        for ing, need_total in needs_by_ing.items():
+            usable = stock.get(ing, 0.0) - reserve_ui_by_ing.get(ing, 0.0)
+            if usable < need_total - _EPS:
+                shortage_ings.add(ing)
+        for e in entries:
+            e.lo_f, e.hi_f = BAND_SHORTAGE if e.ing in shortage_ings else BAND_SUFFICIENT
+            e.lo, e.hi, e.cap = e.need * e.lo_f, e.need * e.hi_f, e.need * e.hi_f
 
     def order_for(entry: _Entry, ing: str) -> Sequence[LotInput]:
         orders = minor_orders if entry.is_minor else adult_orders
@@ -959,6 +982,47 @@ def plan_distribution(
                 apply(entry, ing, factor, combo)
             return
 
+    def parejo(group: List[_Entry]) -> None:
+        """Reparto parejo con stock que no alcanza: de a un envase al tratamiento con menor cobertura.
+
+        Cada vuelta le da el envase más chico que le cabe bajo su máximo al que va más atrasado
+        (cobertura = recibido / necesario), con su insulina y, si no hay, la de la tabla. Así todos
+        quedan con un porcentaje parecido y nadie queda en 0 % mientras haya envases. Un
+        tratamiento ya iniciado se completa con las insulinas que ya usa.
+        """
+
+        def next_step(e: _Entry) -> Optional[Tuple[str, float, LotInput]]:
+            room = e.hi - e.covered
+            if room <= _EPS or e.need - e.covered <= _EPS:
+                return None
+            cands = candidates(e)
+            used = {ing for ing in e.subs} | ({e.ing} if e.own > _EPS else set())
+            if used:
+                cands = [(ing, f) for ing, f in cands if ing in used]
+            for ing, factor in cands:
+                fits = [
+                    (l.ui_per_unit, k, l)
+                    for k, l in enumerate(order_for(e, ing))
+                    if avail[l.lot_id] > 0 and l.ui_per_unit / factor <= room + _EPS
+                ]
+                if fits:
+                    return ing, factor, min(fits, key=lambda x: (x[0], x[1]))[2]
+            return None
+
+        while True:
+            pending = sorted(
+                (e for e in group if e.covered < e.hi - _EPS),
+                key=lambda e: (e.covered / e.need if e.need else 1.0, e.need, e.pid, e.ing),
+            )
+            for e in pending:
+                step = next_step(e)
+                if step is not None:
+                    ing, factor, lot = step
+                    apply(e, ing, factor, {lot.lot_id: 1})
+                    break
+            else:
+                return
+
     def vial_phase() -> None:
         """Antes que nada: un vial a cada tratamiento de insulina rápida con 14-20 UI/día.
 
@@ -970,7 +1034,10 @@ def plan_distribution(
         lo_dose, hi_dose = VIAL_DOSE_RANGE
         rapid = INSULIN_GROUPS[GROUP_RAPID]
         cands = [e for e in entries if e.ing in rapid and lo_dose - _EPS <= e.daily <= hi_dose + _EPS]
-        cands.sort(key=lambda e: (e.group, abs(VIAL_MIN_UI / e.need - 1.0), e.pid, e.ing))
+        # Reglas por grupos: en orden de prioridad. Reglas nuevas: los menores y luego el resto.
+        cands.sort(
+            key=lambda e: (e.group if legacy else (0 if e.is_minor else 1), abs(VIAL_MIN_UI / e.need - 1.0), e.pid, e.ing)
+        )
         for e in cands:
             for ing, factor in candidates(e):
                 vials = [
@@ -1092,7 +1159,13 @@ def plan_distribution(
         """
         if not release_reserve:
             return
-        pending = [e for g in groups for e in by_group[g] if e.covered < e.lo - _EPS]
+        if legacy:
+            ordered = [e for g in groups for e in by_group[g]]
+        else:  # menores primero y luego el más atrasado
+            ordered = sorted(
+                entries, key=lambda e: (0 if e.is_minor else 1, e.covered / e.need if e.need else 1.0, e.need, e.pid, e.ing)
+            )
+        pending = [e for e in ordered if e.covered < e.lo - _EPS]
         if not pending:
             return
         for lot_id, n in reserve_units.items():
@@ -1107,35 +1180,65 @@ def plan_distribution(
             avail[lot_id] -= keep
             reserve_units[lot_id] = keep
 
-    # Menores y tipo 1: se les garantiza su banda completa, en ese orden, antes que a nadie más.
-    top = [g for g in groups if g <= PRIORITY_TYPE1]
-    rest = [g for g in groups if g > PRIORITY_TYPE1]
-    for g in top:
-        for e in by_group[g]:
-            reach_min(e)
-        if g == PRIORITY_MINOR:
-            # La degludec de los menores se completa de una vez (hasta el 100 %, sin pasar del
-            # máximo): así los demás grupos no la toman como sustituto antes de que la reciban entera.
+    if legacy:
+        # Menores y tipo 1: se les garantiza su banda completa, en ese orden, antes que a nadie más.
+        top = [g for g in groups if g <= PRIORITY_TYPE1]
+        rest = [g for g in groups if g > PRIORITY_TYPE1]
+        for g in top:
             for e in by_group[g]:
-                if e.ing in MINOR_KEEP_INSULINS:
-                    top_up(e)
-    # Resto de los grupos: primero a quien le cabe dentro de la banda, luego un envase a cada uno
-    # (nadie queda en 0 % mientras haya envases) y solo después las garantías que obligan a pasar
-    # del máximo o a repartir lo poco que queda.
-    for g in rest:
-        for e in by_group[g]:
-            reach_min(e, in_band_only=True)
-    for g in rest:
-        for e in by_group[g]:
-            one_pen(e)
-    for g in rest:
-        for e in by_group[g]:
+                reach_min(e)
+            if g == PRIORITY_MINOR:
+                # La degludec de los menores se completa de una vez (hasta el 100 %, sin pasar del
+                # máximo): así los demás grupos no la toman como sustituto antes de que la reciban entera.
+                for e in by_group[g]:
+                    if e.ing in MINOR_KEEP_INSULINS:
+                        top_up(e)
+        # Resto de los grupos: primero a quien le cabe dentro de la banda, luego un envase a cada uno
+        # (nadie queda en 0 % mientras haya envases) y solo después las garantías que obligan a pasar
+        # del máximo o a repartir lo poco que queda.
+        for g in rest:
+            for e in by_group[g]:
+                reach_min(e, in_band_only=True)
+        for g in rest:
+            for e in by_group[g]:
+                one_pen(e)
+        for g in rest:
+            for e in by_group[g]:
+                reach_min(e)
+        release_reserve_phase()
+        # Con lo que sobra, acercar a cada uno al 100 % (sin pasar del máximo), también en orden de prioridad.
+        for g in groups:
+            for e in by_group[g]:
+                top_up(e)
+    else:
+        by_need = lambda e: (e.need, e.pid, e.ing)  # noqa: E731
+        minors = sorted((e for e in entries if e.is_minor), key=by_need)
+        others = sorted((e for e in entries if not e.is_minor), key=by_need)
+        # 1) Menores primero y por completo: su mínimo y luego hasta el 100 %. La degludec de los
+        #    menores se completa antes que nada para que los demás no la tomen como sustituto.
+        for e in minors:
             reach_min(e)
-    release_reserve_phase()
-    # Con lo que sobra, acercar a cada uno al 100 % (sin pasar del máximo), también en orden de prioridad.
-    for g in groups:
-        for e in by_group[g]:
+        for e in minors:
+            if e.ing in MINOR_KEEP_INSULINS:
+                top_up(e)
+        for e in minors:
             top_up(e)
+        # 2) El resto, parejo. Donde la insulina alcanza: primero a quien le cabe en el margen, luego un
+        #    envase a cada uno y luego hasta el mínimo. Donde falta: envase a envase al más atrasado.
+        enough = [e for e in others if e.ing not in shortage_ings]
+        short = [e for e in others if e.ing in shortage_ings]
+        for e in enough:
+            reach_min(e, in_band_only=True)
+        for e in enough:
+            one_pen(e)
+        for e in enough:
+            reach_min(e)
+        parejo(short)
+        release_reserve_phase()
+        # 3) Con lo que sobra, acercar a cada uno al 100 % sin pasar del máximo.
+        for e in enough:
+            top_up(e)
+        parejo(short)
 
     # ------------------------------------------------------------------ resultados
     subs_in: Dict[str, float] = {}
@@ -1144,7 +1247,7 @@ def plan_distribution(
     unmet_count: Dict[str, int] = {}
     own_total: Dict[str, float] = {}
     for e in entries:
-        lo_f, hi_f = band_of[e.group]
+        lo_f, hi_f = e.lo_f, e.hi_f
         cov = e.covered
         outside = cov < e.lo - 1e-6 or cov > e.hi + 1e-6
         names = list(e.subs)
@@ -1192,6 +1295,9 @@ def plan_distribution(
                 leftover_ui=max(0.0, sum(avail[l.lot_id] * l.ui_per_unit for l in lots_by_ing.get(ing, []))),
                 patients_with_need=len(needs_per_ing.get(ing, {})),
                 patients_unmet=unmet_count.get(ing, 0),
+                band_min=None if legacy else (BAND_SHORTAGE if ing in shortage_ings else BAND_SUFFICIENT)[0],
+                band_max=None if legacy else (BAND_SHORTAGE if ing in shortage_ings else BAND_SUFFICIENT)[1],
+                shortage=None if legacy else ing in shortage_ings,
                 substituted_out_ui=subs_out.get(ing, 0.0),
                 substituted_in_ui=subs_in.get(ing, 0.0),
             )
