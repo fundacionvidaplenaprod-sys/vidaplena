@@ -581,6 +581,7 @@ async def insulin_distribution_report(
         excluded_patients=excluded,
         registros_por_corregir=dist.group_choice_issues(plan, info),
         advertencias=plan.warnings,
+        minimo_imposible=dist.plan_minimum_gaps(plan),
         archivo=filename,
         filas_leidas=parsed.total_rows,
         filas_con_error=errors,

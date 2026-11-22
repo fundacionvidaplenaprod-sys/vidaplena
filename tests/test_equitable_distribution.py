@@ -1,15 +1,28 @@
 """Pruebas del motor de reparto equitativo (reglas vigentes del reporte de distribución)."""
 import random
+import sys
 from datetime import date, timedelta
 
 import pytest
 
+from app.core import equitable_milp
 from app.core.equitable_distribution import (
     DistributionConfig,
     PRIORITY_BANDS,
     plan_distribution,
 )
 from app.core.insulin_distribution import LotInput, PatientInput, is_type1_diabetes, priority_group_for
+
+USE_SOLVER = False  # lo fija el fixture `modo`
+
+
+@pytest.fixture(params=["aproximado", "exacto"], autouse=True)
+def modo(request, monkeypatch):
+    """Cada prueba corre con el reparto aproximado y con el optimizador (si scipy está instalado)."""
+    if request.param == "exacto" and not equitable_milp.HAS_SOLVER:
+        pytest.skip("scipy no está instalado: no hay optimizador")
+    monkeypatch.setattr(sys.modules[__name__], "USE_SOLVER", request.param == "exacto")
+
 
 HOY = date(2026, 11, 19)
 VENCE = date(2028, 6, 30)
@@ -32,7 +45,7 @@ def benef(pid, edad, tipo, ing, dosis=None):
 
 
 def correr(lotes, bens, **kw):
-    kw.setdefault("config", DistributionConfig(today=HOY))
+    kw.setdefault("config", DistributionConfig(today=HOY, use_solver=USE_SOLVER))
     return plan_distribution(lotes, bens, **kw)
 
 
@@ -92,13 +105,15 @@ def test_lantus_is_left_to_minors_and_adults_use_other_brands():
 
 
 # ---------------------------------------------------------------- sustitución protegida
-def test_substitute_does_not_drain_insulin_other_own_users_need():
-    lotes = [lote(1, "Detemir", 300, 4), lote(2, "Glargina", 300, 1)]
-    bens = [benef(1, 50, "2", "Detemir", 10), benef(2, 50, "2", "Detemir", 10), benef(3, 50, "2", "Glargina", 40)]
+def test_a_substitute_never_leaves_own_users_below_their_floor():
+    # Detemir (6 pens): dos usuarios propios necesitan 2 pens cada uno para su piso; el usuario de glargina (sin
+    # stock de glargina) solo puede recibir lo que sobra: los 2 pens restantes.
+    lotes = [lote(1, "Detemir", 300, 6)]
+    bens = [benef(1, 50, "2", "Detemir", 10), benef(2, 50, "2", "Detemir", 10), benef(3, 50, "2", "Glargina", 10)]
     plan = correr(lotes, bens, reserve_pct=0.0)
-    for i in (1, 2):
-        assert cov(plan, i) >= 1.0 - 1e-9
-    assert res(plan, 3).substitute is None
+    for i in (1, 2, 3):
+        assert cov(plan, i) >= 0.65 - 1e-9
+    assert res(plan, 3).substitute == "Detemir"
 
 
 def test_minor_can_use_substitute_even_if_adults_have_pending_floor_in_that_insulin():
@@ -191,7 +206,7 @@ def test_minor_dose_over_30_is_flagged_and_the_cap_is_configurable():
     plan = correr(lotes, b)
     r = res(plan, 1)
     assert r.daily_applied == 40 and any("REVISION_CLINICA" in n for n in r.notes)
-    plan = correr(lotes, b, config=DistributionConfig(today=HOY, minor_dose_cap=30))
+    plan = correr(lotes, b, config=DistributionConfig(today=HOY, use_solver=USE_SOLVER, minor_dose_cap=30))
     r = res(plan, 1)
     assert r.daily_applied == 30 and r.daily_registered == 40 and any("DOSIS_TOPADA" in n for n in r.notes)
 
@@ -200,7 +215,7 @@ def test_minor_max_coverage_limits_over_coverage_from_whole_pens():
     lotes = [lote(1, "Lispro", 300, 10)]
     b = [benef(1, 10, "1", "Lispro", 6)]  # necesidad 360: 1 pen = 83 %, 2 pens = 167 %
     assert entregado(correr(lotes, b), 1) == 600
-    assert entregado(correr(lotes, b, config=DistributionConfig(today=HOY, minor_max_coverage=1.5)), 1) == 300
+    assert entregado(correr(lotes, b, config=DistributionConfig(today=HOY, use_solver=USE_SOLVER, minor_max_coverage=1.5)), 1) == 300
 
 
 def test_type1_adult_also_has_the_floor_guaranteed_by_pen():
@@ -275,12 +290,13 @@ def test_random_invariants(seed):
         assigned = sum(a.units for a in plan.assignments if a.lot_id == l.lot_id)
         kept = sum(r.units for r in plan.reserve_lots if r.lot_id == l.lot_id)
         assert assigned + plan.remaining_units[l.lot_id] + kept == l.units
-    # 2) nadie supera el tope salvo grupos con garantía de piso o excepción del envase más chico
-    for rows in plan.patients.values():
+    # 2) pasar del tope (120 %) solo se admite si con un envase menos quedaría bajo su piso
+    for pid, rows in plan.patients.items():
         for r in rows:
             c = (r.given_ui + r.substitute_equiv_ui) / r.need_ui
             if c > 1.2 + 1e-9:
-                assert r.group in (1, 2) or r.min_pen_exception
+                sizes = [a.ui / a.units for a in plan.assignments if a.patient_id == pid and a.for_ingredient == r.ingredient]
+                assert (r.given_ui + r.substitute_equiv_ui) - min(sizes) < r.band_min * r.need_ui - 1e-6
     # 3) un prioritario bajo su piso nunca tiene causa «OTRO» (había envase y no se le dio)
     for rows in plan.patients.values():
         for r in rows:

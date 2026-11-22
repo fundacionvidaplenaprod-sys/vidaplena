@@ -60,6 +60,7 @@ const report = () => ({
   ],
   reserva: [{ lot_id: 7, insulina: 'Glargina', producto: 'Abasaglar', unidades: 4, ui: 1050, lote: 'LOTE-ABA', fecha_venc: '2027-01-01' }],
   donacion: [],
+  minimo_imposible: [{ insulina: 'Mixta', falta_ui: 12486, envases_faltantes: 42, ui_por_envase: 300, tratamientos: 15 }],
   advertencias: ['El lote 3 de Glargina (Lantus) vence el 2026-12-01 (menos de 60 días): se entrega primero (FEFO)'],
   filas_con_error: [
     { fila: 4, producto: 'Lantus viejo', mensaje: 'Vencido el 2026-01-01: no se reparte' },
@@ -154,6 +155,9 @@ describe('InsulinDistributionReport', () => {
     expect(screen.getByText('3. Adultos mayores con diabetes tipo 2')).toBeInTheDocument();
     expect(screen.getByText('90–120 %')).toBeInTheDocument();
     expect(screen.getByText('bajo el mínimo de 75 %')).toBeInTheDocument();
+    // El mínimo imposible con este stock se dice con claridad y con lo que hay que conseguir.
+    expect(screen.getByText('Con este stock NO se puede cumplir el mínimo de todos')).toBeInTheDocument();
+    expect(screen.getByText(/faltan 12\.486 UI/)).toBeInTheDocument();
     // Notas del motor y avisos del reparto (lotes por vencer).
     expect(screen.getByText('sustituto en un menor: requiere aval médico')).toBeInTheDocument();
     expect(screen.getByText('cedió un envase a un menor o tipo 1')).toBeInTheDocument();

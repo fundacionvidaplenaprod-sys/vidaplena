@@ -13,10 +13,17 @@ from openpyxl import Workbook
 from sqlalchemy import func, select, update
 
 from app import models
+from app.core import equitable_milp
 
 HEADER = ["CANTIDAD", "PRODUCTO", "TIPO DE INSULINA", "PRESENTACIÓN", "CONCENTRACIÓN", "FECHA VENCIMIENTO", "NRO LOTE"]
 URL = "/reports/insulin-distribution"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@pytest.fixture(autouse=True)
+def reparto_aproximado(monkeypatch):
+    """Los números de estas pruebas son los del reparto aproximado, igual con o sin scipy instalado."""
+    monkeypatch.setattr(equitable_milp, "HAS_SOLVER", False)
 
 
 @pytest_asyncio.fixture
@@ -284,6 +291,10 @@ async def test_report_groups_patients_by_priority_and_serves_them_in_that_order(
         (mayor.id, "STOCK", 180.0, 1),
     ]
     por_grupo = {g["grupo"]: g for g in data["prioridades"]}
+    # El mínimo de todos es imposible con este stock: el reporte dice cuánto falta para lograrlo.
+    assert [(g["insulina"], g["tratamientos"], g["falta_ui"], g["envases_faltantes"]) for g in data["minimo_imposible"]] == [
+        ("Glargina", 2, 660.0, 3)
+    ]
     assert por_grupo[1]["en_margen"] == 1 and por_grupo[2]["en_margen"] == 1
     assert por_grupo[3]["bajo_minimo"] == 1 and por_grupo[4]["bajo_minimo"] == 1 and por_grupo[4]["en_cero"] == 0
     assert _fila(data, otro.id)["insulinas"][0]["fuera_de_margen"] is True
@@ -465,3 +476,28 @@ async def test_report_warns_about_lots_expiring_soon_and_flags_a_minors_substitu
     ins = _fila(data, menor.id)["insulinas"][0]
     assert ins["sustituto"] == "Detemir" and ins["cobertura_pct"] >= 100.0
     assert any("requiere aval médico" in n for n in ins["notas"])
+
+
+@pytest.mark.asyncio
+async def test_report_with_the_optimizer_leaves_nobody_at_zero_and_states_the_missing_stock(client, aislado, monkeypatch):
+    if not equitable_milp.HAS_SOLVER:
+        monkeypatch.undo()
+    if not equitable_milp.HAS_SOLVER:
+        pytest.skip("scipy no está instalado: no hay optimizador")
+    monkeypatch.setattr(equitable_milp, "HAS_SOLVER", True)
+    otro = await _paciente(aislado, edad=40, estado="ACTIVO", tipo="TIPO 2")
+    mayor = await _paciente(aislado, edad=65, estado="ACTIVO", tipo="Tipo 2")
+    tipo1 = await _paciente(aislado, edad=30, estado="ACTIVO", tipo="Tipo 1")
+    menor = await _paciente(aislado, edad=12, estado="ACTIVO", tipo="Tipo 2")
+    await _solo(aislado, otro, mayor, tipo1, menor)
+
+    futuro = datetime.now() + timedelta(days=400)
+    content = _excel([[11, "Abasaglar KwikPen 3 ml", "Glargina", "3 ml", "U100", futuro, "L-1"]])
+    data = (await client.post(URL, files=_files(content))).json()
+
+    cob = {p["patient_id"]: p["insulinas"][0]["cobertura_pct"] for p in data["pacientes"]}
+    assert min(cob.values()) > 0  # nadie en 0 %
+    assert cob[menor.id] >= 100.0 and cob[tipo1.id] >= 90.0  # los pisos de menores y tipo 1 se cumplen
+    # Los pisos suman 3.840 UI y hay 3.300: faltan al menos 540 UI y el reporte lo dice.
+    gap = data["minimo_imposible"][0]
+    assert gap["insulina"] == "Glargina" and gap["falta_ui"] >= 540 and gap["envases_faltantes"] >= 2

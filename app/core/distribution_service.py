@@ -347,6 +347,20 @@ def plan_priority_bands(pacientes: Sequence[schemas.DistributionReportPatient]) 
     return out
 
 
+def plan_minimum_gaps(plan) -> List[schemas.DistributionMinimumGap]:
+    """Insulinas cuyo mínimo no se puede cumplir con el stock recibido y cuánto falta (vacío con el motor anterior)."""
+    return [
+        schemas.DistributionMinimumGap(
+            insulina=g.ingredient,
+            falta_ui=round(g.shortfall_ui, 1),
+            envases_faltantes=int(-(-g.shortfall_ui // g.pen_ui)) if g.pen_ui else 0,
+            ui_por_envase=g.pen_ui,
+            tratamientos=g.treatments,
+        )
+        for g in getattr(plan, "minimum_gaps", [])
+    ]
+
+
 def plan_ingredient_items(plan) -> List[schemas.DistributionIngredientSummary]:
     return [
         schemas.DistributionIngredientSummary(

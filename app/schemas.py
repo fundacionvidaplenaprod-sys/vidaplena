@@ -694,6 +694,16 @@ class DistributionRecordIssue(BaseModel):
     mensaje: str
 
 
+class DistributionMinimumGap(BaseModel):
+    """Insulina con la que NO se puede cumplir el mínimo de todos con el stock recibido, y cuánto falta."""
+
+    insulina: str
+    falta_ui: float  # UI que hay que conseguir para que nadie quede bajo su mínimo
+    envases_faltantes: int  # esas UI expresadas en envases de `ui_por_envase`
+    ui_por_envase: float
+    tratamientos: int  # tratamientos que quedan bajo su mínimo
+
+
 class DistributionPlanResult(BaseModel):
     guardado: bool
     dias: int
@@ -716,6 +726,8 @@ class DistributionPlanResult(BaseModel):
     registros_por_corregir: List[DistributionRecordIssue] = []
     # Avisos del motor equitativo (lotes que vencen en menos de 60 días, insulina sin stock).
     advertencias: List[str] = []
+    # Insulinas con las que es matemáticamente imposible que todos lleguen a su mínimo con este stock.
+    minimo_imposible: List[DistributionMinimumGap] = []
 
 # ==========================================
 #   9. SCHEMAS MÓDULO DIRECTORA

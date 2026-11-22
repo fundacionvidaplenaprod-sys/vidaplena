@@ -276,6 +276,16 @@ class GroupChoice:
 
 
 @dataclass
+class MinimumGap:
+    """Insulina con la que es imposible que todos lleguen a su mínimo: cuánto falta para lograrlo."""
+
+    ingredient: str
+    shortfall_ui: float  # UI que faltan para que nadie quede bajo su piso
+    treatments: int  # tratamientos que quedan bajo su piso
+    pen_ui: float  # UI del envase más abundante de esa insulina, para expresar lo que falta en envases
+
+
+@dataclass
 class DistributionPlan:
     days: int
     reserve_pct: float
@@ -291,6 +301,7 @@ class DistributionPlan:
     group_choices: List[GroupChoice] = field(default_factory=list)
     remaining_units: Dict[int, int] = field(default_factory=dict)  # envases libres por lote al terminar
     warnings: List[str] = field(default_factory=list)  # avisos del motor equitativo (lotes por vencer, sin stock)
+    minimum_gaps: List[MinimumGap] = field(default_factory=list)  # insulinas cuyo mínimo no se puede cumplir
 
 
 # --------------------------------------------------------------------------- catálogo de grupos

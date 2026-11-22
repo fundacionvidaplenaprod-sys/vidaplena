@@ -409,6 +409,16 @@ export default function InsulinDistributionReport() {
         }));
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(porInsulina), 'Por insulina');
 
+        if (data.minimo_imposible?.length) {
+            const faltan = data.minimo_imposible.map((g) => ({
+                Insulina: g.insulina,
+                'Faltan (UI)': Math.round(g.falta_ui),
+                'Envases faltantes': g.envases_faltantes,
+                'UI por envase': g.ui_por_envase,
+                'Tratamientos bajo su mínimo': g.tratamientos,
+            }));
+            XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(faltan), 'Mínimo imposible');
+        }
         if (data.advertencias?.length) {
             const avisos = data.advertencias.map((aviso) => ({ Aviso: aviso }));
             XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(avisos), 'Avisos');
@@ -569,6 +579,27 @@ export default function InsulinDistributionReport() {
                             en este reparto, con las mismas reglas y prioridades (edad y tipo de diabetes) y sin exigir aporte: su
                             beneficio es el registro y la dotación gratuita. Se identifican por su Código Interno. Solo entran las que
                             tienen insulina con dosis diaria registrada; las demás figuran entre los excluidos.
+                        </div>
+                    )}
+
+                    {data.minimo_imposible?.length > 0 && (
+                        <div role="alert" className="mb-6 border border-red-300 bg-red-50 rounded-xl p-4">
+                            <h3 className="text-base font-bold text-red-800">
+                                Con este stock NO se puede cumplir el mínimo de todos
+                            </h3>
+                            <p className="text-sm text-red-800 mb-2">
+                                Aun repartiendo todo de la mejor manera posible, hay insulinas en las que la suma de los
+                                mínimos supera lo que llegó. Nadie queda en 0 % y menores y tipo 1 conservan su mínimo; lo
+                                que falta es lo que hay que conseguir para que nadie quede bajo su mínimo:
+                            </p>
+                            <ul className="list-disc pl-5 text-sm text-red-900">
+                                {data.minimo_imposible.map((g) => (
+                                    <li key={g.insulina}>
+                                        <b>{g.insulina}</b>: faltan {fmt(g.falta_ui)} UI (≈ {g.envases_faltantes} envases de{' '}
+                                        {fmt(g.ui_por_envase)} UI) para {g.tratamientos} tratamiento(s) bajo su mínimo.
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
                     )}
 
@@ -793,20 +824,18 @@ export default function InsulinDistributionReport() {
                         mínima) y un <b>techo</b>, y se atiende en este orden: <b>1.</b> menores de 18 (100–120 %, con su
                         insulina específica), <b>2.</b> tipo 1 (90–110 %), <b>3.</b> adultos mayores con tipo 2
                         (65–100 %) y <b>4.</b> tipo 2 y el resto (65–100 %). <b>Todos llegan primero a su piso</b>, en
-                        ese orden, y solo después se completa hacia el 100 %. Ningún otro grupo, la reserva ni una
-                        sustitución toca la insulina que un menor o un tipo 1 necesita. Cuando los envases enteros no
-                        permiten caer dentro del margen, en menores y tipo 1 se garantiza el piso con el menor total
-                        que lo alcanza aunque pase del techo (p. ej. 8 UI/día: 2 pens = 125 % y no 1 pen = 62,5 %); en los
-                        demás grupos nadie pasa del 120 % salvo una dosis muy baja, a la que ni un envase cabe, que
-                        recibe un único envase (el más chico). Si falta insulina, entre los adultos del mismo grupo
-                        se reparte <b>de a un envase al de menor cobertura</b>: nadie queda en 0 % mientras haya envases
-                        y el faltante recae en el último grupo. Si un menor o tipo 1 sigue bajo su piso, se recuperan
-                        envases de los grupos 3 y 4 (primero lo que exceden su piso y luego hasta el 50 %). Una insulina
-                        solo se da como sustituto con lo que excede lo que sus usuarios propios de igual o mayor
-                        prioridad todavía necesitan, y un sustituto en un menor requiere aval médico. La reserva (5 %)
-                        se aparta antes de repartir, nunca de lo que necesitan los grupos 1 y 2, y se libera <b>solo lo
-                        necesario</b> para que nadie quede bajo su piso; lo que no hace falta queda guardado. Los que
-                        aun así quedan bajo el mínimo se listan con lo que les falta. La glargina de los menores se
+                        ese orden, y solo después se completa hacia el 100 %. El reparto se resuelve de una sola vez
+                        (optimización exacta de todos los envases): <b>nadie queda en 0 % ni bajo su mínimo siempre que
+                        el stock lo permita</b>. Cuando los envases enteros no permiten caer dentro del margen se
+                        garantiza el piso con el menor total que lo alcanza aunque pase del techo (p. ej. 8 UI/día: 2
+                        pens = 125 % y no 1 pen = 62,5 %). Si con el stock recibido es imposible que todos lleguen a su
+                        mínimo (la suma de los mínimos de una insulina supera lo que llegó), el reporte lo dice en rojo y
+                        cuánto falta conseguir; mientras tanto el faltante recae primero en los últimos grupos y se
+                        reparte parejo entre los afectados, sin dejar a nadie en 0 %. Una insulina se da como
+                        sustituto solo si eso no deja a otro bajo su piso, y un sustituto en un menor requiere aval
+                        médico. La reserva (5 %) se aparta antes de repartir, nunca de lo que necesitan los grupos 1 y
+                        2, y se libera <b>solo lo necesario</b> para que nadie quede bajo su piso; lo que no hace falta
+                        queda guardado. Los que aun así quedan bajo el mínimo se listan con lo que les falta. La glargina de los menores se
                         cubre con <b>Lantus</b> siempre que se pueda, y un menor que usa <b>degludec</b> la mantiene: no
                         se sustituye. En menores no se topa la dosis: si supera los 30 UI/día queda la nota «revisión
                         clínica».
