@@ -23,11 +23,8 @@ from app.core import distribution_service as dist
 from app.core.donation_request import DONATION_REQUEST_ESTADOS, PRESENTACIONES_UI, build_donation_request
 from app.core.donation_excel import DonationExcelError, parse_donation_excel
 from app.core.insulin_catalog import normalize_insulin_name
-from app.core.insulin_distribution import (
-    DISTRIBUTION_DAYS,
-    LotInput as InsulinLotInput,
-    plan_distribution as plan_insulin_distribution,
-)
+from app.core.equitable_distribution import plan_distribution as plan_insulin_distribution
+from app.core.insulin_distribution import DISTRIBUTION_DAYS, LotInput as InsulinLotInput
 
 router = APIRouter()
 
@@ -583,6 +580,7 @@ async def insulin_distribution_report(
         bajo_minimo=dist.plan_below_min_items(pacientes),
         excluded_patients=excluded,
         registros_por_corregir=dist.group_choice_issues(plan, info),
+        advertencias=plan.warnings,
         archivo=filename,
         filas_leidas=parsed.total_rows,
         filas_con_error=errors,

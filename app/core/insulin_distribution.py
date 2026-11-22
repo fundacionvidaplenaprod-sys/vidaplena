@@ -1,4 +1,9 @@
-"""Motor de reparto de insulinas de una donación.
+"""Motor de reparto de insulinas de una donación (reglas anteriores, «v1»).
+
+El reporte de distribución usa desde el 22/11/2026 el motor equitativo
+(`app.core.equitable_distribution`), que comparte con este módulo los tipos de entrada y salida, la
+tabla de sustituciones y la resolución de «una insulina por grupo». Este módulo conserva el reparto
+anterior (prioridad estricta por grupos) para comparar y para el reparto global del almacén.
 
 Función pura (sin base de datos): recibe lotes y pacientes ya cargados y
 devuelve el plan. Así se puede probar con cualquier escenario y el endpoint
@@ -253,6 +258,8 @@ class PatientIngredientResult:
     # chico que queda lo llevaría por encima del 120 %; "OTRO" = había envase y no se asignó.
     min_shortfall_ui: float = 0.0
     min_shortfall_cause: Optional[str] = None
+    # Notas de trazabilidad del motor equitativo (SUSTITUCION, ENVASE_MINIMO, REVISION_CLINICA...).
+    notes: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -283,6 +290,7 @@ class DistributionPlan:
     patients: Dict[int, List[PatientIngredientResult]] = field(default_factory=dict)
     group_choices: List[GroupChoice] = field(default_factory=list)
     remaining_units: Dict[int, int] = field(default_factory=dict)  # envases libres por lote al terminar
+    warnings: List[str] = field(default_factory=list)  # avisos del motor equitativo (lotes por vencer, sin stock)
 
 
 # --------------------------------------------------------------------------- catálogo de grupos

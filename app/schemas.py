@@ -616,6 +616,9 @@ class DistributionPatientInsulin(BaseModel):
     # queda pasaría del 120 %).
     falta_minimo_ui: float = 0.0
     motivo_bajo_minimo: Optional[str] = None
+    # Notas del motor equitativo: SUSTITUCION (en menores «requiere aval médico»), ENVASE_MINIMO,
+    # FICHA_POR_CORREGIR, REVISION_CLINICA, DOSIS_TOPADA, CEDIÓ_ENVASE_A_PRIORITARIO, SIN_ASIGNACION.
+    notas: List[str] = []
     lotes: List[DistributionLotItem] = []
 
 
@@ -711,6 +714,8 @@ class DistributionPlanResult(BaseModel):
     pacientes: List[DistributionPatientItem]
     excluded_patients: List[ExclusionDetail] = []
     registros_por_corregir: List[DistributionRecordIssue] = []
+    # Avisos del motor equitativo (lotes que vencen en menos de 60 días, insulina sin stock).
+    advertencias: List[str] = []
 
 # ==========================================
 #   9. SCHEMAS MÓDULO DIRECTORA
@@ -1451,6 +1456,8 @@ class DistributionPriorityBand(BaseModel):
     bajo_minimo: int
     sobre_maximo: int
     en_cero: int
+    cobertura_min_pct: Optional[float] = None
+    cobertura_max_pct: Optional[float] = None
 
 
 class DistributionBelowMinItem(BaseModel):

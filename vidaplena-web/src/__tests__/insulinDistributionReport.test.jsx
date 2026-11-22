@@ -60,6 +60,7 @@ const report = () => ({
   ],
   reserva: [{ lot_id: 7, insulina: 'Glargina', producto: 'Abasaglar', unidades: 4, ui: 1050, lote: 'LOTE-ABA', fecha_venc: '2027-01-01' }],
   donacion: [],
+  advertencias: ['El lote 3 de Glargina (Lantus) vence el 2026-12-01 (menos de 60 días): se entrega primero (FEFO)'],
   filas_con_error: [
     { fila: 4, producto: 'Lantus viejo', mensaje: 'Vencido el 2026-01-01: no se reparte' },
     { fila: 5, producto: 'Raro', mensaje: '«Zumo» no corresponde al catálogo de insulinas' },
@@ -94,6 +95,7 @@ const report = () => ({
       insulinas: [{
         insulina: 'Glargina', necesidad_ui: 600, entregado_ui: 600, cobertura_pct: 100, sustituto: 'Detemir', sustituto_ui: 600,
         margen_min_pct: 80, margen_max_pct: 110, fuera_de_margen: false,
+        notas: ['SUSTITUCION (MENOR: requiere aval médico)', 'CEDIÓ_ENVASE_A_PRIORITARIO'],
         lotes: [{ lot_id: 8, producto: 'Levemir Penfill', unidades: 2, ui: 600, lote: 'L-LEV' }],
       }],
     },
@@ -152,6 +154,11 @@ describe('InsulinDistributionReport', () => {
     expect(screen.getByText('3. Adultos mayores con diabetes tipo 2')).toBeInTheDocument();
     expect(screen.getByText('90–120 %')).toBeInTheDocument();
     expect(screen.getByText('bajo el mínimo de 75 %')).toBeInTheDocument();
+    // Notas del motor y avisos del reparto (lotes por vencer).
+    expect(screen.getByText('sustituto en un menor: requiere aval médico')).toBeInTheDocument();
+    expect(screen.getByText('cedió un envase a un menor o tipo 1')).toBeInTheDocument();
+    expect(screen.getByText('Avisos del reparto (1)')).toBeInTheDocument();
+    expect(screen.getByText(/vence el 2026-12-01/)).toBeInTheDocument();
     // Fichas con dos insulinas del mismo grupo: se avisan para corregirlas.
     // Tratamientos bajo el mínimo: con lo que les falta y por qué.
     expect(screen.getByText('Por debajo del mínimo de su margen (1)')).toBeInTheDocument();

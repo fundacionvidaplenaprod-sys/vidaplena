@@ -32,7 +32,7 @@ const FILTERS = [
 // los días del reporte (166 % de 60 días = 100 días): no se puede entregar medio pen.
 const diasCubiertos = (cobertura, dias) => Math.round((cobertura * dias) / 100);
 
-// «80–120 %»: margen de cobertura del grupo de prioridad del beneficiario.
+// «100–120 %»: margen de cobertura (piso y techo) del grupo de prioridad del beneficiario.
 const margenTexto = (i) =>
     i.margen_min_pct !== undefined && i.margen_max_pct !== undefined
         ? `${i.margen_min_pct}–${i.margen_max_pct} %`
@@ -52,6 +52,17 @@ const MOTIVO_BAJO_MINIMO = {
     ENVASE: 'el envase siguiente pasaría del 120 %',
     OTRO: 'revisar',
 };
+
+// Notas del motor que el equipo debe ver. ENVASE_MINIMO, SIN_ASIGNACION y SUSTITUCION simple ya se
+// muestran en otros lugares (texto del envase, cobertura 0 %, etiqueta «+ sustituto»).
+const notaTexto = (nota) => {
+    if (nota.startsWith('REVISION_CLINICA')) return 'revisión clínica: dosis alta en un menor';
+    if (nota.startsWith('SUSTITUCION (MENOR')) return 'sustituto en un menor: requiere aval médico';
+    if (nota === 'CEDIÓ_ENVASE_A_PRIORITARIO') return 'cedió un envase a un menor o tipo 1';
+    if (nota === 'FICHA_POR_CORREGIR') return 'ficha por corregir';
+    return '';
+};
+const notasVisibles = (i) => (i.notas || []).map(notaTexto).filter(Boolean);
 
 const MOTIVO_ELECCION = {
     STOCK: 'tiene stock',
@@ -337,6 +348,7 @@ export default function InsulinDistributionReport() {
             'Necesita (UI)': Math.round(i.necesidad_ui),
             'Recibe (UI)': Math.round(i.entregado_ui),
             'Margen de cobertura': margenTexto(i),
+            Notas: (i.notas || []).join('; '),
             'Cobertura (%)': i.cobertura_pct,
             'Fuera de margen': estadoMargen(i),
             [`Días cubiertos (de ${data.dias})`]: diasCubiertos(i.cobertura_pct, data.dias),
@@ -397,6 +409,10 @@ export default function InsulinDistributionReport() {
         }));
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(porInsulina), 'Por insulina');
 
+        if (data.advertencias?.length) {
+            const avisos = data.advertencias.map((aviso) => ({ Aviso: aviso }));
+            XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(avisos), 'Avisos');
+        }
         if (data.registros_por_corregir.length) {
             const porCorregir = data.registros_por_corregir.map((r) => ({
                 Beneficiario: r.nombre_completo,
@@ -449,7 +465,7 @@ export default function InsulinDistributionReport() {
                     <p className="text-sm text-gray-500 max-w-3xl">
                         Sube el Excel con la insulina que llegó. Se calcula el reparto a 60 días con las reglas
                         definidas (menores, tipo 1, adultos mayores con tipo 2 y el resto, cada grupo con su
-                        margen de cobertura; Lantus para menores, reserva del 5 % y sustituciones) para los
+                        piso y techo de cobertura; Lantus para menores, reserva del 5 % y sustituciones) para los
                         beneficiarios <b>activos, pendientes de documentos y habilitados</b>, sin exigir aporte
                         al día. Es solo un reporte: no guarda nada ni descuenta stock.
                     </p>
@@ -553,6 +569,17 @@ export default function InsulinDistributionReport() {
                             en este reparto, con las mismas reglas y prioridades (edad y tipo de diabetes) y sin exigir aporte: su
                             beneficio es el registro y la dotación gratuita. Se identifican por su Código Interno. Solo entran las que
                             tienen insulina con dosis diaria registrada; las demás figuran entre los excluidos.
+                        </div>
+                    )}
+
+                    {data.advertencias?.length > 0 && (
+                        <div className="mb-6 border border-amber-200 bg-amber-50 rounded-xl p-4">
+                            <h3 className="text-base font-bold text-amber-800">Avisos del reparto ({data.advertencias.length})</h3>
+                            <ul className="mt-1 list-disc pl-5 text-sm text-amber-800">
+                                {data.advertencias.map((aviso) => (
+                                    <li key={aviso}>{aviso}</li>
+                                ))}
+                            </ul>
                         </div>
                     )}
 
@@ -762,25 +789,27 @@ export default function InsulinDistributionReport() {
                         tiene 300 UI: depende de la concentración (U100 = 300 UI, U200 = 600 UI, U300 = 900 UI), por
                         eso cada envase muestra sus UI. Con la reserva ya separada, los <b>viales de 10 ml</b>
                         (1.000 UI) se reparten primero a quienes usan una insulina rápida con <b>14 a 20 UI/día</b>
-                        (un vial cubre del 83 % al 119 % de 60 días). Después cada grupo tiene un <b>margen de
-                        cobertura que no se debe romper</b> y se atiende en este orden: <b>1.</b> menores de 18 (80–120 %, con su
-                        insulina específica), <b>2.</b> tipo 1 (75–110 %), <b>3.</b> adultos mayores con tipo 2
-                        (65–100 %) y <b>4.</b> tipo 2 y el resto (65–100 %). Un grupo no cede stock a otro de menor
-                        prioridad: si una insulina no alcanza, el que queda por debajo de su mínimo (o en 0 %) es
-                        el último grupo. Cuando los envases enteros no permiten caer dentro del margen, manda el
-                        mínimo (se entrega el menor exceso) y el tratamiento se marca como fuera de margen, pero
-                        <b> nadie recibe más del 120 %</b>: si no hay forma de llegar al mínimo sin pasarlo, queda
-                        por debajo. En menores, si ninguna combinación cae entre 80 % y 120 %, se entrega lo más
-                        cercano al 100 % (p. ej. 8 UI/día: 2 pens = 125 % antes que 1 pen = 62,5 %). Una dosis muy
-                        baja, a la que ni un envase cabe en el 120 %, recibe un único envase (el más chico). La
-                        reserva (5 %) se aparta antes de repartir y se libera <b>solo lo necesario</b> para que
-                        nadie quede en 0 % ni bajo el mínimo de su margen; lo que no hace falta queda guardado.
-                        Si falta una insulina que otros reciben como sustituto, esos pasan a otra alternativa y le
-                        dejan los envases. Los que aun así quedan bajo el mínimo se listan con lo que les falta.
-                        La glargina de los menores se cubre con <b>Lantus</b> siempre que se pueda, y un menor
-                        que usa <b>degludec</b> la mantiene: no se sustituye por otra insulina.
-                        En menores de 18, glargina, lispro, glulisina, aspart, detemir y degludec se calculan
-                        con un máximo de 30 UI/día sin importar la dosis registrada.
+                        (un vial cubre del 83 % al 119 % de 60 días). Después cada grupo tiene un <b>piso</b> (cobertura
+                        mínima) y un <b>techo</b>, y se atiende en este orden: <b>1.</b> menores de 18 (100–120 %, con su
+                        insulina específica), <b>2.</b> tipo 1 (90–110 %), <b>3.</b> adultos mayores con tipo 2
+                        (65–100 %) y <b>4.</b> tipo 2 y el resto (65–100 %). <b>Todos llegan primero a su piso</b>, en
+                        ese orden, y solo después se completa hacia el 100 %. Ningún otro grupo, la reserva ni una
+                        sustitución toca la insulina que un menor o un tipo 1 necesita. Cuando los envases enteros no
+                        permiten caer dentro del margen, en menores y tipo 1 se garantiza el piso con el menor total
+                        que lo alcanza aunque pase del techo (p. ej. 8 UI/día: 2 pens = 125 % y no 1 pen = 62,5 %); en los
+                        demás grupos nadie pasa del 120 % salvo una dosis muy baja, a la que ni un envase cabe, que
+                        recibe un único envase (el más chico). Si falta insulina, entre los adultos del mismo grupo
+                        se reparte <b>de a un envase al de menor cobertura</b>: nadie queda en 0 % mientras haya envases
+                        y el faltante recae en el último grupo. Si un menor o tipo 1 sigue bajo su piso, se recuperan
+                        envases de los grupos 3 y 4 (primero lo que exceden su piso y luego hasta el 50 %). Una insulina
+                        solo se da como sustituto con lo que excede lo que sus usuarios propios de igual o mayor
+                        prioridad todavía necesitan, y un sustituto en un menor requiere aval médico. La reserva (5 %)
+                        se aparta antes de repartir, nunca de lo que necesitan los grupos 1 y 2, y se libera <b>solo lo
+                        necesario</b> para que nadie quede bajo su piso; lo que no hace falta queda guardado. Los que
+                        aun así quedan bajo el mínimo se listan con lo que les falta. La glargina de los menores se
+                        cubre con <b>Lantus</b> siempre que se pueda, y un menor que usa <b>degludec</b> la mantiene: no
+                        se sustituye. En menores no se topa la dosis: si supera los 30 UI/día queda la nota «revisión
+                        clínica».
                     </div>
 
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-3">
@@ -882,6 +911,11 @@ export default function InsulinDistributionReport() {
                                                         dosis limitada a {i.dosis_diaria_aplicada} UI/día
                                                     </span>
                                                 )}
+                                                {notasVisibles(i).map((nota) => (
+                                                    <span key={nota} className="block text-[10px] font-semibold text-purple-700">
+                                                        {nota}
+                                                    </span>
+                                                ))}
                                             </td>
                                             <td className="px-4 py-3 text-sm text-gray-700">{fmt(i.entregado_ui)} UI</td>
                                             <td

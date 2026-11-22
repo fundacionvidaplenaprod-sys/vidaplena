@@ -1,0 +1,817 @@
+"""Motor de reparto equitativo de insulinas (reglas vigentes del reporte de distribución).
+
+Función pura (sin base de datos), con las mismas entradas y salidas que el motor anterior
+(`app.core.insulin_distribution.plan_distribution`, que se conserva como `v1` para comparar):
+recibe lotes y pacientes y devuelve un `DistributionPlan`.
+
+Principios, en orden de precedencia:
+  1. Menores de 18 años: cobertura completa (piso = 100 %) antes de que cualquier otro grupo,
+     reserva o sustitución toque su insulina.
+  2. Pisos antes que techos: todos los grupos llegan primero a su cobertura mínima (en orden de
+     prioridad 1 > 2 > 3 > 4) y solo después se completa hacia el 100 %.
+  3. Sustitución protegida: una insulina solo se entrega como sustituto con el stock que excede lo
+     que sus usuarios propios de igual o mayor prioridad todavía necesitan para su piso.
+  4. Reserva protegida: nunca se aparta de la insulina que necesitan los grupos 1 y 2. Se libera
+     sola si alguien sigue bajo su piso.
+  5. Equidad dentro de cada grupo: con escasez se reparte de a un envase al de menor cobertura
+     (llenado progresivo), no por orden arbitrario.
+  6. Rebalanceo: si un menor o un tipo 1 sigue bajo su piso se recuperan envases de los grupos de
+     menor prioridad (primero lo que excede su piso y luego hasta un piso duro).
+  7. Auditoría: envases asignados + libres + reservados = stock de cada lote, en cada ejecución.
+
+Cobertura = UI recibidas / UI necesarias en el periodo (dosis diaria x 60 días). Pisos, techos y
+demás cifras son parámetros (`DistributionConfig`):
+
+    grupo                              piso    techo   garantía del piso por envase
+    1 Menores de 18 años               100 %   120 %   sí
+    2 Diabéticos tipo 1                 90 %   110 %   sí
+    3 Adultos mayores con tipo 2        65 %   100 %   no
+    4 Tipo 2 y el resto                 65 %   100 %   no
+
+Garantía del piso por envase: si ninguna combinación cae entre el piso y el tope absoluto (120 %),
+el tratamiento recibe el menor total que alcance el piso aunque lo supere (8 UI/día = 480 UI con
+pens de 300: 2 pens = 125 % y no 1 = 62,5 %). `minor_max_coverage` limita esa sobrecobertura.
+
+El tope de 30 UI/día en menores viene desactivado: si la dosis lo supera el tratamiento queda con
+la nota `REVISION_CLINICA`. Con `minor_dose_cap` se vuelve a aplicar (nota `DOSIS_TOPADA`).
+
+Notas que puede llevar un tratamiento (`PatientIngredientResult.notes`): SUSTITUCION (en menores
+agrega «requiere aval médico»), ENVASE_MINIMO, FICHA_POR_CORREGIR, REVISION_CLINICA, DOSIS_TOPADA,
+CEDIÓ_ENVASE_A_PRIORITARIO y SIN_ASIGNACION.
+"""
+from __future__ import annotations
+
+import math
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Dict, List, Optional, Sequence, Tuple
+
+from app.core.insulin_distribution import (
+    DEFAULT_SUBSTITUTIONS,
+    DISTRIBUTION_DAYS,
+    GROUP_RAPID,
+    INSULIN_GROUPS,
+    MINOR_CAPPED_INGREDIENTS,
+    MINOR_KEEP_INSULINS,
+    MINOR_PREFERRED_BRANDS,
+    PREMIX_INSULINS,
+    PREMIX_REPLACEABLE,
+    RESERVE_PCT,
+    Assignment,
+    DistributionPlan,
+    IngredientSummary,
+    LotInput,
+    PatientIngredientResult,
+    PatientInput,
+    ReserveLot,
+    Substitution,
+    resolve_group_choices,
+)
+
+EPS = 1e-6
+
+# Pisos y techos por grupo de prioridad (fracción de la necesidad), también para mostrarlos.
+PRIORITY_FLOOR: Dict[int, float] = {1: 1.00, 2: 0.90, 3: 0.65, 4: 0.65}
+PRIORITY_CEILING: Dict[int, float] = {1: 1.20, 2: 1.10, 3: 1.00, 4: 1.00}
+PRIORITY_BANDS: Dict[int, Tuple[float, float]] = {g: (PRIORITY_FLOOR[g], PRIORITY_CEILING[g]) for g in PRIORITY_FLOOR}
+
+
+@dataclass
+class DistributionConfig:
+    days: int = DISTRIBUTION_DAYS
+    reserve_pct: float = RESERVE_PCT
+    floor: Dict[int, float] = field(default_factory=lambda: dict(PRIORITY_FLOOR))
+    ceiling: Dict[int, float] = field(default_factory=lambda: dict(PRIORITY_CEILING))
+    abs_cap: float = 1.20  # tope absoluto de cobertura
+    hard_floor_adults: float = 0.50  # hasta aquí se recupera stock de los grupos 3-4 para los 1-2
+    protected_groups: Tuple[int, ...] = (1, 2)  # su necesidad nunca se aparta como reserva
+    floor_guarantee_groups: Tuple[int, ...] = (1, 2)  # el piso se garantiza aunque el envase pase del tope
+    minor_dose_cap: Optional[float] = None  # None = sin tope de dosis en menores
+    minor_dose_warning: float = 30.0  # sobre este valor, nota REVISION_CLINICA
+    minor_max_coverage: Optional[float] = None  # None = sin límite a la sobrecobertura por envase
+    capped_ingredients: frozenset = MINOR_CAPPED_INGREDIENTS
+    preferred_brands: Optional[Dict[str, Tuple[str, ...]]] = None  # None = MINOR_PREFERRED_BRANDS
+    max_sizes: int = 4  # tamaños de envase distintos por combinación
+    vial_ui: float = 1000.0
+    prefer_vial_rapid: bool = True
+    vial_dose: Tuple[float, float] = (14.0, 20.0)  # UI/día de insulina rápida a las que se prefiere el vial
+    expiry_warning_days: int = 60
+    today: Optional[date] = None
+
+
+@dataclass
+class _Treatment:
+    pid: int
+    ing: str
+    group: int
+    dose_reg: float
+    dose: float
+    need: float
+    floor: float
+    ceil: float
+    cap: float
+    assigned: Dict[int, int] = field(default_factory=dict)  # lote -> envases
+    ui: Dict[str, float] = field(default_factory=dict)  # insulina -> UI entregadas
+    notes: List[str] = field(default_factory=list)
+    min_pen: bool = False
+    pend: float = 0.0  # UI que aún le faltan para el piso (ya contadas en `Engine.pend`)
+
+    @property
+    def cov_ui(self) -> float:
+        return sum(self.ui.values())
+
+    @property
+    def cov(self) -> float:
+        return self.cov_ui / self.need if self.need > 0 else 0.0
+
+
+class _Engine:
+    def __init__(
+        self,
+        lots: Sequence[LotInput],
+        patients: Sequence[PatientInput],
+        cfg: DistributionConfig,
+        rules: Sequence[Substitution],
+    ):
+        self.cfg = cfg
+        self.today = cfg.today or date.today()
+        self.patients = patients
+        self.preferred = MINOR_PREFERRED_BRANDS if cfg.preferred_brands is None else cfg.preferred_brands
+        for rule in rules:
+            if abs(rule.factor - 1.0) > EPS:
+                raise ValueError("El motor equitativo usa factores de sustitución 1:1 (provisionales)")
+            if (
+                rule.target in PREMIX_INSULINS
+                and rule.source not in PREMIX_INSULINS
+                and rule.source not in PREMIX_REPLACEABLE
+            ):
+                raise ValueError(f"Una premezcla no puede sustituir a una basal ({rule.source} -> {rule.target})")
+        self.rules = tuple(rules)
+        self.targets_of: Dict[str, List[str]] = defaultdict(list)
+        for r in rules:
+            self.targets_of[r.source].append(r.target)
+        self.rapid = INSULIN_GROUPS[GROUP_RAPID]
+
+        self.lots: List[LotInput] = [l for l in lots if l.units > 0 and l.ui_per_unit > 0]
+        self.lots_of: Dict[str, List[LotInput]] = defaultdict(list)
+        for l in self.lots:
+            self.lots_of[l.ingredient].append(l)
+        self.avail: Dict[int, int] = {l.lot_id: l.units for l in self.lots}
+        self.reserve: Dict[int, int] = {}
+        self.reserve_initial_ui = 0.0
+        self.reserve_released: Dict[str, float] = defaultdict(float)
+        self.pend: Dict[Tuple[str, int], float] = defaultdict(float)  # (insulina, grupo) -> UI aún necesarias para el piso
+        self.min_size: Dict[str, float] = {}
+        for l in self.lots:
+            self.min_size[l.ingredient] = min(self.min_size.get(l.ingredient, 1e18), l.ui_per_unit)
+        self.treatments: List[_Treatment] = []
+        self.group_choices: list = []
+        self.warnings: List[str] = []
+
+    # ------------------------------------------------------------------ utilidades
+    def _pref(self, l: LotInput) -> bool:
+        return any(fragment in l.label.lower() for fragment in self.preferred.get(l.ingredient, ()))
+
+    def _lot_key(self, l: LotInput, group: int):
+        p = self._pref(l)
+        expiry = l.expiry.toordinal() if l.expiry else date.max.toordinal()
+        # menores: la marca preferida primero; adultos: la preferida al final
+        return ((0 if p else 1) if group == 1 else (1 if p else 0), expiry, l.lot_id)
+
+    def _lots(self, ing: str, group: int, klass: Optional[str] = None) -> List[LotInput]:
+        out = []
+        for l in self.lots_of.get(ing, []):
+            if self.avail[l.lot_id] <= 0:
+                continue
+            if klass == "pref":
+                p = self._pref(l)
+                if (group == 1 and not p) or (group != 1 and p):
+                    continue
+            out.append(l)
+        out.sort(key=lambda l: self._lot_key(l, group))
+        return out
+
+    def _free_ui(self, ing: str) -> float:
+        return sum(self.avail[l.lot_id] * l.ui_per_unit for l in self.lots_of.get(ing, []))
+
+    def _slack(self, ing: str, exclude: Optional[_Treatment] = None, group: int = 4) -> float:
+        """UI de `ing` que pueden darse como sustituto sin quitar lo que sus usuarios propios de
+        igual o mayor prioridad (grupo <= `group`) todavía necesitan para llegar a su piso."""
+        pend = sum(self.pend[(ing, g)] for g in range(1, group + 1))
+        if exclude is not None and exclude.ing == ing and exclude.group <= group:
+            pend -= exclude.pend
+        return max(0.0, self._free_ui(ing) - pend)
+
+    def _put(self, t: _Treatment, lot: LotInput, n: int) -> None:
+        self.avail[lot.lot_id] -= n
+        t.assigned[lot.lot_id] = t.assigned.get(lot.lot_id, 0) + n
+        t.ui[lot.ingredient] = t.ui.get(lot.ingredient, 0.0) + n * lot.ui_per_unit
+        self._update_pend(t)
+
+    def _take_back(self, t: _Treatment, lot: LotInput, n: int) -> None:
+        self.avail[lot.lot_id] += n
+        t.assigned[lot.lot_id] -= n
+        if t.assigned[lot.lot_id] <= 0:
+            del t.assigned[lot.lot_id]
+        t.ui[lot.ingredient] = t.ui.get(lot.ingredient, 0.0) - n * lot.ui_per_unit
+        if t.ui[lot.ingredient] <= EPS:
+            del t.ui[lot.ingredient]
+        self._update_pend(t)
+
+    def _clear(self, t: _Treatment) -> None:
+        by_id = {l.lot_id: l for l in self.lots}
+        for lot_id, n in list(t.assigned.items()):
+            self._take_back(t, by_id[lot_id], n)
+        t.min_pen = False
+
+    def _update_pend(self, t: _Treatment) -> None:
+        new = max(0.0, t.floor - t.cov_ui)
+        self.pend[(t.ing, t.group)] += new - t.pend
+        t.pend = new
+
+    # ------------------------------------------------------------------ 1. preparación
+    def prepare(self) -> None:
+        cfg = self.cfg
+        lots_by_ing = {ing: ls for ing, ls in self.lots_of.items() if ls}
+        effective, self.group_choices = resolve_group_choices(
+            self.patients,
+            lots_by_ing,
+            days=cfg.days,
+            reserve_pct=cfg.reserve_pct,
+            rules=self.rules,
+            minor_daily_cap_ui=cfg.minor_dose_cap,
+        )
+        chosen = {(c.patient_id, c.chosen) for c in self.group_choices}
+        for p in self.patients:
+            g = p.group
+            for ing, daily in sorted(effective[p.patient_id].items()):
+                if not daily or daily <= 0:
+                    continue
+                dose = daily
+                notes: List[str] = []
+                if p.is_minor and ing in cfg.capped_ingredients:
+                    if cfg.minor_dose_cap is not None and dose > cfg.minor_dose_cap:
+                        dose = cfg.minor_dose_cap
+                        notes.append(f"DOSIS_TOPADA ({daily:g}→{cfg.minor_dose_cap:g})")
+                    elif dose > cfg.minor_dose_warning:
+                        notes.append(f"REVISION_CLINICA (dosis > {cfg.minor_dose_warning:g} UI/día)")
+                if (p.patient_id, ing) in chosen:
+                    notes.append("FICHA_POR_CORREGIR")
+                need = dose * cfg.days
+                self.treatments.append(
+                    _Treatment(
+                        pid=p.patient_id, ing=ing, group=g, dose_reg=daily, dose=dose, need=need,
+                        floor=need * cfg.floor[g], ceil=need * cfg.ceiling[g], cap=need * cfg.abs_cap, notes=notes,
+                    )
+                )
+        for t in self.treatments:
+            self._update_pend(t)
+        no_stock: Dict[str, int] = defaultdict(int)
+        for t in self.treatments:
+            if t.ing not in self.lots_of:
+                no_stock[t.ing] += 1
+        for ing, n in sorted(no_stock.items()):
+            self.warnings.append(f"Sin stock alguno de {ing}: {n} tratamiento(s) no tienen con qué cubrirse")
+        for l in self.lots:
+            if l.expiry and (l.expiry - self.today).days < cfg.expiry_warning_days:
+                self.warnings.append(
+                    f"El lote {l.lot_id} de {l.ingredient} ({l.label}) vence el {l.expiry} "
+                    f"(menos de {cfg.expiry_warning_days} días): se entrega primero (FEFO)"
+                )
+
+    def _order(self, g: int) -> List[_Treatment]:
+        return sorted((t for t in self.treatments if t.group == g), key=lambda t: (t.need, t.pid, t.ing))
+
+    # ------------------------------------------------------------------ 2. reserva
+    def reserve_stock(self) -> None:
+        cfg = self.cfg
+        stock: Dict[str, float] = defaultdict(float)
+        for l in self.lots:
+            stock[l.ingredient] += l.units * l.ui_per_unit
+        total = sum(stock.values())
+        target = cfg.reserve_pct * total
+        need: Dict[str, float] = defaultdict(float)
+        prot: Dict[str, float] = defaultdict(float)
+        for t in self.treatments:
+            need[t.ing] += t.need
+            if t.group in cfg.protected_groups:
+                prot[t.ing] += t.need
+        surplus = {i: max(0.0, stock[i] - need[i]) for i in stock}
+        capmax = {i: max(0.0, stock[i] - prot[i]) for i in stock}
+        total_surplus = sum(surplus.values())
+        if total_surplus >= target and total_surplus > 0:
+            part = {i: target * surplus[i] / total_surplus for i in stock}
+        else:
+            part = dict(surplus)
+            rest = target - total_surplus
+            room = {i: max(0.0, capmax[i] - surplus[i]) for i in stock}
+            sr = sum(room.values())
+            if sr > 0 and rest > 0:
+                for i in stock:
+                    part[i] += min(rest, sr) * room[i] / sr
+        for ing in stock:
+            kept = 0.0
+            ordered = sorted(
+                self.lots_of[ing],
+                key=lambda l: (1 if self._pref(l) else 0, -(l.expiry.toordinal() if l.expiry else date.max.toordinal()), l.lot_id),
+            )
+            for l in ordered:
+                while (
+                    self.avail[l.lot_id] > 0
+                    and kept < part.get(ing, 0) - EPS
+                    and stock[ing] - kept - l.ui_per_unit >= prot[ing] - EPS
+                ):
+                    self.avail[l.lot_id] -= 1
+                    self.reserve[l.lot_id] = self.reserve.get(l.lot_id, 0) + 1
+                    kept += l.ui_per_unit
+        by_id = {l.lot_id: l for l in self.lots}
+        self.reserve_initial_ui = sum(by_id[i].ui_per_unit * n for i, n in self.reserve.items())
+        self.stock = dict(stock)
+        self.total_stock = total
+        self.reserve_target = target
+
+    # ------------------------------------------------------------------ 3. combinaciones de envases
+    @staticmethod
+    def _totals(counts: List[Tuple[float, int]], limit: float) -> dict:
+        cur: dict = {0.0: (0, ())}
+        for s, c in counts:
+            nxt: dict = {}
+            for tot, (np_, combo) in cur.items():
+                for k in range(c + 1):
+                    x = round(tot + k * s, 6)
+                    if x > limit + EPS:
+                        break
+                    cand = (np_ + k, combo + ((s, k),))
+                    if x not in nxt or cand[0] < nxt[x][0]:
+                        nxt[x] = cand
+            cur = nxt
+        return cur
+
+    def _options(self, t: _Treatment, ing: str, klass: Optional[str], max_ui: Optional[float] = None):
+        """Totales alcanzables (UI -> (nº envases, combinación)) de `ing` para el tratamiento `t`."""
+        if klass == "pref" and ing not in self.preferred:
+            return None
+        by_size: Dict[float, int] = defaultdict(int)
+        for l in self._lots(ing, t.group, klass):
+            by_size[l.ui_per_unit] += self.avail[l.lot_id]
+        if not by_size:
+            return {0.0: (0, ())}
+        sizes = sorted(by_size)[: self.cfg.max_sizes]
+        counts = []
+        for s in sizes:
+            c = by_size[s]
+            if max_ui is not None:
+                c = min(c, int(max_ui // s))
+            if c > 0:
+                counts.append((s, c))
+        return self._totals(counts, t.cap + max(sizes))
+
+    def _to_lots(self, t: _Treatment, ing: str, klass: Optional[str], combo) -> List[Tuple[LotInput, int]]:
+        out = []
+        ordered = self._lots(ing, t.group, klass)
+        for size, k in combo:
+            missing = k
+            for l in ordered:
+                if missing <= 0:
+                    break
+                if abs(l.ui_per_unit - size) > EPS:
+                    continue
+                n = min(missing, self.avail[l.lot_id])
+                if n > 0:
+                    out.append((l, n))
+                    missing -= n
+        return out
+
+    def _candidates(self, t: _Treatment, with_subs: bool) -> List[Tuple[str, Optional[float]]]:
+        """[(insulina, máx. UI utilizables)] empezando por la propia."""
+        out: List[Tuple[str, Optional[float]]] = [(t.ing, None)]
+        if with_subs and not (t.group == 1 and t.ing in MINOR_KEEP_INSULINS):
+            for s in self.targets_of.get(t.ing, []):
+                h = self._slack(s, exclude=t, group=t.group)
+                if h > EPS:
+                    out.append((s, h))
+        return out
+
+    @staticmethod
+    def _in_band(x: float, lo: float, hi: float) -> bool:
+        return x > EPS and lo - EPS <= x <= hi + EPS
+
+    def _plan(self, t: _Treatment, mode: str):
+        """Líneas [(insulina, clase, combinación)] o None. `mode`: 'band' (solo dentro de la banda) | 'full'."""
+        cfg = self.cfg
+        lo, hi, ideal, cap = t.floor, t.ceil, t.need, t.cap
+        is_minor = t.group == 1
+        guarantee = t.group in cfg.floor_guarantee_groups
+        cands = self._candidates(t, with_subs=True)
+        own = cands[0]
+        # --- vial para insulina rápida de 14 a 20 UI/día
+        if cfg.prefer_vial_rapid and t.ing in self.rapid and cfg.vial_dose[0] <= t.dose <= cfg.vial_dose[1]:
+            for ing, mx in cands:
+                if is_minor and ing != t.ing:
+                    continue
+                for l in self._lots(ing, t.group):
+                    if (
+                        l.ui_per_unit >= cfg.vial_ui - EPS
+                        and lo - EPS <= l.ui_per_unit <= cap + EPS
+                        and (mx is None or l.ui_per_unit <= mx + EPS)
+                    ):
+                        return [(ing, None, ((l.ui_per_unit, 1),))]
+        # --- paso 1: una sola insulina dentro de la banda (menores: solo la propia)
+        for ing, mx in [own] if is_minor else cands:
+            for klass in ("pref", None):
+                tot = self._options(t, ing, klass, mx)
+                if tot is None:
+                    continue
+                band = [x for x in tot if self._in_band(x, lo, hi)]
+                if band:
+                    x = min(band, key=lambda x: (abs(x - ideal), tot[x][0]))
+                    return [(ing, klass, tot[x][1])]
+        # --- paso 2: propia + sustituto dentro de la banda
+        own_tot = self._options(t, own[0], None, own[1])
+        own_max = max(own_tot) if own_tot else 0.0
+        best = None
+        if own_max < lo - EPS or not is_minor:
+            for ing, mx in cands[1:]:
+                st = self._options(t, ing, None, mx)
+                for a, (na, ca) in own_tot.items():
+                    if a <= EPS:
+                        continue
+                    for b, (nb, cb) in st.items():
+                        if b <= EPS:
+                            continue
+                        if self._in_band(a + b, lo, hi):
+                            k = (abs(a + b - ideal), na + nb)
+                            if best is None or k < best[0]:
+                                best = (k, [(own[0], None, ca), (ing, None, cb)])
+        if best and (own_max < lo - EPS or not is_minor):
+            return best[1]
+        if mode == "band":
+            return None
+        # --- paso 3: pasar del techo. Grupos con garantía: el menor total que alcance el piso
+        if guarantee:
+            limit = cfg.minor_max_coverage * ideal if cfg.minor_max_coverage else float("inf")
+            over = [x for x in own_tot if x >= lo - EPS and x > EPS and x <= limit + EPS]
+            if over:
+                x = min(over, key=lambda x: (x, own_tot[x][0]))
+                return [(own[0], None, own_tot[x][1])]
+        else:
+            best3 = None
+            for rank, (ing, mx) in enumerate(cands):
+                tot = self._options(t, ing, None, mx)
+                for x in tot:
+                    if hi + EPS < x <= cap + EPS:
+                        k = (x, rank, tot[x][0])
+                        if best3 is None or k < best3[0]:
+                            best3 = (k, [(ing, None, tot[x][1])])
+            if best3:
+                return best3[1]
+        # --- paso 3b (grupos con garantía): propia + sustituto cubriendo el piso con el menor exceso
+        if guarantee and own_max < lo - EPS:
+            best = None
+            for ing, mx in cands[1:]:
+                st = self._options(t, ing, None, mx)
+                for a, (na, ca) in own_tot.items():
+                    for b, (nb, cb) in st.items():
+                        if a + b >= lo - EPS and a + b > EPS and (a > EPS or b > EPS):
+                            k = (a + b, na + nb)
+                            if best is None or k < best[0]:
+                                best = (k, [(own[0], None, ca)] + ([(ing, None, cb)] if b > EPS else []))
+            if best:
+                return best[1]
+        # --- paso 4: mejor esfuerzo con lo que haya, en el orden de la tabla
+        lines, acc = [], 0.0
+        for ing, mx in cands:
+            tot = self._options(t, ing, None, mx)
+            ok = [x for x in tot if x > EPS and acc + x <= hi + EPS]
+            if ok:
+                x = max(ok)
+                lines.append((ing, None, tot[x][1]))
+                acc += x
+        if lines:
+            return lines
+        # --- excepción: ningún envase cabe; se da uno solo, el más chico
+        for ing, mx in cands:
+            for l in self._lots(ing, t.group):
+                if abs(l.ui_per_unit - self.min_size.get(ing, 0)) < EPS and (mx is None or l.ui_per_unit <= mx + EPS):
+                    t.min_pen = True
+                    return [(ing, None, ((l.ui_per_unit, 1),))]
+        return None
+
+    def _apply(self, t: _Treatment, lines) -> None:
+        for ing, klass, combo in lines:
+            for lot, n in self._to_lots(t, ing, klass, combo):
+                self._put(t, lot, n)
+
+    def _serve(self, t: _Treatment, mode: str = "full") -> bool:
+        before = t.cov_ui
+        old = dict(t.assigned)
+        old_min = t.min_pen
+        by_id = {l.lot_id: l for l in self.lots}
+        if t.assigned:
+            self._clear(t)
+        t.min_pen = False
+        lines = self._plan(t, mode)
+        if lines:
+            self._apply(t, lines)
+        if (not lines or t.cov_ui <= EPS) or (old and t.cov_ui < before - EPS):
+            self._clear(t)
+            for lot_id, n in old.items():
+                self._put(t, by_id[lot_id], n)
+            t.min_pen = old_min
+            return False
+        return True
+
+    def _one_pen(self, t: _Treatment) -> bool:
+        """Un envase a quien sigue en 0 %: el que menos sobra sin pasar del tope."""
+        missing = t.floor
+        for ing, mx in self._candidates(t, with_subs=True):
+            packs = [l for l in self._lots(ing, t.group) if mx is None or l.ui_per_unit <= mx + EPS]
+            ok = [l for l in packs if l.ui_per_unit <= t.cap + EPS]
+            if ok:
+                cover = [l for l in ok if l.ui_per_unit >= missing - EPS]
+                if cover:
+                    l = min(cover, key=lambda l: (l.ui_per_unit, self._lot_key(l, t.group)))
+                else:
+                    l = max(ok, key=lambda l: (l.ui_per_unit, tuple(-x for x in self._lot_key(l, t.group))))
+                self._put(t, l, 1)
+                return True
+        for ing, mx in self._candidates(t, with_subs=True):
+            for l in self._lots(ing, t.group):
+                if abs(l.ui_per_unit - self.min_size.get(ing, 0)) < EPS and (mx is None or l.ui_per_unit <= mx + EPS):
+                    self._put(t, l, 1)
+                    t.min_pen = True
+                    return True
+        return False
+
+    def _add_toward_floor(self, t: _Treatment) -> bool:
+        """Un envase más hacia el piso: el menor que lo alcanza, o el mayor que quepa bajo el tope."""
+        missing = t.floor - t.cov_ui
+        for ing, mx in self._candidates(t, with_subs=True):
+            packs = [
+                l for l in self._lots(ing, t.group)
+                if (mx is None or l.ui_per_unit <= mx + EPS) and t.cov_ui + l.ui_per_unit <= t.cap + EPS
+            ]
+            if not packs:
+                continue
+            cover = [l for l in packs if l.ui_per_unit >= missing - EPS]
+            if cover:
+                l = min(cover, key=lambda l: (l.ui_per_unit, self._lot_key(l, t.group)))
+            else:
+                l = max(packs, key=lambda l: (l.ui_per_unit, tuple(-x for x in self._lot_key(l, t.group))))
+            self._put(t, l, 1)
+            return True
+        return False
+
+    def _progressive_to_floor(self, g: int) -> None:
+        """Llenado progresivo: de a un envase por vuelta, empezando por el de menor cobertura."""
+        changed = True
+        while changed:
+            changed = False
+            pending = [t for t in self.treatments if t.group == g and t.cov_ui < t.floor - EPS]
+            for t in sorted(pending, key=lambda t: (t.cov, t.need, t.pid, t.ing)):
+                if self._add_toward_floor(t):
+                    changed = True
+
+    def _scarce(self, ing: str, groups=(3, 4)) -> bool:
+        demand = sum(t.need for t in self.treatments if t.ing == ing and t.group in groups and t.cov_ui <= EPS)
+        return self._free_ui(ing) < demand - EPS
+
+    # ------------------------------------------------------------------ completar hacia 100 %
+    def _add_one(self, t: _Treatment) -> bool:
+        used = list(t.ui) or [t.ing]
+        if t.ing not in used:
+            used.insert(0, t.ing)
+        best = None
+        for ing in used:
+            slack = self._slack(ing, exclude=t)
+            for l in self._lots(ing, t.group):
+                if l.ui_per_unit > slack + EPS:
+                    continue
+                new = t.cov_ui + l.ui_per_unit
+                if new <= t.ceil + EPS and abs(new - t.need) < abs(t.cov_ui - t.need) - EPS:
+                    k = (abs(new - t.need), self._lot_key(l, t.group))
+                    if best is None or k < best[0]:
+                        best = (k, l)
+        if best:
+            self._put(t, best[1], 1)
+            return True
+        return False
+
+    def complete(self) -> None:
+        for g in (1, 2, 3, 4):
+            tier = [t for t in self.treatments if t.group == g]
+            changed = True
+            while changed:
+                changed = False
+                for t in sorted(tier, key=lambda t: (t.cov, t.need, t.pid, t.ing)):
+                    if t.cov_ui > EPS and self._add_one(t):
+                        changed = True
+
+    # ------------------------------------------------------------------ reserva liberada y rebalanceo
+    def _below_floor(self, groups=(1, 2, 3, 4)) -> List[_Treatment]:
+        return [t for g in groups for t in self._order(g) if t.cov_ui < t.floor - EPS]
+
+    def release_reserve(self) -> None:
+        if not self._below_floor() or not self.reserve:
+            return
+        by_id = {l.lot_id: l for l in self.lots}
+        previous = dict(self.reserve)
+        for lot_id, n in previous.items():
+            self.avail[lot_id] += n
+        self.reserve = {}
+        for t in self._below_floor():
+            self._serve(t, "full")
+        for lot_id, n in previous.items():  # lo que no se usó vuelve a guardarse (mismos lotes)
+            back = min(n, self.avail[lot_id])
+            if back > 0:
+                self.avail[lot_id] -= back
+                self.reserve[lot_id] = self.reserve.get(lot_id, 0) + back
+        used: Dict[str, float] = defaultdict(float)
+        for lot_id, n in previous.items():
+            used[by_id[lot_id].ingredient] += (n - self.reserve.get(lot_id, 0)) * by_id[lot_id].ui_per_unit
+        for ing, v in used.items():
+            if v > EPS:
+                self.reserve_released[ing] += v
+
+    def rebalance(self) -> None:
+        """Si un menor o un tipo 1 sigue bajo su piso, recupera envases de grupos de menor prioridad."""
+        cfg = self.cfg
+        by_id = {l.lot_id: l for l in self.lots}
+        for t in self._below_floor(groups=(1, 2)):
+            for phase in ("soft", "hard"):
+                guard = 0
+                while t.cov_ui < t.floor - EPS and guard < 500:
+                    guard += 1
+                    target = {t.ing} | set(self.targets_of.get(t.ing, []))
+                    donors = []
+                    for d in self.treatments:
+                        if d.group <= t.group or d is t:
+                            continue
+                        for lot_id, n in d.assigned.items():
+                            l = by_id[lot_id]
+                            if l.ingredient not in target:
+                                continue
+                            rest = d.cov_ui - l.ui_per_unit
+                            d_floor = d.floor if phase == "soft" else cfg.hard_floor_adults * d.need
+                            if rest >= d_floor - EPS and (phase == "soft" or d.group >= 3):
+                                donors.append((-d.group, -d.cov, d.pid, lot_id, d))
+                    if not donors:
+                        break
+                    donors.sort(key=lambda x: x[:4])
+                    _g, _c, _p, lot_id, d = donors[0]
+                    before = t.cov_ui
+                    self._take_back(d, by_id[lot_id], 1)
+                    self._serve(t, "full")
+                    if t.cov_ui <= before + EPS:
+                        self._put(d, by_id[lot_id], 1)  # no ayudó: se devuelve
+                        guard += 50  # evita el bucle: se descarta este donante
+                    elif "CEDIÓ_ENVASE_A_PRIORITARIO" not in d.notes:
+                        d.notes.append("CEDIÓ_ENVASE_A_PRIORITARIO")
+            for d in self._below_floor(groups=(3, 4)):
+                self._serve(d, "full")
+
+    # ------------------------------------------------------------------ ejecución
+    def run(self) -> DistributionPlan:
+        self.prepare()
+        self.reserve_stock()
+        for g in (1, 2):
+            for t in self._order(g):
+                self._serve(t, "full")
+        scarce = {ing: self._scarce(ing) for ing in {t.ing for t in self.treatments if t.group in (3, 4)}}
+        for g in (3, 4):  # stock suficiente: combinación óptima de envases dentro de la banda
+            for t in self._order(g):
+                if t.cov_ui <= EPS and not scarce[t.ing]:
+                    self._serve(t, "band")
+        for g in (3, 4):  # nadie en 0 % si queda algún envase
+            for t in self._order(g):
+                if t.cov_ui <= EPS:
+                    self._one_pen(t)
+        for g in (3, 4):  # escasez: llenado progresivo hacia el piso
+            self._progressive_to_floor(g)
+        for g in (3, 4):
+            for t in self._order(g):
+                if t.cov_ui < t.floor - EPS:
+                    self._serve(t, "full")
+        self.release_reserve()
+        self.rebalance()
+        self.complete()
+        self._verify()
+        return self._result()
+
+    def _verify(self) -> None:
+        for l in self.lots:
+            assigned = sum(t.assigned.get(l.lot_id, 0) for t in self.treatments)
+            total = assigned + self.avail[l.lot_id] + self.reserve.get(l.lot_id, 0)
+            if total != l.units or self.avail[l.lot_id] < 0:
+                raise AssertionError(f"Invariante de stock roto en el lote {l.lot_id}: {total} != {l.units}")
+
+    # ------------------------------------------------------------------ resultado
+    def _cause(self, t: _Treatment) -> str:
+        ok = [t.ing] + ([] if (t.group == 1 and t.ing in MINOR_KEEP_INSULINS) else list(self.targets_of.get(t.ing, [])))
+        free = [l for ing in ok for l in self.lots_of.get(ing, []) if self.avail[l.lot_id] > 0]
+        if not free:
+            return "STOCK"
+        if min(l.ui_per_unit for l in free) > t.cap - t.cov_ui + EPS:
+            return "ENVASE"
+        return "OTRO"
+
+    def _result(self) -> DistributionPlan:
+        cfg = self.cfg
+        by_id = {l.lot_id: l for l in self.lots}
+        plan = DistributionPlan(
+            days=cfg.days, reserve_pct=cfg.reserve_pct, total_stock_ui=self.total_stock,
+            reserve_target_ui=self.reserve_target, reserve_ui=0.0, allocated_ui=0.0,
+            group_choices=self.group_choices, warnings=list(self.warnings),
+        )
+        ordered = sorted(self.treatments, key=lambda t: (t.group, t.pid, t.ing))
+        unmet: Dict[str, int] = defaultdict(int)
+        for t in ordered:
+            below = t.cov_ui < t.floor - EPS
+            above = t.cov_ui > t.ceil + EPS
+            shortfall = max(0.0, t.floor - t.cov_ui)
+            notes = list(t.notes)
+            if t.min_pen:
+                notes.append("ENVASE_MINIMO")
+            others = [i for i in t.ui if i != t.ing]
+            if others:
+                notes.append("SUSTITUCION" + (" (MENOR: requiere aval médico)" if t.group == 1 else ""))
+            if t.cov_ui <= EPS:
+                notes.append("SIN_ASIGNACION")
+            plan.patients.setdefault(t.pid, []).append(
+                PatientIngredientResult(
+                    ingredient=t.ing,
+                    need_ui=t.need,
+                    given_ui=t.ui.get(t.ing, 0.0),
+                    substitute=" + ".join(others) if others else None,
+                    substitute_ui=sum(t.ui[i] for i in others),
+                    substitute_equiv_ui=sum(t.ui[i] for i in others),
+                    daily_registered=t.dose_reg,
+                    daily_applied=t.dose,
+                    group=t.group,
+                    band_min=cfg.floor[t.group],
+                    band_max=cfg.ceiling[t.group],
+                    outside_band=below or above,
+                    min_pen_exception=t.min_pen,
+                    min_shortfall_ui=shortfall if below else 0.0,
+                    min_shortfall_cause=self._cause(t) if below else None,
+                    notes=notes,
+                )
+            )
+            for lot_id, n in sorted(t.assigned.items()):
+                plan.assignments.append(Assignment(t.pid, lot_id, n, n * by_id[lot_id].ui_per_unit, t.ing))
+            if below:
+                unmet[t.ing] += 1
+
+        kept: List[ReserveLot] = []
+        for lot_id, n in sorted(self.reserve.items()):
+            if n > 0:
+                l = by_id[lot_id]
+                kept.append(ReserveLot(lot_id, l.ingredient, l.label, n, n * l.ui_per_unit))
+        plan.reserve_lots = kept
+        plan.reserve_ui = sum(r.ui for r in kept)
+        plan.reserve_released_ui = sum(self.reserve_released.values())
+
+        stock = self.stock
+        for ing in sorted(set(stock) | {t.ing for t in self.treatments}):
+            own = [t for t in self.treatments if t.ing == ing]
+            demand = sum(t.need for t in own)
+            delivered = sum(t.ui.get(ing, 0.0) for t in self.treatments)
+            plan.allocated_ui += delivered
+            plan.ingredients.append(
+                IngredientSummary(
+                    ingredient=ing,
+                    stock_ui=stock.get(ing, 0.0),
+                    demand_ui=demand,
+                    reserve_ui=sum(r.ui for r in kept if r.ingredient == ing),
+                    allocated_ui=delivered,
+                    unmet_ui=sum(max(0.0, t.need - t.cov_ui) for t in own),
+                    leftover_ui=sum(self.avail[l.lot_id] * l.ui_per_unit for l in self.lots_of.get(ing, [])),
+                    patients_with_need=len(own),
+                    patients_unmet=unmet.get(ing, 0),
+                    substituted_out_ui=sum(v for t in own for i, v in t.ui.items() if i != ing),
+                    substituted_in_ui=sum(t.ui.get(ing, 0.0) for t in self.treatments if t.ing != ing),
+                    reserve_released_ui=self.reserve_released.get(ing, 0.0),
+                )
+            )
+        plan.remaining_units = dict(self.avail)
+        return plan
+
+
+def plan_distribution(
+    lots: Sequence[LotInput],
+    patients: Sequence[PatientInput],
+    *,
+    days: Optional[int] = None,
+    reserve_pct: Optional[float] = None,
+    config: Optional[DistributionConfig] = None,
+    substitutions: Optional[Sequence[Substitution]] = None,
+) -> DistributionPlan:
+    """Reparte la donación entre los pacientes. Ver el encabezado del módulo para las reglas."""
+    cfg = config or DistributionConfig()
+    if days is not None:
+        cfg = DistributionConfig(**{**cfg.__dict__, "days": days})
+    if reserve_pct is not None:
+        cfg = DistributionConfig(**{**cfg.__dict__, "reserve_pct": reserve_pct})
+    rules = DEFAULT_SUBSTITUTIONS if substitutions is None else tuple(substitutions)
+    return _Engine(lots, patients, cfg, rules).run()

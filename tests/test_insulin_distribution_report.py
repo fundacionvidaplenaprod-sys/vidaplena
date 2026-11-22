@@ -227,24 +227,27 @@ async def test_report_caps_minors_dose_and_reports_priority_coverage(client, ais
     data = (await client.post(URL, files=_files(content))).json()
 
     m = _fila(data, menor.id)["insulinas"][0]
-    assert (m["dosis_diaria_registrada"], m["dosis_diaria_aplicada"], m["dosis_limitada"]) == (48.0, 30.0, True)
-    assert m["necesidad_ui"] == 1800 and m["cobertura_pct"] == 100.0  # 30 UI x 60 días, 6 pens exactos
+    # El motor equitativo no topa la dosis del menor: queda la nota para el equipo clínico.
+    assert (m["dosis_diaria_registrada"], m["dosis_diaria_aplicada"], m["dosis_limitada"]) == (48.0, 48.0, False)
+    assert any(n.startswith("REVISION_CLINICA") for n in m["notas"])
+    assert m["necesidad_ui"] == 2880 and m["cobertura_pct"] == 104.2  # 48 UI x 60 días, 10 pens
 
     a = _fila(data, adulto_t1.id)["insulinas"][0]
     assert a["dosis_limitada"] is False and a["necesidad_ui"] == 2880  # el adulto no tiene tope
-    assert (a["margen_min_pct"], a["margen_max_pct"]) == (75.0, 110.0)  # tipo 1
-    assert 75.0 <= a["cobertura_pct"] <= 110.0 and a["fuera_de_margen"] is False
+    assert (a["margen_min_pct"], a["margen_max_pct"]) == (90.0, 110.0)  # tipo 1
+    assert 90.0 <= a["cobertura_pct"] <= 110.0 and a["fuera_de_margen"] is False
+    assert m["margen_min_pct"] == 100.0 and m["fuera_de_margen"] is False
 
-    # 360 UI con pens de 300: 1 pen = 83 % entra en el 80-120 % de un menor; 2 pens serían 167 %.
+    # 360 UI con pens de 300: el piso del menor es 100 % y un pen es 83 %; se garantiza el piso con 2 pens
+    # (167 %, sobre su techo): queda marcado como fuera de margen pero no bajo el mínimo.
     c = _fila(data, pen_corto.id)["insulinas"][0]
-    assert c["cobertura_pct"] == 83.3 and c["fuera_de_margen"] is False and c["envase_minimo"] is False
-    assert m["fuera_de_margen"] is False
+    assert c["cobertura_pct"] == 166.7 and c["fuera_de_margen"] is True and c["envase_minimo"] is False
 
     # Quien queda bajo el mínimo viene listado con lo que le falta
     assert data["bajo_minimo"] == []  # ninguno bajo su mínimo en este escenario
     menores = next(g for g in data["prioridades"] if g["grupo"] == 1)
-    assert (menores["margen_min_pct"], menores["margen_max_pct"]) == (80.0, 120.0)
-    assert (menores["tratamientos"], menores["en_margen"], menores["sobre_maximo"], menores["bajo_minimo"]) == (2, 2, 0, 0)
+    assert (menores["margen_min_pct"], menores["margen_max_pct"]) == (100.0, 120.0)
+    assert (menores["tratamientos"], menores["en_margen"], menores["sobre_maximo"], menores["bajo_minimo"]) == (2, 1, 1, 0)
     tipo1 = next(g for g in data["prioridades"] if g["grupo"] == 2)
     assert (tipo1["tratamientos"], tipo1["en_margen"]) == (1, 1)
 
@@ -259,8 +262,8 @@ async def test_report_groups_patients_by_priority_and_serves_them_in_that_order(
     await _solo(aislado, otro, mayor, tipo1, menor)
 
     futuro = datetime.now() + timedelta(days=400)
-    # 11 envases de 300 UI = 3.300 UI; la reserva (5 %) aparta 1 y quedan 10 para 4 x 1.200 UI;
-    # el envase de la reserva se libera para quien quedaría en 0 %
+    # 11 envases de 300 UI = 3.300 UI; la reserva (5 %) aparta 1 sin tocar lo que necesitan los grupos 1 y 2
+    # (2 x 1.200 UI) y quedan 10 envases para 4 x 1.200 UI; el envase de la reserva se libera
     content = _excel([[11, "Abasaglar KwikPen 3 ml", "Glargina", "3 ml", "U100", futuro, "L-1"]])
     data = (await client.post(URL, files=_files(content))).json()
 
@@ -269,21 +272,22 @@ async def test_report_groups_patients_by_priority_and_serves_them_in_that_order(
     assert _fila(data, mayor.id)["grupo_prioridad_nombre"] == "Adultos mayores con diabetes tipo 2"
 
     cob = {p["patient_id"]: p["insulinas"][0]["cobertura_pct"] for p in data["pacientes"]}
-    # Cada grupo recibe el mínimo de su banda, en orden: 100 % menor (80-120), 75 % tipo 1,
-    # 75 % adulto mayor (65-100) y el último grupo se queda sin stock.
-    assert cob[menor.id] == 100.0 and cob[tipo1.id] == 75.0 and cob[mayor.id] == 75.0
-    assert cob[otro.id] == 25.0  # el envase de la reserva: nadie queda en 0 %
+    # Cada grupo llega a su piso en orden: menor 100 % y tipo 1 100 % (pisos 100 y 90). Con los 3 envases
+    # que quedan, el adulto mayor recibe 2 (50 %) y el último grupo 1 (25 %): nadie queda en 0 %.
+    assert cob[menor.id] == 100.0 and cob[tipo1.id] == 100.0
+    assert cob[mayor.id] == 50.0 and cob[otro.id] == 25.0
     assert data["reserva_liberada_ui"] == 300 and data["reserva_ui"] == 0
 
-    # El que queda bajo su mínimo (65 % de 1.200 = 780 UI) viene listado con lo que le falta y la causa.
+    # Los que quedan bajo su piso (65 % de 1.200 = 780 UI) vienen listados con lo que les falta y la causa.
     assert [(b["patient_id"], b["motivo"], b["falta_ui"], b["envases_faltantes"]) for b in data["bajo_minimo"]] == [
-        (otro.id, "STOCK", 480.0, 2)
+        (otro.id, "STOCK", 480.0, 2),
+        (mayor.id, "STOCK", 180.0, 1),
     ]
     por_grupo = {g["grupo"]: g for g in data["prioridades"]}
-    assert por_grupo[1]["en_margen"] == 1 and por_grupo[2]["en_margen"] == 1 and por_grupo[3]["en_margen"] == 1
-    assert por_grupo[4]["bajo_minimo"] == 1 and por_grupo[4]["en_cero"] == 0
+    assert por_grupo[1]["en_margen"] == 1 and por_grupo[2]["en_margen"] == 1
+    assert por_grupo[3]["bajo_minimo"] == 1 and por_grupo[4]["bajo_minimo"] == 1 and por_grupo[4]["en_cero"] == 0
     assert _fila(data, otro.id)["insulinas"][0]["fuera_de_margen"] is True
-    assert _fila(data, mayor.id)["insulinas"][0]["fuera_de_margen"] is False
+    assert _fila(data, menor.id)["insulinas"][0]["fuera_de_margen"] is False
 
 
 @pytest.mark.asyncio
@@ -447,3 +451,17 @@ def test_report_endpoint_does_not_depend_on_the_warehouse_module():
     source = Path(__file__).resolve().parents[1] / "app" / "api" / "endpoints" / "reports.py"
     text = source.read_text(encoding="utf-8")
     assert "endpoints import donations" not in text and "endpoints.donations" not in text
+
+
+@pytest.mark.asyncio
+async def test_report_warns_about_lots_expiring_soon_and_flags_a_minors_substitute(client, aislado):
+    menor = await _paciente(aislado, edad=10, estado="ACTIVO", glargina_ui=20.0)
+    await _solo(aislado, menor)
+    pronto = datetime.now() + timedelta(days=30)
+    content = _excel([[20, "Levemir FlexPen 3 ml", "Detemir", "3 ml", "U100", pronto, "L-V"]])
+    data = (await client.post(URL, files=_files(content))).json()
+
+    assert any("vence el" in w for w in data["advertencias"])
+    ins = _fila(data, menor.id)["insulinas"][0]
+    assert ins["sustituto"] == "Detemir" and ins["cobertura_pct"] >= 100.0
+    assert any("requiere aval médico" in n for n in ins["notas"])

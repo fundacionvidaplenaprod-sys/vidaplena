@@ -16,8 +16,8 @@ from app import models, schemas
 from app.core.assisted import assisted_age
 from app.core.contributions import current_periodo, is_patient_current_on_contribution
 from app.core.insulin_catalog import normalize_insulin_name
+from app.core.equitable_distribution import PRIORITY_BANDS
 from app.core.insulin_distribution import (
-    COVERAGE_BANDS,
     GROUP_LABELS,
     MINOR_AGE,
     PRIORITY_NAMES,
@@ -270,6 +270,7 @@ def plan_patient_items(plan, patient_inputs, info: dict, lot_meta: dict) -> List
                         envase_minimo=r.min_pen_exception,
                         falta_minimo_ui=round(r.min_shortfall_ui, 1),
                         motivo_bajo_minimo=r.min_shortfall_cause,
+                        notas=list(r.notes),
                         lotes=lots_by_patient_ing.get((patient_id, r.ingredient), []),
                     )
                     for r in results
@@ -315,15 +316,17 @@ def plan_below_min_items(pacientes: Sequence[schemas.DistributionReportPatient])
 def plan_priority_bands(pacientes: Sequence[schemas.DistributionReportPatient]) -> List[schemas.DistributionPriorityBand]:
     """Por grupo de prioridad: cuántos tratamientos quedaron dentro, bajo el mínimo o sobre el máximo."""
     out: List[schemas.DistributionPriorityBand] = []
-    for group in sorted(COVERAGE_BANDS):
-        lo, hi = COVERAGE_BANDS[group]
+    for group in sorted(PRIORITY_BANDS):
         members = [p for p in pacientes if p.grupo_prioridad == group]
         rows = [i for p in members for i in p.insulinas]
         need = sum(i.necesidad_ui for i in rows)
         got = sum(i.entregado_ui for i in rows)
         eps = 0.05  # los porcentajes del esquema van redondeados a 1 decimal
-        bajo = sum(1 for i in rows if i.cobertura_pct < lo * 100 - eps)
-        sobre = sum(1 for i in rows if i.cobertura_pct > hi * 100 + eps)
+        # El margen es el de cada tratamiento (el que aplicó el motor a su grupo).
+        bajo = sum(1 for i in rows if i.cobertura_pct < i.margen_min_pct - eps)
+        sobre = sum(1 for i in rows if i.cobertura_pct > i.margen_max_pct + eps)
+        lo = min((i.margen_min_pct for i in rows), default=PRIORITY_BANDS[group][0] * 100) / 100
+        hi = max((i.margen_max_pct for i in rows), default=PRIORITY_BANDS[group][1] * 100) / 100
         out.append(
             schemas.DistributionPriorityBand(
                 grupo=group,
@@ -337,6 +340,8 @@ def plan_priority_bands(pacientes: Sequence[schemas.DistributionReportPatient]) 
                 bajo_minimo=bajo,
                 sobre_maximo=sobre,
                 en_cero=sum(1 for i in rows if i.cobertura_pct < 0.05),
+                cobertura_min_pct=min((i.cobertura_pct for i in rows), default=None),
+                cobertura_max_pct=max((i.cobertura_pct for i in rows), default=None),
             )
         )
     return out
