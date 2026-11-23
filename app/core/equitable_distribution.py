@@ -4,43 +4,37 @@ Función pura (sin base de datos), con las mismas entradas y salidas que el moto
 (`app.core.insulin_distribution.plan_distribution`, que se conserva como `v1` para comparar):
 recibe lotes y pacientes y devuelve un `DistributionPlan`.
 
+Regla de cobertura (reglamento, art. 2): la Fundación procura cubrir entre el 75 % y el 100 % del requerimiento de
+CADA beneficiario, sea menor, adulto mayor, tipo 1 o tipo 2. Cobertura = UI recibidas / UI necesarias en el periodo
+(dosis diaria x 60 días). Por criterio de la Fundación nadie recibe más de 65 días de tratamiento (65/60 = 108,3 %).
+
 Principios, en orden de precedencia:
-  1. Menores de 18 años: cobertura completa (piso = 100 %) antes de que cualquier otro grupo,
-     reserva o sustitución toque su insulina.
-  2. Pisos antes que techos: todos los grupos llegan primero a su cobertura mínima (en orden de
-     prioridad 1 > 2 > 3 > 4) y solo después se completa hacia el 100 %.
-  3. Sustitución protegida: una insulina solo se entrega como sustituto con el stock que excede lo
-     que sus usuarios propios de igual o mayor prioridad todavía necesitan para su piso.
-  4. Reserva protegida: nunca se aparta de la insulina que necesitan los grupos 1 y 2. Se libera
-     solo lo necesario para que nadie quede bajo su piso.
-  5. Equidad: con escasez el faltante se reparte parejo entre los afectados, no por orden arbitrario.
-  6. Mínimo garantizado: nadie queda en 0 % ni bajo su piso siempre que el stock lo permita. El reparto se resuelve
-     de una sola vez con optimización entera (`equitable_milp`, scipy/HiGHS); si es imposible (la suma de los pisos de
-     una insulina supera su stock) se informa cuánto falta (`DistributionPlan.minimum_gaps`) y el faltante se reparte
-     parejo, protegiendo primero a menores y tipo 1. Sin scipy se usa un reparto aproximado (pisos primero, reserva
-     liberada, reparto parejo y reparaciones) que lo avisa y no puede garantizarlo.
+  1. Nadie queda en 0 % ni bajo el 75 % (PROHIBIDO) siempre que el stock y el envase entero lo permitan. El reparto se resuelve de una sola vez con
+     optimización entera (`equitable_milp`, scipy/HiGHS); si es imposible (la suma de los pisos de una insulina
+     supera su stock) se informa cuánto falta (`DistributionPlan.minimum_gaps`) y el faltante se reparte parejo,
+     protegiendo primero a menores y tipo 1. Sin scipy se usa un reparto aproximado que lo avisa y no puede
+     garantizarlo (el reporte exige el reparto exacto: `require_optimizer`).
+  2. Nadie pasa del tope de 65 días. Con envases enteros puede no existir ningún total entre el 75 % y los 65 días
+     (8 UI/día = 480 UI con pens de 300: 1 pen = 62,5 %, 2 pens = 125 %): ahí no se pueden cumplir a la vez el piso y
+     el tope. Decisión de la Fundación: el tope de 65 días manda y, solo en estos casos excepcionales, el tratamiento
+     puede quedar bajo el 75 % con la menor diferencia posible (`envase_rule`). Se informan con la nota ENVASE_ENTERO
+     y causa ENVASE: no son falta de insulina. Una dosis tan baja que ningún envase cabe en 65 días recibe un solo
+     envase (ENVASE_MINIMO): nadie en 0 %.
+  3. Prioridad cuando no alcanza: menores, tipo 1, adultos mayores con tipo 2 y el resto. Todos llegan primero a su
+     piso, en ese orden, y solo después se completa hacia el 100 %.
+  4. Sustitución protegida: una insulina solo se entrega como sustituto si eso no deja a otro bajo su piso.
+  5. Reserva (3 % del total, definida por la Fundación): nunca se aparta de lo que necesitan los pisos de los grupos
+     1 y 2 y se libera solo lo necesario para que nadie quede bajo su piso.
+  6. Equidad: con escasez el faltante se reparte parejo entre los afectados, no por orden arbitrario.
   7. Auditoría: envases asignados + libres + reservados = stock de cada lote, en cada ejecución.
 
-Cobertura = UI recibidas / UI necesarias en el periodo (dosis diaria x 60 días). Pisos, techos y
-demás cifras son parámetros (`DistributionConfig`):
+Tope de dosis en menores: 30 UI/día en glargina, lispro, glulisina, aspart, detemir y degludec (reglamento, art. 10: una
+dosis superior al estándar médico exige respaldo médico). La dosis registrada queda en la nota `DOSIS_TOPADA`;
+con `minor_dose_cap=None` no se topa y queda la nota `REVISION_CLINICA`.
 
-    grupo                              piso    techo   garantía del piso por envase
-    1 Menores de 18 años               100 %   120 %   sí
-    2 Diabéticos tipo 1                 90 %   110 %   sí
-    3 Adultos mayores con tipo 2        65 %   100 %   no
-    4 Tipo 2 y el resto                 65 %   100 %   no
-
-Garantía del piso por envase: si ninguna combinación cae entre el piso y el tope absoluto (120 %),
-el tratamiento recibe el menor total que alcance el piso aunque lo supere (8 UI/día = 480 UI con
-pens de 300: 2 pens = 125 % y no 1 = 62,5 %). Rige para todos los grupos: pasar del tope por el tamaño del
-envase es mejor que quedar bajo el mínimo. `minor_max_coverage` limita esa sobrecobertura en menores y tipo 1.
-
-El tope de 30 UI/día en menores viene desactivado: si la dosis lo supera el tratamiento queda con
-la nota `REVISION_CLINICA`. Con `minor_dose_cap` se vuelve a aplicar (nota `DOSIS_TOPADA`).
-
-Notas que puede llevar un tratamiento (`PatientIngredientResult.notes`): SUSTITUCION (en menores
-agrega «requiere aval médico»), ENVASE_MINIMO, FICHA_POR_CORREGIR, REVISION_CLINICA, DOSIS_TOPADA,
-CEDIÓ_ENVASE_A_PRIORITARIO y SIN_ASIGNACION.
+Notas que puede llevar un tratamiento (`PatientIngredientResult.notes`): SUSTITUCION (en menores agrega «requiere aval
+médico»), ENVASE_MINIMO, ENVASE_ENTERO, FICHA_POR_CORREGIR, REVISION_CLINICA, DOSIS_TOPADA, CEDIÓ_ENVASE_A_PRIORITARIO
+y SIN_ASIGNACION.
 """
 from __future__ import annotations
 
@@ -57,6 +51,7 @@ from app.core.insulin_distribution import (
     GROUP_RAPID,
     INSULIN_GROUPS,
     MINOR_CAPPED_INGREDIENTS,
+    MINOR_DAILY_CAP_UI,
     MINOR_KEEP_INSULINS,
     MINOR_PREFERRED_BRANDS,
     PREMIX_INSULINS,
@@ -85,9 +80,15 @@ MIXTA_SUBSTITUTIONS: Tuple[Substitution, ...] = tuple(
 EQUITABLE_SUBSTITUTIONS: Tuple[Substitution, ...] = tuple(DEFAULT_SUBSTITUTIONS) + MIXTA_SUBSTITUTIONS
 
 # Pisos y techos por grupo de prioridad (fracción de la necesidad), también para mostrarlos.
-PRIORITY_FLOOR: Dict[int, float] = {1: 1.00, 2: 0.90, 3: 0.65, 4: 0.65}
-PRIORITY_CEILING: Dict[int, float] = {1: 1.20, 2: 1.10, 3: 1.00, 4: 1.00}
-PRIORITY_BANDS: Dict[int, Tuple[float, float]] = {g: (PRIORITY_FLOOR[g], PRIORITY_CEILING[g]) for g in PRIORITY_FLOOR}
+# Reglamento (art. 2): la Fundación procura cubrir entre el 75 % y el 100 % del requerimiento de CADA beneficiario.
+# Por criterio de la Fundación, además, nadie recibe más de 65 días de tratamiento (60 + 5), es decir 65/60 = 108,3 %.
+PRIORITY_FLOOR: Dict[int, float] = {1: 0.75, 2: 0.75, 3: 0.75, 4: 0.75}
+PRIORITY_CEILING: Dict[int, float] = {1: 1.00, 2: 1.00, 3: 1.00, 4: 1.00}
+MAX_EXTRA_DAYS = 5  # días de más que se toleran sobre los 60 (tope de 65 días)
+MAX_DAYS_FACTOR = (DISTRIBUTION_DAYS + MAX_EXTRA_DAYS) / DISTRIBUTION_DAYS
+EQUITABLE_RESERVE_PCT = 0.03  # reserva definida por la Fundación (3 % del total)
+# Margen que se muestra y se verifica: piso 75 % y tope de 65 días.
+PRIORITY_BANDS: Dict[int, Tuple[float, float]] = {g: (PRIORITY_FLOOR[g], MAX_DAYS_FACTOR) for g in PRIORITY_FLOOR}
 
 
 class OptimizerUnavailable(RuntimeError):
@@ -97,13 +98,15 @@ class OptimizerUnavailable(RuntimeError):
 @dataclass
 class DistributionConfig:
     days: int = DISTRIBUTION_DAYS
-    reserve_pct: float = RESERVE_PCT
+    reserve_pct: float = EQUITABLE_RESERVE_PCT
     floor: Dict[int, float] = field(default_factory=lambda: dict(PRIORITY_FLOOR))
     ceiling: Dict[int, float] = field(default_factory=lambda: dict(PRIORITY_CEILING))
-    abs_cap: float = 1.20  # tope absoluto de cobertura
+    extra_days: int = MAX_EXTRA_DAYS  # tope duro: días + extra_days (65 días con el horizonte de 60)
     protected_groups: Tuple[int, ...] = (1, 2)  # su necesidad nunca se aparta como reserva
-    floor_guarantee_groups: Tuple[int, ...] = (1, 2, 3, 4)  # el piso se garantiza aunque el envase pase del tope
-    minor_dose_cap: Optional[float] = None  # None = sin tope de dosis en menores
+    # Grupos cuyo piso se garantiza aunque el envase pase del tope de 65 días. Ninguno: el tope manda y, si el envase
+    # entero no permite llegar al piso sin pasarlo, el tratamiento queda bajo el piso por «envase» (se informa).
+    floor_guarantee_groups: Tuple[int, ...] = ()
+    minor_dose_cap: Optional[float] = MINOR_DAILY_CAP_UI  # 30 UI/día en menores; None = sin tope
     minor_dose_warning: float = 30.0  # sobre este valor, nota REVISION_CLINICA
     minor_max_coverage: Optional[float] = None  # None = sin límite a la sobrecobertura por envase
     capped_ingredients: frozenset = MINOR_CAPPED_INGREDIENTS
@@ -119,6 +122,15 @@ class DistributionConfig:
     # True: si no hay reparto exacto se lanza `OptimizerUnavailable` en vez de entregar un reparto aproximado que
     # puede romper las reglas (nadie en 0 % ni bajo su mínimo).
     require_optimizer: bool = False
+    # Qué gana cuando los envases enteros no permiten caer entre el piso (75 %) y el tope (65 días), como 8 UI/día con
+    # pens de 300 UI (1 pen = 62,5 %, 2 pens = 125 % = 75 días):
+    #   "cap"     (por defecto, decisión de la Fundación) = el tope de 65 días manda y, en ese caso excepcional, el
+    #             tratamiento puede quedar bajo el 75 % con la menor diferencia posible (el mayor total que cabe en 65
+    #             días); se informa con la nota ENVASE_ENTERO;
+    #   "floor"   = nadie bajo el 75 %: el menor total que lo alcanza aunque pase de 65 días;
+    #   "closest" = la opción más cercana a la banda medida en días.
+    # Una dosis tan baja que ningún envase cabe en 65 días recibe un envase que pasa del tope: nadie queda en 0 %.
+    envase_rule: str = "cap"
 
 
 @dataclass
@@ -132,6 +144,10 @@ class _Treatment:
     floor: float
     ceil: float
     cap: float
+    floor_nominal: float = 0.0  # 75 % de la necesidad (reglamento)
+    structural: bool = False  # ningún conjunto de envases enteros cae entre el piso y el tope: `floor` es lo mejor posible
+    upper_ext: float = 0.0  # si es > 0, el máximo que se le permite es este total (pasa del tope por el envase entero)
+    cap_days: float = 0.0  # tope de 65 días (el de `cap` se amplía a `upper_ext` en los casos de envase entero)
     assigned: Dict[int, int] = field(default_factory=dict)  # lote -> envases
     ui: Dict[str, float] = field(default_factory=dict)  # insulina -> UI entregadas
     notes: List[str] = field(default_factory=list)
@@ -284,7 +300,8 @@ class _Engine:
                 self.treatments.append(
                     _Treatment(
                         pid=p.patient_id, ing=ing, group=g, dose_reg=daily, dose=dose, need=need,
-                        floor=need * cfg.floor[g], ceil=need * cfg.ceiling[g], cap=need * cfg.abs_cap, notes=notes,
+                        floor=need * cfg.floor[g], ceil=need * cfg.ceiling[g], cap=need + dose * cfg.extra_days,
+                        floor_nominal=need * cfg.floor[g], cap_days=need + dose * cfg.extra_days, notes=notes,
                     )
                 )
         for t in self.treatments:
@@ -302,6 +319,48 @@ class _Engine:
                     f"(menos de {cfg.expiry_warning_days} días): se entrega primero (FEFO)"
                 )
 
+    def _apply_envase_limits(self) -> None:
+        """Con envases enteros puede no existir ningún total entre el piso (75 %) y el tope (65 días): 8 UI/día son
+        480 UI y un pen de 300 UI es 62,5 % mientras dos pens son 125 %. Según `envase_rule`: "cap" (por defecto) manda el
+        tope y el tratamiento queda con el mayor total que cabe en 65 días (la menor diferencia posible con el 75 %);
+        "floor" nadie queda bajo el piso aunque pase del tope; "closest" elige la opción más cercana a la banda medida
+        en días. El caso se informa con la nota ENVASE_ENTERO."""
+        cfg = self.cfg
+        for t in self.treatments:
+            counts: Dict[float, int] = defaultdict(int)
+            for ing in self._compatible(t):
+                for l in self.lots_of.get(ing, []):
+                    counts[l.ui_per_unit] += l.units
+            if not counts:
+                continue
+            sizes = sorted(counts)[: cfg.max_sizes]
+            upper = max(t.cap, min(sizes))
+            limit = max(upper, t.floor_nominal) + max(sizes)
+            usable = [(sz, min(counts[sz], int(limit // sz))) for sz in sizes if int(limit // sz) > 0]
+            totals = self._totals(usable, limit)
+            if any(x > EPS and t.floor_nominal - EPS <= x <= upper + EPS for x in totals):
+                continue
+            below = [x for x in totals if EPS < x < t.floor_nominal - EPS]
+            above = [x for x in totals if x > upper + EPS]
+            best_below = max(below) if below else None
+            best_above = min(above) if above else None
+            take_below = best_below is not None and (
+                cfg.envase_rule == "cap"
+                or best_above is None
+                or (cfg.envase_rule == "closest" and (t.floor_nominal - best_below) <= (best_above - t.cap) + EPS)
+            )
+            if take_below:
+                t.floor = best_below
+                t.structural = True
+            elif best_above is not None:
+                t.upper_ext = best_above  # el piso no cambia: solo se le permite pasar del tope hasta este total
+                t.cap = max(t.cap, best_above)
+                t.structural = True
+        self.pend.clear()
+        for t in self.treatments:
+            t.pend = 0.0
+            self._update_pend(t)
+
     def _order(self, g: int) -> List[_Treatment]:
         return sorted((t for t in self.treatments if t.group == g), key=lambda t: (t.need, t.pid, t.ing))
 
@@ -318,7 +377,7 @@ class _Engine:
         for t in self.treatments:
             need[t.ing] += t.need
             if t.group in cfg.protected_groups:
-                prot[t.ing] += t.need
+                prot[t.ing] += t.floor
         surplus = {i: max(0.0, stock[i] - need[i]) for i in stock}
         capmax = {i: max(0.0, stock[i] - prot[i]) for i in stock}
         total_surplus = sum(surplus.values())
@@ -795,6 +854,7 @@ class _Engine:
     def run(self) -> DistributionPlan:
         self.prepare()
         self.reserve_stock()
+        self._apply_envase_limits()
         self.short = self._short_insulins()
         if not (self.cfg.use_solver and self._run_optimal()):
             if self.cfg.require_optimizer:
@@ -856,7 +916,7 @@ class _Engine:
                 if cfg.minor_max_coverage:
                     upper = max(t.cap, min(upper, cfg.minor_max_coverage * t.need))
             else:
-                upper = max(t.cap, min(sizes))
+                upper = max(t.cap, min(sizes), t.upper_ext)
             items.append(
                 equitable_milp.Item(
                     idx=i, group=t.group, ing=t.ing, need=t.need, floor=t.floor, ceil=t.ceil, upper=upper,
@@ -948,14 +1008,17 @@ class _Engine:
         ordered = sorted(self.treatments, key=lambda t: (t.group, t.pid, t.ing))
         unmet: Dict[str, int] = defaultdict(int)
         for t in ordered:
-            below = t.cov_ui < t.floor - EPS
-            above = t.cov_ui > t.ceil + EPS
-            shortfall = max(0.0, t.floor - t.cov_ui)
+            below = t.cov_ui < t.floor_nominal - EPS  # bajo el 75 % del reglamento
+            short_stock = t.cov_ui < t.floor - EPS  # bajo lo que permitían los envases: falta de stock
+            above = t.cov_ui > t.cap_days + EPS  # pasa de 65 días
+            shortfall = max(0.0, t.floor_nominal - t.cov_ui)
             notes = list(t.notes)
             # un solo envase que pasa del tope porque ninguno cabía (dosis muy baja)
-            min_pen = t.min_pen or (sum(t.assigned.values()) == 1 and t.cov_ui > t.cap + EPS)
+            min_pen = t.min_pen or (sum(t.assigned.values()) == 1 and t.cov_ui > t.cap_days + EPS)
             if min_pen:
                 notes.append("ENVASE_MINIMO")
+            if t.structural:
+                notes.append("ENVASE_ENTERO")
             others = [i for i in t.ui if i != t.ing]
             if others:
                 notes.append("SUSTITUCION" + (" (MENOR: requiere aval médico)" if t.group == 1 else ""))
@@ -973,11 +1036,11 @@ class _Engine:
                     daily_applied=t.dose,
                     group=t.group,
                     band_min=cfg.floor[t.group],
-                    band_max=cfg.ceiling[t.group],
+                    band_max=(t.cap_days / t.need) if t.need else 1.0,  # tope de 65 días
                     outside_band=below or above,
                     min_pen_exception=min_pen,
                     min_shortfall_ui=shortfall if below else 0.0,
-                    min_shortfall_cause=self._cause(t) if below else None,
+                    min_shortfall_cause=(("ENVASE" if t.structural and not short_stock else self._cause(t)) if below else None),
                     notes=notes,
                 )
             )

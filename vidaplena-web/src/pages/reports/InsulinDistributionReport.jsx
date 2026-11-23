@@ -32,7 +32,7 @@ const FILTERS = [
 // los días del reporte (166 % de 60 días = 100 días): no se puede entregar medio pen.
 const diasCubiertos = (cobertura, dias) => Math.round((cobertura * dias) / 100);
 
-// «100–120 %»: margen de cobertura (piso y techo) del grupo de prioridad del beneficiario.
+// «75–108,3 %»: margen de cobertura de todos los beneficiarios (piso del 75 % y tope de 65 días).
 const margenTexto = (i) =>
     i.margen_min_pct !== undefined && i.margen_max_pct !== undefined
         ? `${i.margen_min_pct}–${i.margen_max_pct} %`
@@ -49,7 +49,7 @@ const estadoMargen = (i) => {
 
 const MOTIVO_BAJO_MINIMO = {
     STOCK: 'falta stock de su insulina y de sus sustitutos',
-    ENVASE: 'el envase siguiente pasaría del 120 %',
+    ENVASE: 'el envase entero no permite quedar entre el 75 % y los 65 días',
     OTRO: 'revisar',
 };
 
@@ -57,6 +57,7 @@ const MOTIVO_BAJO_MINIMO = {
 // muestran en otros lugares (texto del envase, cobertura 0 %, etiqueta «+ sustituto»).
 const notaTexto = (nota) => {
     if (nota.startsWith('REVISION_CLINICA')) return 'revisión clínica: dosis alta en un menor';
+    if (nota === 'ENVASE_ENTERO') return 'el envase entero no permite quedar entre 75 % y 65 días';
     if (nota.startsWith('SUSTITUCION (MENOR')) return 'sustituto en un menor: requiere aval médico';
     if (nota === 'CEDIÓ_ENVASE_A_PRIORITARIO') return 'cedió un envase a un menor o tipo 1';
     if (nota === 'FICHA_POR_CORREGIR') return 'ficha por corregir';
@@ -475,7 +476,7 @@ export default function InsulinDistributionReport() {
                     <p className="text-sm text-gray-500 max-w-3xl">
                         Sube el Excel con la insulina que llegó. Se calcula el reparto a 60 días con las reglas
                         definidas (menores, tipo 1, adultos mayores con tipo 2 y el resto, cada grupo con su
-                        piso y techo de cobertura; Lantus para menores, reserva del 5 % y sustituciones) para los
+                        mismo margen de cobertura (75–100 %, máximo 65 días); Lantus para menores, reserva del 3 % y sustituciones) para los
                         beneficiarios <b>activos, pendientes de documentos y habilitados</b>, sin exigir aporte
                         al día. Es solo un reporte: no guarda nada ni descuenta stock.
                     </p>
@@ -826,31 +827,28 @@ export default function InsulinDistributionReport() {
 
                     <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-sm text-blue-800 mb-4">
                         <b>Cómo leer la cobertura:</b> es lo que recibe ÷ lo que necesita para {data.dias} días.
-                        Menos de 100 % significa que no alcanzó el stock (la insulina o su sustituto se agotó);
-                        más de 100 % es solo el envase entero: un pen de 300 UI no se puede partir, así que a quien
-                        le faltan 360 UI se le entregan 2 pens (600 UI ≈ 100 días). Un envase de «3 ml» no siempre
-                        tiene 300 UI: depende de la concentración (U100 = 300 UI, U200 = 600 UI, U300 = 900 UI), por
-                        eso cada envase muestra sus UI. Con la reserva ya separada, los <b>viales de 10 ml</b>
-                        (1.000 UI) se reparten primero a quienes usan una insulina rápida con <b>14 a 20 UI/día</b>
-                        (un vial cubre del 83 % al 119 % de 60 días). Después cada grupo tiene un <b>piso</b> (cobertura
-                        mínima) y un <b>techo</b>, y se atiende en este orden: <b>1.</b> menores de 18 (100–120 %, con su
-                        insulina específica), <b>2.</b> tipo 1 (90–110 %), <b>3.</b> adultos mayores con tipo 2
-                        (65–100 %) y <b>4.</b> tipo 2 y el resto (65–100 %). <b>Todos llegan primero a su piso</b>, en
-                        ese orden, y solo después se completa hacia el 100 %. El reparto se resuelve de una sola vez
-                        (optimización exacta de todos los envases): <b>nadie queda en 0 % ni bajo su mínimo siempre que
-                        el stock lo permita</b>. Cuando los envases enteros no permiten caer dentro del margen se
-                        garantiza el piso con el menor total que lo alcanza aunque pase del techo (p. ej. 8 UI/día: 2
-                        pens = 125 % y no 1 pen = 62,5 %). Si con el stock recibido es imposible que todos lleguen a su
-                        mínimo (la suma de los mínimos de una insulina supera lo que llegó), el reporte lo dice en rojo y
-                        cuánto falta conseguir; mientras tanto el faltante recae primero en los últimos grupos y se
-                        reparte parejo entre los afectados, sin dejar a nadie en 0 %. Una insulina se da como
-                        sustituto solo si eso no deja a otro bajo su piso, y un sustituto en un menor requiere aval
-                        médico. La reserva (5 %) se aparta antes de repartir, nunca de lo que necesitan los grupos 1 y
-                        2, y se libera <b>solo lo necesario</b> para que nadie quede bajo su piso; lo que no hace falta
-                        queda guardado. Los que aun así quedan bajo el mínimo se listan con lo que les falta. La glargina de los menores se
-                        cubre con <b>Lantus</b> siempre que se pueda, y un menor que usa <b>degludec</b> la mantiene: no
-                        se sustituye. En menores no se topa la dosis: si supera los 30 UI/día queda la nota «revisión
-                        clínica».
+                        Según el reglamento, la Fundación procura cubrir <b>entre el 75 % y el 100 %</b> del requerimiento de
+                        <b> cada</b> beneficiario, y por criterio de la Fundación <b>nadie recibe más de 65 días</b> (108,3 %).
+                        Un envase de «3 ml» no siempre tiene 300 UI: depende de la concentración (U100 = 300 UI, U200 = 600
+                        UI, U300 = 900 UI), por eso cada envase muestra sus UI. Con la reserva ya separada, los <b>viales de
+                        10 ml</b> (1.000 UI) se dan a quienes usan una insulina rápida con <b>16 a 20 UI/día</b>, cuando caben
+                        en el tope de 65 días. El orden de prioridad cuando no alcanza es: <b>1.</b> menores de 18, <b>2.</b>{' '}
+                        tipo 1, <b>3.</b> adultos mayores con tipo 2 y <b>4.</b> tipo 2 y el resto. <b>Todos llegan primero a
+                        su 75 %</b>, en ese orden, y solo después se completa hacia el 100 %. El reparto se resuelve de una sola
+                        vez (optimización exacta de todos los envases): <b>nadie queda en 0 % ni bajo el 75 % siempre que el
+                        stock lo permita</b>. Como un envase no se parte, a algunas dosis (3, 4, 7, 8 y 9 UI/día con pens de
+                        300 UI) ninguna cantidad de envases cae entre el 75 % y los 65 días: 8 UI/día son 480 UI y un pen es
+                        62,5 % mientras dos son 125 %. Ahí no se pueden cumplir a la vez el piso y el tope: <b>manda el tope de 65
+                        días</b> y, solo en estos casos excepcionales, el tratamiento puede quedar bajo el 75 % con la <b>menor
+                        diferencia posible</b> (el mayor total que cabe en 65 días). Queda marcado «el envase entero no permite
+                        quedar entre 75 % y 65 días» y se lista con su causa: no es falta de insulina. Una dosis tan baja que
+                        ningún envase cabe en 65 días (3 o 4 UI/día) recibe un solo envase, porque nadie puede quedar en 0 %. Si con el stock recibido es imposible que todos lleguen al 75 %, el reporte lo dice en
+                        rojo y cuánto falta conseguir. Una insulina se da como sustituto solo si eso no deja a otro bajo su piso, y
+                        un sustituto en un menor requiere aval médico. La reserva (3 %) se aparta antes de repartir, nunca de lo
+                        que necesitan los grupos 1 y 2, y se libera <b>solo lo necesario</b> para que nadie quede bajo su piso. La
+                        glargina de los menores se cubre con <b>Lantus</b> siempre que se pueda, y un menor que usa <b>degludec</b>{' '}
+                        la mantiene: no se sustituye. En menores la dosis se calcula con un máximo de <b>30 UI/día</b> en glargina,
+                        lispro, glulisina, aspart, detemir y degludec (la dosis registrada queda anotada).
                     </div>
 
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-3">
@@ -973,7 +971,7 @@ export default function InsulinDistributionReport() {
                                                 {i.fuera_de_margen && i.cobertura_pct > (i.margen_max_pct ?? 100) && (
                                                     <span className="block text-[10px] font-semibold text-amber-600">
                                                         {i.envase_minimo
-                                                            ? 'dosis muy baja: un solo envase pasa del 120 %'
+                                                            ? 'dosis muy baja: un solo envase pasa de los 65 días'
                                                             : `pasa de ${i.margen_max_pct} % (envase entero)`}
                                                     </span>
                                                 )}

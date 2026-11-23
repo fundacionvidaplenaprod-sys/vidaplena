@@ -67,31 +67,56 @@ def entregado(plan, pid, ing=None):
 
 
 def test_bands_are_the_new_ones():
-    assert PRIORITY_BANDS == {1: (1.0, 1.2), 2: (0.9, 1.1), 3: (0.65, 1.0), 4: (0.65, 1.0)}
+    # Reglamento art. 2: 75-100 % para todos. Criterio de la Fundación: nadie pasa de 65 días (65/60 = 108,3 %).
+    assert PRIORITY_BANDS == {g: (0.75, pytest.approx(65 / 60)) for g in (1, 2, 3, 4)}
 
 
 # ---------------------------------------------------------------- prioridad de menores
-def test_minor_8_ui_a_day_gets_two_pens():
-    plan = correr([lote(1, "Glargina", 300, 50)], [benef(1, 10, "1", "Glargina", 8)])
-    assert entregado(plan, 1) == 600 and cov(plan, 1) == pytest.approx(1.25)
+def test_8_ui_a_day_cannot_fit_the_band_so_the_cap_wins_with_the_smallest_difference():
+    # 480 UI: un pen de 300 es 62,5 % (bajo el 75 %) y dos son 125 % (75 días, sobre el tope de 65). Decisión de la
+    # Fundación: manda el tope y, en este caso excepcional, queda bajo el 75 % con la menor diferencia posible (1 pen).
+    for kind in ("1", "2"):
+        plan = correr([lote(1, "Glargina", 300, 50)], [benef(1, 10, kind, "Glargina", 8)])
+        r = res(plan, 1)
+        assert entregado(plan, 1) == 300 and "ENVASE_ENTERO" in r.notes
+        assert r.min_shortfall_cause == "ENVASE" and round(r.min_shortfall_ui) == 60  # 360 - 300 UI
+        assert not plan.minimum_gaps  # no es falta de stock
 
 
-def test_minors_are_covered_at_100_even_with_scarcity_and_adult_pressure():
+def test_the_65_day_cap_wins_by_default_when_the_envase_does_not_fit_the_band():
+    # 540 UI (9 UI/día): 1 pen = 55,6 % y 2 pens = 111 % (66,7 días). Por defecto manda el tope: 1 pen, con la menor
+    # diferencia posible con el 75 % (el mayor total que cabe en 65 días).
+    lotes = [lote(1, "Glargina", 300, 50)]
+    b = [benef(1, 45, "2", "Glargina", 9)]
+    plan = correr(lotes, b, reserve_pct=0.0)
+    assert entregado(plan, 1) == 300 and res(plan, 1).min_shortfall_cause == "ENVASE" and not plan.minimum_gaps
+    # Otras reglas, solo si la Fundación las pide: nadie bajo el 75 % (2 pens) o la opción más cercana a la banda.
+    for rule, expected in (("floor", 600), ("closest", 600)):
+        cfg = DistributionConfig(today=HOY, use_solver=USE_SOLVER, envase_rule=rule)
+        assert entregado(correr(lotes, b, reserve_pct=0.0, config=cfg), 1) == expected, rule
+
+
+def test_minors_are_covered_first_even_with_scarcity_and_adult_pressure():
     lotes = [lote(1, "Glargina", 300, 40, label="Lantus"), lote(2, "Detemir", 300, 40)]
     bens = [benef(i, 10, "1", "Glargina", 20) for i in range(1, 6)]  # 5 x 1.200 = 6.000 UI
     bens += [benef(100 + i, 40, "2", "Glargina", 30) for i in range(40)]  # 72.000 UI de necesidad
     plan = correr(lotes, bens)
     for i in range(1, 6):
-        assert cov(plan, i) >= 1.0 - 1e-9
+        assert cov(plan, i) >= 0.75 - 1e-9
         assert res(plan, i).substitute is None
 
 
-def test_reserve_does_not_reduce_minors():
-    lotes = [lote(1, "Glargina", 300, 8)]  # 2.400 UI
-    bens = [benef(1, 8, "1", "Glargina", 20), benef(2, 9, "1", "Glargina", 20)]  # 2 x 1.200
+def test_reserve_does_not_reduce_minors_below_their_floor():
+    lotes = [lote(1, "Glargina", 300, 6)]  # 1.800 UI: alcanza justo para el 75 % de dos menores (900 cada uno)
+    bens = [benef(1, 8, "1", "Glargina", 20), benef(2, 9, "1", "Glargina", 20)]
     plan = correr(lotes, bens)
-    assert cov(plan, 1) >= 1.0 and cov(plan, 2) >= 1.0
+    assert cov(plan, 1) >= 0.75 and cov(plan, 2) >= 0.75
     assert plan.reserve_ui == 0
+
+
+def test_the_default_reserve_is_3_percent():
+    plan = correr([lote(1, "NPH", 300, 100)], [benef(1, 45, "2", "NPH", 10)], config=DistributionConfig(today=HOY, use_solver=USE_SOLVER))
+    assert plan.reserve_pct == 0.03 and plan.reserve_target_ui == pytest.approx(0.03 * 30000)
 
 
 def test_lantus_is_left_to_minors_and_adults_use_other_brands():
@@ -176,25 +201,24 @@ def test_reserve_is_released_when_needed_and_reported():
 
 def test_reserve_is_kept_when_stock_is_plentiful():
     plan = correr([lote(1, "NPH", 300, 100)], [benef(i, 45, "2", "NPH", 10) for i in range(1, 11)])
-    assert plan.reserve_ui >= 0.05 * 30000 - 1e-6
-    assert all(0.65 <= cov(plan, i) <= 1.0 + 1e-9 for i in range(1, 11))
+    assert plan.reserve_ui >= 0.03 * 30000 - 1e-6
+    assert all(0.75 <= cov(plan, i) <= 65 / 60 + 1e-9 for i in range(1, 11))
 
 
 def test_reserve_is_never_taken_from_what_groups_1_and_2_need():
-    # El stock justo cubre a un menor y a un tipo 1; la reserva del 5 % no puede salir de ahí.
+    # El stock justo cubre el 75 % de un menor y un tipo 1; la reserva no puede salir de ahí.
     lotes = [lote(1, "Glargina", 300, 10, label="Abasaglar")]
     bens = [benef(1, 10, "1", "Glargina", 10), benef(2, 40, "1", "Glargina", 10)]  # 2 x 600 = 1.200 UI
     plan = correr(lotes, bens)
-    assert plan.reserve_ui <= 3000 - 1200 + 1e-6
-    assert cov(plan, 1) >= 1.0 and cov(plan, 2) >= 0.9
+    assert plan.reserve_ui <= 3000 - 2 * 450 + 1e-6
+    assert cov(plan, 1) >= 0.75 and cov(plan, 2) >= 0.75
 
 
-# ---------------------------------------------------------------- rebalanceo y envases
 def test_a_minor_is_covered_even_if_adults_have_the_insulin_first():
     lotes = [lote(1, "Glargina", 300, 6, label="Abasaglar")]
     bens = [benef(1, 10, "1", "Glargina", 20), benef(2, 50, "2", "Glargina", 20), benef(3, 55, "2", "Glargina", 20)]
     plan = correr(lotes, bens, reserve_pct=0.0)
-    assert cov(plan, 1) >= 1.0 - 1e-9
+    assert cov(plan, 1) >= 0.75 - 1e-9
 
 
 def test_smallest_pen_exception_for_a_very_low_adult_dose():
@@ -217,32 +241,39 @@ def test_one_insulin_per_group_and_premix_discarded():
     assert "FICHA_POR_CORREGIR" in plan.patients[1][0].notes
 
 
-def test_minor_dose_over_30_is_flagged_and_the_cap_is_configurable():
+def test_minor_dose_is_capped_at_30_by_default_and_the_cap_is_configurable():
     lotes = [lote(1, "Glargina", 300, 100)]
     b = [benef(1, 10, "1", "Glargina", 40)]
-    plan = correr(lotes, b)
+    r = res(correr(lotes, b), 1)
+    assert r.daily_applied == 30 and r.daily_registered == 40 and any("DOSIS_TOPADA" in n for n in r.notes)
+    plan = correr(lotes, b, config=DistributionConfig(today=HOY, use_solver=USE_SOLVER, minor_dose_cap=None))
     r = res(plan, 1)
     assert r.daily_applied == 40 and any("REVISION_CLINICA" in n for n in r.notes)
-    plan = correr(lotes, b, config=DistributionConfig(today=HOY, use_solver=USE_SOLVER, minor_dose_cap=30))
+
+
+def test_nobody_gets_more_than_65_days_when_the_pens_allow_it():
+    # 6 UI/día = 360 UI: 1 pen (300) = 83 % entra en la banda; 2 pens serían 100 días y no se dan.
+    plan = correr([lote(1, "Lispro", 300, 10)], [benef(1, 10, "1", "Lispro", 6)])
+    assert entregado(plan, 1) == 300 and cov(plan, 1) == pytest.approx(300 / 360)
+    assert not res(plan, 1).outside_band
+
+
+def test_a_very_low_dose_gets_one_envase_even_if_it_passes_65_days():
+    # 3 UI/día = 180 UI: el pen más chico (300 UI) son 100 días, pero nadie queda en 0 %.
+    plan = correr([lote(1, "Glargina", 300, 10)], [benef(1, 45, "2", "Glargina", 3)], reserve_pct=0.0)
     r = res(plan, 1)
-    assert r.daily_applied == 30 and r.daily_registered == 40 and any("DOSIS_TOPADA" in n for n in r.notes)
+    assert entregado(plan, 1) == 300 and r.min_pen_exception and r.outside_band
 
 
-def test_minor_max_coverage_limits_over_coverage_from_whole_pens():
-    lotes = [lote(1, "Lispro", 300, 10)]
-    b = [benef(1, 10, "1", "Lispro", 6)]  # necesidad 360: 1 pen = 83 %, 2 pens = 167 %
-    assert entregado(correr(lotes, b), 1) == 600
-    assert entregado(correr(lotes, b, config=DistributionConfig(today=HOY, use_solver=USE_SOLVER, minor_max_coverage=1.5)), 1) == 300
+def test_the_same_band_applies_to_every_group():
+    # Mismo requerimiento, distinto grupo: todos terminan dentro de 75 %-65 días cuando el stock alcanza.
+    lotes = [lote(1, "Glargina", 300, 200, label="Abasaglar")]
+    bens = [benef(1, 10, "2", "Glargina", 20), benef(2, 30, "1", "Glargina", 20), benef(3, 65, "2", "Glargina", 20), benef(4, 40, "2", "Glargina", 20)]
+    plan = correr(lotes, bens)
+    for i in (1, 2, 3, 4):
+        assert 0.75 <= cov(plan, i) <= 65 / 60 + 1e-9
 
 
-def test_type1_adult_also_has_the_floor_guaranteed_by_pen():
-    lotes = [lote(1, "Detemir", 300, 10)]
-    plan = correr(lotes, [benef(1, 30, "1", "Detemir", 8)])  # necesidad 480; piso 90 % = 432
-    r = res(plan, 1)
-    assert entregado(plan, 1) == 600 and cov(plan, 1) >= 0.9 and r.min_shortfall_ui == 0
-
-
-# ---------------------------------------------------------------- auditoría, avisos y determinismo
 def test_warnings_for_lots_close_to_expiry_and_insulin_without_stock():
     lotes = [lote(1, "NPH", 300, 10, vence=HOY + timedelta(days=30))]
     bens = [benef(1, 45, "2", "NPH", 10), benef(2, 45, "2", "Lispro", 10)]
@@ -318,11 +349,12 @@ def test_random_invariants(seed):
         assigned = sum(a.units for a in plan.assignments if a.lot_id == l.lot_id)
         kept = sum(r.units for r in plan.reserve_lots if r.lot_id == l.lot_id)
         assert assigned + plan.remaining_units[l.lot_id] + kept == l.units
-    # 2) pasar del tope (120 %) solo se admite si con un envase menos quedaría bajo su piso
+    # 2) pasar del tope de 65 días solo por el envase entero: el caso queda marcado y con un envase menos bajaría del piso
     for pid, rows in plan.patients.items():
         for r in rows:
             c = (r.given_ui + r.substitute_equiv_ui) / r.need_ui
-            if c > 1.2 + 1e-9:
+            if c > 65 / 60 + 1e-9:
+                assert r.min_pen_exception or "ENVASE_ENTERO" in r.notes, r
                 sizes = [a.ui / a.units for a in plan.assignments if a.patient_id == pid and a.for_ingredient == r.ingredient]
                 assert (r.given_ui + r.substitute_equiv_ui) - min(sizes) < r.band_min * r.need_ui - 1e-6
     # 3) un prioritario bajo su piso nunca tiene causa «OTRO» (había envase y no se le dio)

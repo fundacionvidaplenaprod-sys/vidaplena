@@ -236,27 +236,27 @@ async def test_report_caps_minors_dose_and_reports_priority_coverage(client, ais
     data = (await client.post(URL, files=_files(content))).json()
 
     m = _fila(data, menor.id)["insulinas"][0]
-    # El motor equitativo no topa la dosis del menor: queda la nota para el equipo clínico.
-    assert (m["dosis_diaria_registrada"], m["dosis_diaria_aplicada"], m["dosis_limitada"]) == (48.0, 48.0, False)
-    assert any(n.startswith("REVISION_CLINICA") for n in m["notas"])
-    assert m["necesidad_ui"] == 2880 and m["cobertura_pct"] == 104.2  # 48 UI x 60 días, 10 pens
+    # Menores: tope de 30 UI/día (Fundación): se calcula con 30 y queda la nota con la dosis registrada.
+    assert (m["dosis_diaria_registrada"], m["dosis_diaria_aplicada"], m["dosis_limitada"]) == (48.0, 30.0, True)
+    assert any(n.startswith("DOSIS_TOPADA") for n in m["notas"])
+    assert m["necesidad_ui"] == 1800 and m["cobertura_pct"] == 100.0  # 30 UI x 60 días, 6 pens exactos
 
     a = _fila(data, adulto_t1.id)["insulinas"][0]
     assert a["dosis_limitada"] is False and a["necesidad_ui"] == 2880  # el adulto no tiene tope
-    assert (a["margen_min_pct"], a["margen_max_pct"]) == (90.0, 110.0)  # tipo 1
-    assert 90.0 <= a["cobertura_pct"] <= 110.0 and a["fuera_de_margen"] is False
-    assert m["margen_min_pct"] == 100.0 and m["fuera_de_margen"] is False
+    # Reglamento: 75-100 % para todos (tipo 1 incluido) y nunca más de 65 días (108,3 %).
+    assert (a["margen_min_pct"], a["margen_max_pct"]) == (75.0, 108.3)
+    assert 75.0 <= a["cobertura_pct"] <= 108.3 and a["fuera_de_margen"] is False
+    assert (m["margen_min_pct"], m["margen_max_pct"]) == (75.0, 108.3) and m["fuera_de_margen"] is False
 
-    # 360 UI con pens de 300: el piso del menor es 100 % y un pen es 83 %; se garantiza el piso con 2 pens
-    # (167 %, sobre su techo): queda marcado como fuera de margen pero no bajo el mínimo.
+    # 360 UI con pens de 300: un pen es 83 % y entra en la banda; dos pens serían 100 días y no se dan.
     c = _fila(data, pen_corto.id)["insulinas"][0]
-    assert c["cobertura_pct"] == 166.7 and c["fuera_de_margen"] is True and c["envase_minimo"] is False
+    assert c["cobertura_pct"] == 83.3 and c["fuera_de_margen"] is False and c["envase_minimo"] is False
 
     # Quien queda bajo el mínimo viene listado con lo que le falta
     assert data["bajo_minimo"] == []  # ninguno bajo su mínimo en este escenario
+    assert all((g["margen_min_pct"], g["margen_max_pct"]) == (75.0, 108.3) for g in data["prioridades"])
     menores = next(g for g in data["prioridades"] if g["grupo"] == 1)
-    assert (menores["margen_min_pct"], menores["margen_max_pct"]) == (100.0, 120.0)
-    assert (menores["tratamientos"], menores["en_margen"], menores["sobre_maximo"], menores["bajo_minimo"]) == (2, 1, 1, 0)
+    assert (menores["tratamientos"], menores["en_margen"], menores["sobre_maximo"], menores["bajo_minimo"]) == (2, 2, 0, 0)
     tipo1 = next(g for g in data["prioridades"] if g["grupo"] == 2)
     assert (tipo1["tratamientos"], tipo1["en_margen"]) == (1, 1)
 
@@ -271,8 +271,9 @@ async def test_report_groups_patients_by_priority_and_serves_them_in_that_order(
     await _solo(aislado, otro, mayor, tipo1, menor)
 
     futuro = datetime.now() + timedelta(days=400)
-    # 11 envases de 300 UI = 3.300 UI; la reserva (5 %) aparta 1 sin tocar lo que necesitan los grupos 1 y 2
-    # (2 x 1.200 UI) y quedan 10 envases para 4 x 1.200 UI; el envase de la reserva se libera
+    # 11 envases de 300 UI = 3.300 UI; la reserva (3 %) aparta 1 sin tocar lo que necesitan los grupos 1 y 2. Cada
+    # uno necesita 3 envases para llegar a su 75 % (900 UI): son 12 y hay 11, así que el envase de la reserva se libera
+    # y a uno le faltará 1.
     content = _excel([[11, "Abasaglar KwikPen 3 ml", "Glargina", "3 ml", "U100", futuro, "L-1"]])
     data = (await client.post(URL, files=_files(content))).json()
 
@@ -281,25 +282,23 @@ async def test_report_groups_patients_by_priority_and_serves_them_in_that_order(
     assert _fila(data, mayor.id)["grupo_prioridad_nombre"] == "Adultos mayores con diabetes tipo 2"
 
     cob = {p["patient_id"]: p["insulinas"][0]["cobertura_pct"] for p in data["pacientes"]}
-    # Cada grupo llega a su piso en orden: menor 100 % y tipo 1 100 % (pisos 100 y 90). Con los 3 envases
-    # que quedan, el adulto mayor recibe 2 (50 %) y el último grupo 1 (25 %): nadie queda en 0 %.
-    assert cob[menor.id] == 100.0 and cob[tipo1.id] == 100.0
-    assert cob[mayor.id] == 50.0 and cob[otro.id] == 25.0
+    # Los tres primeros grupos llegan a su 75 % en orden y el último grupo recibe lo que queda (50 %): nadie en 0 %.
+    assert cob[menor.id] == 75.0 and cob[tipo1.id] == 75.0 and cob[mayor.id] == 75.0
+    assert cob[otro.id] == 50.0
     assert data["reserva_liberada_ui"] == 300 and data["reserva_ui"] == 0
 
-    # Los que quedan bajo su piso (65 % de 1.200 = 780 UI) vienen listados con lo que les falta y la causa.
+    # El que queda bajo su piso (75 % de 1.200 = 900 UI) viene listado con lo que le falta y la causa.
     assert [(b["patient_id"], b["motivo"], b["falta_ui"], b["envases_faltantes"]) for b in data["bajo_minimo"]] == [
-        (otro.id, "STOCK", 480.0, 2),
-        (mayor.id, "STOCK", 180.0, 1),
+        (otro.id, "STOCK", 300.0, 1),
     ]
     por_grupo = {g["grupo"]: g for g in data["prioridades"]}
     assert data["optimizador_usado"] is False  # estas pruebas fijan el reparto aproximado
     # El mínimo de todos es imposible con este stock: el reporte dice cuánto falta para lograrlo.
     assert [(g["insulina"], g["tratamientos"], g["falta_ui"], g["envases_faltantes"]) for g in data["minimo_imposible"]] == [
-        ("Glargina", 2, 660.0, 3)
+        ("Glargina", 1, 300.0, 1)
     ]
-    assert por_grupo[1]["en_margen"] == 1 and por_grupo[2]["en_margen"] == 1
-    assert por_grupo[3]["bajo_minimo"] == 1 and por_grupo[4]["bajo_minimo"] == 1 and por_grupo[4]["en_cero"] == 0
+    assert por_grupo[1]["en_margen"] == 1 and por_grupo[2]["en_margen"] == 1 and por_grupo[3]["en_margen"] == 1
+    assert por_grupo[4]["bajo_minimo"] == 1 and por_grupo[4]["en_cero"] == 0
     assert _fila(data, otro.id)["insulinas"][0]["fuera_de_margen"] is True
     assert _fila(data, menor.id)["insulinas"][0]["fuera_de_margen"] is False
 
@@ -501,10 +500,10 @@ async def test_report_with_the_optimizer_leaves_nobody_at_zero_and_states_the_mi
     assert data["optimizador_usado"] is True
     cob = {p["patient_id"]: p["insulinas"][0]["cobertura_pct"] for p in data["pacientes"]}
     assert min(cob.values()) > 0  # nadie en 0 %
-    assert cob[menor.id] >= 100.0 and cob[tipo1.id] >= 90.0  # los pisos de menores y tipo 1 se cumplen
-    # Los pisos suman 3.840 UI y hay 3.300: faltan al menos 540 UI y el reporte lo dice.
+    assert cob[menor.id] >= 75.0 and cob[tipo1.id] >= 75.0  # menores y tipo 1 llegan a su piso
+    # Los pisos suman 3.600 UI (4 x 900) y hay 3.300: faltan al menos 300 UI y el reporte lo dice.
     gap = data["minimo_imposible"][0]
-    assert gap["insulina"] == "Glargina" and gap["falta_ui"] >= 540 and gap["envases_faltantes"] >= 2
+    assert gap["insulina"] == "Glargina" and gap["falta_ui"] >= 300 and gap["envases_faltantes"] >= 1
 
 
 @pytest.mark.asyncio
