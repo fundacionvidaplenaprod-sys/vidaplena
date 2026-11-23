@@ -268,6 +268,17 @@ def test_determinism():
     assert [(x.patient_id, x.lot_id, x.units) for x in a.assignments] == [(x.patient_id, x.lot_id, x.units) for x in b.assignments]
 
 
+def test_require_optimizer_raises_instead_of_delivering_an_approximate_split(monkeypatch):
+    from app.core.equitable_distribution import OptimizerUnavailable
+
+    monkeypatch.setattr(equitable_milp, "HAS_SOLVER", False)
+    with pytest.raises(OptimizerUnavailable):
+        plan_distribution(
+            [lote(1, "NPH", 300, 10)], [benef(1, 45, "2", "NPH", 10)],
+            config=DistributionConfig(today=HOY, use_solver=True, require_optimizer=True),
+        )
+
+
 def test_substitution_with_a_factor_different_from_one_is_rejected():
     from app.core.insulin_distribution import Substitution
 

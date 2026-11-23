@@ -60,6 +60,7 @@ const report = () => ({
   ],
   reserva: [{ lot_id: 7, insulina: 'Glargina', producto: 'Abasaglar', unidades: 4, ui: 1050, lote: 'LOTE-ABA', fecha_venc: '2027-01-01' }],
   donacion: [],
+  optimizador_usado: true,
   minimo_imposible: [{ insulina: 'Mixta', falta_ui: 12486, envases_faltantes: 42, ui_por_envase: 300, tratamientos: 15 }],
   advertencias: ['El lote 3 de Glargina (Lantus) vence el 2026-12-01 (menos de 60 días): se entrega primero (FEFO)'],
   filas_con_error: [
@@ -227,6 +228,16 @@ describe('InsulinDistributionReport', () => {
     fireEvent.change(screen.getByLabelText('Estado del beneficiario'), { target: { value: 'ASISTIDO' } });
     expect(screen.getByText('RA-00005 Apodo Beto')).toBeInTheDocument();
     expect(screen.queryByText('Ana Menor')).toBeNull();
+  });
+
+  it('avisa en rojo cuando el reparto es aproximado y no afirma que el mínimo sea imposible', async () => {
+    api.generateInsulinDistributionReport.mockResolvedValue({ ...report(), optimizador_usado: false });
+    render(<InsulinDistributionReport />);
+    await elegirArchivoYGenerar();
+
+    expect(screen.getByText('Reparto APROXIMADO: el servidor no tiene el optimizador')).toBeInTheDocument();
+    expect(screen.getByText(/scipy/)).toBeInTheDocument();
+    expect(screen.queryByText('Con este stock NO se puede cumplir el mínimo de todos')).not.toBeInTheDocument();
   });
 
   it('busca por CI y filtra por estado', async () => {

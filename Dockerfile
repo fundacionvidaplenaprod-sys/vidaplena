@@ -1,5 +1,5 @@
-# Usamos una versión ligera de Python
-FROM python:3.11-slim
+# Usamos una versión ligera de Python (3.12: scipy 1.18, con el optimizador del reparto de insulinas, la exige)
+FROM python:3.12-slim
 
 # Evita que Python genere archivos .pyc y permite que los logs salgan en tiempo real
 ENV PYTHONDONTWRITEBYTECODE 1

@@ -90,6 +90,10 @@ PRIORITY_CEILING: Dict[int, float] = {1: 1.20, 2: 1.10, 3: 1.00, 4: 1.00}
 PRIORITY_BANDS: Dict[int, Tuple[float, float]] = {g: (PRIORITY_FLOOR[g], PRIORITY_CEILING[g]) for g in PRIORITY_FLOOR}
 
 
+class OptimizerUnavailable(RuntimeError):
+    """No hay optimizador (scipy) o no halló solución, y se exigió el reparto exacto."""
+
+
 @dataclass
 class DistributionConfig:
     days: int = DISTRIBUTION_DAYS
@@ -111,7 +115,10 @@ class DistributionConfig:
     expiry_warning_days: int = 60
     today: Optional[date] = None
     use_solver: bool = True  # asignación exacta (garantiza los pisos cuando es posible); False = reparto aproximado
-    solver_time_limit: float = 60.0  # segundos por etapa
+    solver_time_limit: float = 90.0  # segundos en total para el optimizador
+    # True: si no hay reparto exacto se lanza `OptimizerUnavailable` en vez de entregar un reparto aproximado que
+    # puede romper las reglas (nadie en 0 % ni bajo su mínimo).
+    require_optimizer: bool = False
 
 
 @dataclass
@@ -182,6 +189,7 @@ class _Engine:
         self.treatments: List[_Treatment] = []
         self.group_choices: list = []
         self.warnings: List[str] = []
+        self.optimizer_used = False
 
     # ------------------------------------------------------------------ utilidades
     def _pref(self, l: LotInput) -> bool:
@@ -789,6 +797,10 @@ class _Engine:
         self.reserve_stock()
         self.short = self._short_insulins()
         if not (self.cfg.use_solver and self._run_optimal()):
+            if self.cfg.require_optimizer:
+                raise OptimizerUnavailable(
+                    "No se pudo calcular el reparto exacto (falta el optimizador scipy o no halló solución)."
+                )
             if self.cfg.use_solver:
                 self.warnings.append(
                     "El optimizador no está disponible o no halló solución: se usó el reparto aproximado, "
@@ -883,6 +895,12 @@ class _Engine:
         self.reserve = {k: v for k, v in self.reserve.items() if v > 0}
         self._trim()
         self.guard_zero()
+        self.optimizer_used = True
+        if not self.solver_stats.get("optimo_demostrado", True):
+            self.warnings.append(
+                "El optimizador agotó su tiempo: este es el mejor reparto que encontró, pero no está demostrado "
+                "que sea el mejor posible."
+            )
         return True
 
     def _trim(self) -> None:
@@ -925,7 +943,7 @@ class _Engine:
         plan = DistributionPlan(
             days=cfg.days, reserve_pct=cfg.reserve_pct, total_stock_ui=self.total_stock,
             reserve_target_ui=self.reserve_target, reserve_ui=0.0, allocated_ui=0.0,
-            group_choices=self.group_choices, warnings=list(self.warnings),
+            group_choices=self.group_choices, warnings=list(self.warnings), optimizer_used=self.optimizer_used,
         )
         ordered = sorted(self.treatments, key=lambda t: (t.group, t.pid, t.ing))
         unmet: Dict[str, int] = defaultdict(int)

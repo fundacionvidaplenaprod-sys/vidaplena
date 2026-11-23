@@ -302,6 +302,9 @@ class DistributionPlan:
     remaining_units: Dict[int, int] = field(default_factory=dict)  # envases libres por lote al terminar
     warnings: List[str] = field(default_factory=list)  # avisos del motor equitativo (lotes por vencer, sin stock)
     minimum_gaps: List[MinimumGap] = field(default_factory=list)  # insulinas cuyo mínimo no se puede cumplir
+    # True si el reparto salió del optimizador exacto (garantiza los mínimos cuando es posible); False si fue el
+    # reparto aproximado, en cuyo caso `minimum_gaps` no prueba que el mínimo sea imposible.
+    optimizer_used: bool = False
 
 
 # --------------------------------------------------------------------------- catálogo de grupos

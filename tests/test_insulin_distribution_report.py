@@ -13,6 +13,7 @@ from openpyxl import Workbook
 from sqlalchemy import func, select, update
 
 from app import models
+from app.api.endpoints import reports as reports_module
 from app.core import equitable_milp
 
 HEADER = ["CANTIDAD", "PRODUCTO", "TIPO DE INSULINA", "PRESENTACIÓN", "CONCENTRACIÓN", "FECHA VENCIMIENTO", "NRO LOTE"]
@@ -24,6 +25,7 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 def reparto_aproximado(monkeypatch):
     """Los números de estas pruebas son los del reparto aproximado, igual con o sin scipy instalado."""
     monkeypatch.setattr(equitable_milp, "HAS_SOLVER", False)
+    monkeypatch.setattr(reports_module, "REQUIRE_OPTIMIZER", False)
 
 
 @pytest_asyncio.fixture
@@ -291,6 +293,7 @@ async def test_report_groups_patients_by_priority_and_serves_them_in_that_order(
         (mayor.id, "STOCK", 180.0, 1),
     ]
     por_grupo = {g["grupo"]: g for g in data["prioridades"]}
+    assert data["optimizador_usado"] is False  # estas pruebas fijan el reparto aproximado
     # El mínimo de todos es imposible con este stock: el reporte dice cuánto falta para lograrlo.
     assert [(g["insulina"], g["tratamientos"], g["falta_ui"], g["envases_faltantes"]) for g in data["minimo_imposible"]] == [
         ("Glargina", 2, 660.0, 3)
@@ -495,9 +498,23 @@ async def test_report_with_the_optimizer_leaves_nobody_at_zero_and_states_the_mi
     content = _excel([[11, "Abasaglar KwikPen 3 ml", "Glargina", "3 ml", "U100", futuro, "L-1"]])
     data = (await client.post(URL, files=_files(content))).json()
 
+    assert data["optimizador_usado"] is True
     cob = {p["patient_id"]: p["insulinas"][0]["cobertura_pct"] for p in data["pacientes"]}
     assert min(cob.values()) > 0  # nadie en 0 %
     assert cob[menor.id] >= 100.0 and cob[tipo1.id] >= 90.0  # los pisos de menores y tipo 1 se cumplen
     # Los pisos suman 3.840 UI y hay 3.300: faltan al menos 540 UI y el reporte lo dice.
     gap = data["minimo_imposible"][0]
     assert gap["insulina"] == "Glargina" and gap["falta_ui"] >= 540 and gap["envases_faltantes"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_report_refuses_to_deliver_an_approximate_split_that_could_break_the_rules(client, aislado, monkeypatch):
+    # Sin optimizador el reporte no se entrega: un reparto aproximado puede dejar a alguien bajo su mínimo.
+    monkeypatch.setattr(reports_module, "REQUIRE_OPTIMIZER", True)
+    monkeypatch.setattr(equitable_milp, "HAS_SOLVER", False)
+    paciente = await _paciente(aislado, edad=40, estado="ACTIVO", tipo="Tipo 2")
+    await _solo(aislado, paciente)
+    futuro = datetime.now() + timedelta(days=400)
+    res = await client.post(URL, files=_files(_excel([[10, "Abasaglar KwikPen 3 ml", "Glargina", "3 ml", "U100", futuro, "L-1"]])))
+    assert res.status_code == 503
+    assert "scipy" in res.json()["detail"] and "bajo su mínimo" in res.json()["detail"]

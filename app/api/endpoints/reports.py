@@ -23,10 +23,17 @@ from app.core import distribution_service as dist
 from app.core.donation_request import DONATION_REQUEST_ESTADOS, PRESENTACIONES_UI, build_donation_request
 from app.core.donation_excel import DonationExcelError, parse_donation_excel
 from app.core.insulin_catalog import normalize_insulin_name
-from app.core.equitable_distribution import plan_distribution as plan_insulin_distribution
+from app.core.equitable_distribution import (
+    DistributionConfig as InsulinDistributionConfig,
+    OptimizerUnavailable,
+    plan_distribution as plan_insulin_distribution,
+)
 from app.core.insulin_distribution import DISTRIBUTION_DAYS, LotInput as InsulinLotInput
 
 router = APIRouter()
+
+# El reporte de distribución exige el reparto exacto (optimizador). Las pruebas lo apagan para fijar números.
+REQUIRE_OPTIMIZER = True
 
 # --- MOROSOS ---
 async def calcular_morosos(db: AsyncSession, periodo: str, depto: str | None = None) -> list[dict]:
@@ -555,7 +562,22 @@ async def insulin_distribution_report(
     patient_inputs, info, excluded = await dist.load_distribution_patients(
         db, estados=INSULIN_REPORT_ESTADOS, require_current_contribution=False, include_assisted=True
     )
-    plan = plan_insulin_distribution(lot_inputs, patient_inputs, days=DISTRIBUTION_DAYS)
+    # Un reparto que deje a alguien en 0 % o bajo su mínimo estando evitable no se entrega: sin el reparto exacto el
+    # reporte falla con un mensaje claro en vez de mostrar un resultado que rompe las reglas.
+    try:
+        plan = await run_in_threadpool(
+            plan_insulin_distribution,
+            lot_inputs,
+            patient_inputs,
+            days=DISTRIBUTION_DAYS,
+            config=InsulinDistributionConfig(require_optimizer=REQUIRE_OPTIMIZER),
+        )
+    except OptimizerUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{exc} Sin el reparto exacto no se puede garantizar que nadie quede en 0 % ni bajo su mínimo. "
+            "Revise que el servidor tenga scipy instalado (reconstruir la imagen) y vuelva a generar el reporte.",
+        )
     grouped = dist.group_assignments(plan)
     pacientes = dist.plan_patient_items(plan, patient_inputs, info, lot_meta)
 
@@ -582,6 +604,7 @@ async def insulin_distribution_report(
         registros_por_corregir=dist.group_choice_issues(plan, info),
         advertencias=plan.warnings,
         minimo_imposible=dist.plan_minimum_gaps(plan),
+        optimizador_usado=plan.optimizer_used,
         archivo=filename,
         filas_leidas=parsed.total_rows,
         filas_con_error=errors,

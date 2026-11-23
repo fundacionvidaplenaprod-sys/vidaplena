@@ -728,6 +728,9 @@ class DistributionPlanResult(BaseModel):
     advertencias: List[str] = []
     # Insulinas con las que es matemáticamente imposible que todos lleguen a su mínimo con este stock.
     minimo_imposible: List[DistributionMinimumGap] = []
+    # True: reparto exacto (garantiza los mínimos cuando es posible). False: reparto aproximado (el servidor no tiene
+    # el optimizador): puede dejar a personas bajo su mínimo aunque el stock alcance. None: reparto del almacén.
+    optimizador_usado: Optional[bool] = None
 
 # ==========================================
 #   9. SCHEMAS MÓDULO DIRECTORA

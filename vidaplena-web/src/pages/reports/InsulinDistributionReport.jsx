@@ -582,7 +582,19 @@ export default function InsulinDistributionReport() {
                         </div>
                     )}
 
-                    {data.minimo_imposible?.length > 0 && (
+                    {data.optimizador_usado === false && (
+                        <div role="alert" className="mb-6 border border-red-300 bg-red-50 rounded-xl p-4">
+                            <h3 className="text-base font-bold text-red-800">Reparto APROXIMADO: el servidor no tiene el optimizador</h3>
+                            <p className="text-sm text-red-800">
+                                Este resultado puede dejar a personas bajo su mínimo aunque el stock alcance, y las faltas que
+                                se muestran abajo no son las mínimas posibles. Para garantizar el mínimo de todos hay que
+                                instalar la dependencia <b>scipy</b> en el servidor y reiniciarlo (si usa Docker, reconstruir la
+                                imagen), y volver a generar el reporte.
+                            </p>
+                        </div>
+                    )}
+
+                    {data.optimizador_usado !== false && data.minimo_imposible?.length > 0 && (
                         <div role="alert" className="mb-6 border border-red-300 bg-red-50 rounded-xl p-4">
                             <h3 className="text-base font-bold text-red-800">
                                 Con este stock NO se puede cumplir el mínimo de todos

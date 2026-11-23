@@ -44,6 +44,10 @@ SUBSTITUTE_COST = 0.6  # por fracción de la necesidad cubierta con otra insulin
 SUBSTITUTE_COST_MINOR = 3.0  # un sustituto en un menor requiere aval médico: solo si no hay otra salida
 BRAND_COST = 0.02  # marca que no corresponde (Lantus a un adulto, otra marca a un menor), por fracción
 RESERVE_COST = 50.0  # por envase de la reserva: solo se gasta si evita quedar bajo el piso
+# Tiempo máximo (s) de cada etapa: A (faltante sobre los pisos), B (repartir el faltante), C (acercar al 100 %).
+STAGE_LIMIT = (45.0, 20.0, 25.0)
+# Solo se reparte el faltante entre afectados (etapa B) si alguien queda a más de esta fracción de su piso.
+MIN_SPREAD_SHORTFALL = 0.05
 VIAL_BONUS = -5.0  # por vial: preferirlo a quien usa rápida con 14-20 UI/día (supera lo que cuesta pasar del techo)
 
 
@@ -83,12 +87,10 @@ def _solve(c, rows, lbs, ubs, lb, ub, integrality, time_limit, gap):
     )
 
 
-def solve(
-    items: Sequence[Item], pools: Sequence[Pool], *, time_limit: float = 60.0, stats: Optional[dict] = None
-) -> Optional[Dict[Tuple[int, int], int]]:
-    """{(tratamiento, pool): envases} o None si no hay optimizador o no se halló solución."""
-    if not HAS_SOLVER or not items:
-        return None
+def _solve_block(
+    items: Sequence[Item], pools: Sequence[Pool], *, deadline: float, stats: Optional[dict], label: str
+) -> Optional[Tuple[Dict[Tuple[int, int], int], bool]]:
+    """Resuelve un bloque de tratamientos y pools que no comparte nada con los demás."""
     nt, npool = len(items), len(pools)
     var: List[Tuple[int, int]] = [(it.idx, p) for it in items for p in it.pools]
     nx = len(var)
@@ -142,46 +144,81 @@ def solve(
         add_row(cov + [(io1 + k, -it.need), (io2 + k, -it.need)], -np.inf, it.need)  # sobrecobertura
         add_row([(iu + k, 1.0), (iM, -it.floor)], -np.inf, 0)  # faltante relativo al piso <= M
 
-    def run(c, extra_rows, stage, gap=1e-6, limit=time_limit):
+    # Tratamientos idénticos (mismo grupo, insulina, necesidad y pools) son intercambiables: se exige que reciban UI en
+    # orden no creciente. No cambia el óptimo y evita que el optimizador pruebe las mismas soluciones permutadas.
+    identical: Dict[tuple, List[Item]] = {}
+    for it in items:
+        key = (it.group, it.ing, it.need, it.floor, it.ceil, it.upper, it.is_minor, it.vial_pref, tuple(it.pools))
+        identical.setdefault(key, []).append(it)
+    for members in identical.values():
+        for a, b in zip(members, members[1:]):
+            ra = [(j, pools[var[j][1]].size) for j in by_item.get(a.idx, [])]
+            rb = [(j, -pools[var[j][1]].size) for j in by_item.get(b.idx, [])]
+            add_row(ra + rb, 0, np.inf)
+
+    def run(c, extra_rows, stage, gap=1e-6, cap=45.0):
         nonlocal r, cidx, v, lo_b, up_b, nrows
         base = (len(r), nrows)
         for entries, lo, up in extra_rows:
             add_row(entries, lo, up)
         t0 = time.time()
+        limit = max(1.0, min(cap, deadline - t0))  # nunca pasa del presupuesto total
         res = _solve(c, ((v, (r, cidx)), (nrows, n)), np.array(lo_b), np.array(up_b), lb, ub, integrality, limit, gap)
         if stats is not None:
-            stats[stage] = {"segundos": round(time.time() - t0, 1), "estado": res.status, "brecha": getattr(res, "mip_gap", None)}
+            stats[f"{label}{stage}"] = {"segundos": round(time.time() - t0, 1), "estado": res.status, "brecha": getattr(res, "mip_gap", None)}
         del r[base[0]:], cidx[base[0]:], v[base[0]:], lo_b[base[1]:], up_b[base[1]:]
         nrows = base[1]
         return res
 
     short_row = [(iu + k, SHORTFALL_WEIGHT[it.group]) for k, it in enumerate(items)]
 
-    # Etapa A: menor faltante ponderado sobre los pisos
+    def pick(res):
+        return None if res.x is None else res.x
+
+    def extract(x) -> Dict[Tuple[int, int], int]:
+        out: Dict[Tuple[int, int], int] = {}
+        for j, (ti, p) in enumerate(var):
+            q = int(round(x[j]))
+            if q > 0:
+                out[(ti, p)] = q
+        return out
+
+    weights = np.array([SHORTFALL_WEIGHT[it.group] for it in items])
+    floors = np.array([it.floor for it in items])
+
+    # Etapa A: menor faltante ponderado sobre los pisos. Si agota su tiempo se usa la mejor solución hallada.
     cA = np.zeros(n)
     for j, w in short_row:
         cA[j] = w
-    resA = run(cA, [], "A")
-    if resA.x is None:
+    resA = run(cA, [], "A", cap=STAGE_LIMIT[0])
+    xA = pick(resA)
+    if xA is None:
         return None
-    a_star = float(resA.x[iu : iu + nt] @ np.array([SHORTFALL_WEIGHT[it.group] for it in items]))
+    proved = resA.status == 0
+    best = xA
+    a_star = float(xA[iu : iu + nt] @ weights)
     cap_short = (short_row, 0, a_star + max(0.5, a_star * 1e-6))
 
-    # Etapa B: si el faltante es inevitable, repartirlo parejo (minimizar el mayor faltante relativo al piso)
+    # Etapa B: si hay faltante inevitable y alguien queda lejos de su piso, repartirlo parejo (minimizar el mayor
+    # faltante relativo al piso). Si el faltante es mínimo (p. ej. 5 UI en un tratamiento) no hace falta.
     m_star = 0.0
-    if a_star > 0.5:
+    spread = a_star > 0.5 and float((xA[iu : iu + nt] / floors).max()) > MIN_SPREAD_SHORTFALL
+    if spread:
         cB = np.zeros(n)
         cB[iM] = 1.0
-        resB = run(cB, [cap_short], "B")
-        if resB.x is None:
-            return None
-        m_star = float(resB.x[iM])
+        resB = run(cB, [cap_short], "B", cap=STAGE_LIMIT[1])
+        xB = pick(resB)
+        if xB is not None:
+            best = xB
+            m_star = float(xB[iM])
+        else:
+            spread = False  # sin solución a tiempo: se queda con la de la etapa A
 
     # Etapa C: acercar a 100 %, preferir lo propio, la marca y la reserva solo para los pisos
     cC = np.zeros(n)
     for k, it in enumerate(items):
-        for s, (_w, cost) in enumerate(DEFICIT_SEGMENTS):
-            cC[ie + k * K + s] = DEFICIT_WEIGHT[it.group] * cost
+        for s_, (_w, cost) in enumerate(DEFICIT_SEGMENTS):
+            cC[ie + k * K + s_] = DEFICIT_WEIGHT[it.group] * cost
         cC[io1 + k] = OVER_NEED_COST
         cC[io2 + k] = OVER_CEIL_COST
     for j, (ti, p) in enumerate(var):
@@ -200,15 +237,62 @@ def solve(
             cost += VIAL_BONUS - 0.5 * DEFICIT_WEIGHT[it.group] + 5.0 * abs(1.0 - frac)
         cC[j] = cost + 1e-6
     extra = [cap_short]
-    if a_star > 0.5:
+    if spread:
         extra.append(([(iM, 1.0)], 0, m_star + 1e-4))
     # La etapa C solo mejora detalles (cercanía al 100 %, marcas): una brecha del 2 % basta y acota el tiempo.
-    resC = run(cC, extra, "C", gap=2e-2, limit=min(time_limit, 25.0))
-    if resC.x is None:
+    resC = run(cC, extra, "C", gap=2e-2, cap=STAGE_LIMIT[2])
+    xC = pick(resC)
+    if xC is not None:
+        best = xC
+    return extract(best), proved
+
+
+def solve(
+    items: Sequence[Item], pools: Sequence[Pool], *, time_limit: float = 90.0, stats: Optional[dict] = None
+) -> Optional[Dict[Tuple[int, int], int]]:
+    """{(tratamiento, pool): envases} o None si no hay optimizador o no se halló ninguna solución.
+
+    El problema se parte en bloques independientes (p. ej. insulinas rápidas por un lado y basales por otro): cada uno
+    se resuelve por separado, lo que lo hace mucho más rápido que resolverlo todo junto. `time_limit` es el presupuesto
+    total en segundos: si una etapa lo agota se usa la mejor solución hallada y `stats["optimo_demostrado"]` queda en
+    False.
+    """
+    if not HAS_SOLVER or not items:
         return None
+    deadline = time.time() + time_limit
+    # componentes conexos entre tratamientos y pools (union-find sobre los pools)
+    parent = list(range(len(pools)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for it in items:
+        for p in it.pools[1:]:
+            parent[find(p)] = find(it.pools[0])
+    blocks: Dict[int, List[Item]] = {}
+    for it in items:
+        blocks.setdefault(find(it.pools[0]), []).append(it)
     out: Dict[Tuple[int, int], int] = {}
-    for j, (ti, p) in enumerate(var):
-        q = int(round(resC.x[j]))
-        if q > 0:
-            out[(ti, p)] = q
+    all_proved = True
+    # los bloques chicos primero: así el grande dispone de lo que quede del presupuesto
+    for n, root in enumerate(sorted(blocks, key=lambda r: len(blocks[r]))):
+        block = blocks[root]
+        used = sorted({p for it in block for p in it.pools})
+        remap = {g: l for l, g in enumerate(used)}
+        local_items = [
+            Item(it.idx, it.group, it.ing, it.need, it.floor, it.ceil, it.upper, it.is_minor, it.vial_pref, [remap[p] for p in it.pools])
+            for it in block
+        ]
+        res = _solve_block(local_items, [pools[g] for g in used], deadline=deadline, stats=stats, label=f"b{n}")
+        if res is None:
+            return None
+        sol, proved = res
+        all_proved = all_proved and proved
+        for (ti, lp), q in sol.items():
+            out[(ti, used[lp])] = q
+    if stats is not None:
+        stats["optimo_demostrado"] = all_proved
     return out
