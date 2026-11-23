@@ -76,6 +76,14 @@ from app.core.insulin_distribution import (
 
 EPS = 1e-6
 
+# Tabla de sustituciones del reporte: la de la Fundación (la misma que usa el reparto del almacén) más la Mixta,
+# que puede reemplazarse por NPH, detemir o glargina (en ese orden). Se define aquí y no en `insulin_distribution`
+# para no cambiar el reparto del almacén, que sigue con la tabla anterior. Factores 1:1 provisionales.
+MIXTA_SUBSTITUTIONS: Tuple[Substitution, ...] = tuple(
+    Substitution("Mixta", target, factor=1.0) for target in ("NPH", "Detemir", "Glargina")
+)
+EQUITABLE_SUBSTITUTIONS: Tuple[Substitution, ...] = tuple(DEFAULT_SUBSTITUTIONS) + MIXTA_SUBSTITUTIONS
+
 # Pisos y techos por grupo de prioridad (fracción de la necesidad), también para mostrarlos.
 PRIORITY_FLOOR: Dict[int, float] = {1: 1.00, 2: 0.90, 3: 0.65, 4: 0.65}
 PRIORITY_CEILING: Dict[int, float] = {1: 1.20, 2: 1.10, 3: 1.00, 4: 1.00}
@@ -1021,5 +1029,5 @@ def plan_distribution(
         cfg = DistributionConfig(**{**cfg.__dict__, "days": days})
     if reserve_pct is not None:
         cfg = DistributionConfig(**{**cfg.__dict__, "reserve_pct": reserve_pct})
-    rules = DEFAULT_SUBSTITUTIONS if substitutions is None else tuple(substitutions)
+    rules = EQUITABLE_SUBSTITUTIONS if substitutions is None else tuple(substitutions)
     return _Engine(lots, patients, cfg, rules).run()

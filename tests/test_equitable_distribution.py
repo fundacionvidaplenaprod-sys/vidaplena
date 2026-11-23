@@ -116,6 +116,23 @@ def test_a_substitute_never_leaves_own_users_below_their_floor():
     assert res(plan, 3).substitute == "Detemir"
 
 
+def test_the_premix_can_be_replaced_by_nph_detemir_or_glargina():
+    # Solo en el reporte: la mixta se reemplaza por NPH (primera de la tabla) y, si no hay, por detemir o glargina.
+    plan = correr([lote(1, "NPH", 300, 100)], [benef(1, 45, "2", "Mixta", 20)], reserve_pct=0.0)
+    r = res(plan, 1)
+    assert r.substitute == "NPH" and r.substitute_equiv_ui == 1200
+    for basal in ("Detemir", "Glargina"):
+        plan = correr([lote(1, basal, 300, 100)], [benef(1, 45, "2", "Mixta", 20)], reserve_pct=0.0)
+        assert res(plan, 1).substitute == basal
+
+
+def test_the_shared_substitution_table_of_the_warehouse_is_not_changed():
+    from app.core.insulin_distribution import DEFAULT_SUBSTITUTIONS, SUBSTITUTION_TABLE
+
+    assert "Mixta" not in SUBSTITUTION_TABLE
+    assert not any(r.source == "Mixta" for r in DEFAULT_SUBSTITUTIONS)
+
+
 def test_minor_can_use_substitute_even_if_adults_have_pending_floor_in_that_insulin():
     lotes = [lote(1, "Lispro", 300, 10)]
     bens = [benef(1, 10, "1", "Glulisina", 10)] + [benef(10 + i, 45, "2", "Lispro", 10) for i in range(10)]
