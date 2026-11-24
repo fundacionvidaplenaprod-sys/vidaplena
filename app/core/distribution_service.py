@@ -1,8 +1,8 @@
 """Datos y armado de respuestas del reparto de insulina.
 
 Funciones compartidas por el reporte de distribución (`/reports/insulin-distribution`) y por el
-reparto global del almacén. Traducen entre la base de datos / los esquemas de la API y el motor
-puro de `app/core/insulin_distribution.py`.
+reparto del almacén (`/donations/distributions`). Traducen entre la base de datos / los esquemas de la
+API y el motor puro de `app/core/equitable_distribution.py` (`run_equitable_plan`).
 """
 from __future__ import annotations
 
@@ -16,8 +16,9 @@ from app import models, schemas
 from app.core.assisted import assisted_age
 from app.core.contributions import current_periodo, is_patient_current_on_contribution
 from app.core.insulin_catalog import normalize_insulin_name
-from app.core.equitable_distribution import PRIORITY_BANDS
+from app.core.equitable_distribution import PRIORITY_BANDS, DistributionConfig, plan_distribution
 from app.core.insulin_distribution import (
+    DISTRIBUTION_DAYS,
     GROUP_LABELS,
     MINOR_AGE,
     PRIORITY_NAMES,
@@ -26,9 +27,58 @@ from app.core.insulin_distribution import (
     priority_group_for,
 )
 
+# Quiénes entran en el reparto (el del reporte y el del almacén): fichas ACTIVO, PENDIENTE_DOC y HABILITADO con
+# insulina cargada, sin exigir aporte al día, más las personas activas del Registro Asistido.
+DISTRIBUTION_ESTADOS = ("ACTIVO", "PENDIENTE_DOC", "HABILITADO")
+
+OPTIMIZER_UNAVAILABLE_HINT = (
+    "Sin el reparto exacto no se puede garantizar que nadie quede en 0 % ni bajo su mínimo. "
+    "Revise que el servidor tenga scipy instalado (reconstruir la imagen) y vuelva a intentarlo."
+)
+
 
 def treatment_daily_units(treatment: models.PatientTreatment) -> float:
     return float(getattr(treatment, "dosis_diaria", 0) or 0)
+
+
+def run_equitable_plan(lot_inputs, patient_inputs, *, require_optimizer: bool):
+    """El reparto de insulina con las reglas vigentes. Lo usan el reporte de distribución y el almacén: un solo
+    motor y una sola configuración, para que los dos den exactamente el mismo resultado con el mismo stock.
+
+    Con `require_optimizer` lanza `OptimizerUnavailable` en vez de entregar un reparto aproximado."""
+    return plan_distribution(
+        lot_inputs,
+        patient_inputs,
+        days=DISTRIBUTION_DAYS,
+        config=DistributionConfig(require_optimizer=require_optimizer),
+    )
+
+
+def plan_report_fields(plan, patient_inputs, info: dict, excluded: list, lot_meta: dict) -> dict:
+    """Campos comunes de la respuesta del reparto (reporte y almacén), a partir del plan del motor."""
+    pacientes = plan_patient_items(plan, patient_inputs, info, lot_meta)
+    return dict(
+        dias=plan.days,
+        reserva_pct=plan.reserve_pct,
+        stock_total_ui=plan.total_stock_ui,
+        reserva_objetivo_ui=plan.reserve_target_ui,
+        reserva_ui=plan.reserve_ui,
+        reserva_liberada_ui=plan.reserve_released_ui,
+        asignado_ui=plan.allocated_ui,
+        asignaciones_generadas=len(group_assignments(plan)),
+        insulinas=plan_ingredient_items(plan),
+        reserva=plan_reserve_items(plan, lot_meta),
+        pacientes=pacientes,
+        prioridades=plan_priority_bands(pacientes),
+        bajo_minimo=plan_below_min_items(pacientes),
+        excluded_patients=excluded,
+        registros_por_corregir=group_choice_issues(plan, info),
+        advertencias=plan.warnings,
+        minimo_imposible=plan_minimum_gaps(plan),
+        optimizador_usado=plan.optimizer_used,
+        estados_considerados=list(DISTRIBUTION_ESTADOS),
+        asistidos_incluidos=sum(1 for data in info.values() if data.get("asistido")),
+    )
 
 
 async def load_distribution_patients(

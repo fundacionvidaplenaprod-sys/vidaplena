@@ -25,6 +25,10 @@ export function ConfirmModal({
     inputValue,
     onInputChange,
     inputPlaceholder,
+    // Campos adicionales (p. ej. fechas) entre el mensaje y el campo de texto; `confirmDisabled` impide confirmar
+    // mientras no sean válidos.
+    children,
+    confirmDisabled = false,
 }) {
     const hasInput = inputLabel !== undefined;
     return (
@@ -36,6 +40,7 @@ export function ConfirmModal({
                 />
                 <p className="text-sm text-gray-600 whitespace-pre-line">{message}</p>
             </div>
+            {children}
             {hasInput && (
                 <div className="mb-6">
                     <label className="block text-sm font-bold text-gray-700 mb-1">{inputLabel}</label>
@@ -62,7 +67,7 @@ export function ConfirmModal({
                     type="button"
                     className={`flex-1 text-white ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-vida-main hover:bg-vida-hover'}`}
                     onClick={onConfirm}
-                    disabled={processing}
+                    disabled={processing || confirmDisabled}
                 >
                     {processing ? 'Procesando...' : confirmLabel}
                 </Button>

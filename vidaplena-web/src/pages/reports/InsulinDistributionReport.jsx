@@ -8,15 +8,19 @@ import { Button } from '../../components/ui/Button';
 import { generateInsulinDistributionReport } from '../../api/reports';
 import logoUrl from '../../assets/logo.png';
 import { imageToBase64 } from '../../utils/imageToBase64';
-
-const fmt = (n) => Math.round(n || 0).toLocaleString('es-BO');
-
-const ESTADO_LABELS = {
-    ACTIVO: 'Activo',
-    PENDIENTE_DOC: 'Pendiente de documentos',
-    HABILITADO: 'Habilitado',
-    ASISTIDO: 'Registro asistido',
-};
+import {
+    ESTADO_LABELS,
+    MOTIVO_BAJO_MINIMO,
+    MOTIVO_ELECCION,
+    dentroDelMargen,
+    diasCubiertos,
+    dosisTexto,
+    estadoMargen,
+    fmt,
+    lotesTexto,
+    margenTexto,
+    notasVisibles,
+} from '../../utils/insulinDistribution';
 
 const FILTERS = [
     { id: 'todos', label: 'Todos' },
@@ -27,74 +31,6 @@ const FILTERS = [
     { id: 'fuera_margen', label: 'Fuera de margen' },
     { id: 'sustituidos', label: 'Con sustituto' },
 ];
-
-// Cobertura en días: lo que recibe ÷ lo que necesita al día. Con envases enteros puede pasar de
-// los días del reporte (166 % de 60 días = 100 días): no se puede entregar medio pen.
-const diasCubiertos = (cobertura, dias) => Math.round((cobertura * dias) / 100);
-
-// «75–108,3 %»: margen de cobertura de todos los beneficiarios (piso del 75 % y tope de 65 días).
-const margenTexto = (i) =>
-    i.margen_min_pct !== undefined && i.margen_max_pct !== undefined
-        ? `${i.margen_min_pct}–${i.margen_max_pct} %`
-        : '';
-
-// Un tratamiento está dentro del margen salvo que el servidor diga lo contrario.
-const dentroDelMargen = (i) =>
-    i.fuera_de_margen === undefined ? i.cobertura_pct >= 99.9 : !i.fuera_de_margen;
-
-const estadoMargen = (i) => {
-    if (i.fuera_de_margen !== true) return '';
-    return i.cobertura_pct < (i.margen_min_pct ?? 0) ? 'Bajo el mínimo' : 'Sobre el máximo';
-};
-
-const MOTIVO_BAJO_MINIMO = {
-    STOCK: 'falta stock de su insulina y de sus sustitutos',
-    ENVASE: 'el envase entero no permite quedar entre el 75 % y los 65 días',
-    OTRO: 'revisar',
-};
-
-// Notas del motor que el equipo debe ver. ENVASE_MINIMO, SIN_ASIGNACION y SUSTITUCION simple ya se
-// muestran en otros lugares (texto del envase, cobertura 0 %, etiqueta «+ sustituto»).
-const notaTexto = (nota) => {
-    if (nota.startsWith('REVISION_CLINICA')) return 'revisión clínica: dosis alta en un menor';
-    if (nota === 'ENVASE_ENTERO') return 'el envase entero no permite quedar entre 75 % y 65 días';
-    if (nota.startsWith('SUSTITUCION (MENOR')) return 'sustituto en un menor: requiere aval médico';
-    if (nota === 'CEDIÓ_ENVASE_A_PRIORITARIO') return 'cedió un envase a un menor o tipo 1';
-    if (nota === 'FICHA_POR_CORREGIR') return 'ficha por corregir';
-    return '';
-};
-const notasVisibles = (i) => (i.notas || []).map(notaTexto).filter(Boolean);
-
-const MOTIVO_ELECCION = {
-    STOCK: 'tiene stock',
-    SUSTITUTO: 'se cubre con sustituto',
-    SIN_STOCK: 'sin stock: mayor dosis',
-    MENOR_DEGLUDEC: 'menor: mantiene la degludec',
-};
-
-// «30 UI/día» o, si se limitó, «48 → 30 UI/día» (tope de 30 UI/día para menores).
-const dosisTexto = (i) =>
-    i.dosis_limitada
-        ? `${i.dosis_diaria_registrada} → ${i.dosis_diaria_aplicada} UI/día`
-        : `${i.dosis_diaria_aplicada} UI/día`;
-
-// «2 × Toujeo DoubleStar 3 ml · 900 UI c/u»: un envase de «3 ml» no siempre tiene 300 UI,
-// depende de la concentración (U100 = 300 UI, U200 = 600 UI, U300 = 900 UI), así que se muestra.
-// Sin número de lote: el mismo producto de varios lotes se suma en una sola línea.
-const lotesTexto = (lotes) => {
-    if (!lotes.length) return '—';
-    const porProducto = new Map();
-    lotes.forEach((l) => {
-        const porEnvase = l.unidades ? Math.round(l.ui / l.unidades) : 0;
-        const key = `${l.producto}|${porEnvase}`;
-        const actual = porProducto.get(key) || { producto: l.producto, porEnvase, unidades: 0 };
-        actual.unidades += l.unidades;
-        porProducto.set(key, actual);
-    });
-    return [...porProducto.values()]
-        .map((x) => `${x.unidades} × ${x.producto} · ${fmt(x.porEnvase)} UI c/u`)
-        .join(', ');
-};
 
 // Reporte de planificación: recibe el Excel de la donación y calcula el reparto con las
 // reglas definidas, sobre beneficiarios activos, pendientes de documentos y habilitados.

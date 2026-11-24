@@ -285,7 +285,11 @@ class Donation(Base):
     marca = Column(String(120))
     nombre_comercial = Column(String(160))
     presentacion = Column(String(120))
+    # UI por envase (presentación en ml x concentración): es lo que usa el reparto.
     factor_conversion = Column(Float, default=1.0)
+    # Del Excel de la donación (packing list): volumen del envase y UI por ml (U100 = 100).
+    presentacion_ml = Column(Float, nullable=True)
+    concentracion_ui_ml = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -295,11 +299,32 @@ class Donation(Base):
 
     lots = relationship("DonationLot", back_populates="donation", cascade="all, delete-orphan")
 
+
+class DonationIntake(Base):
+    """Un ingreso al almacén: el Excel de una donación (packing list) cargado de una vez."""
+
+    __tablename__ = "donation_intakes"
+
+    id = Column(BigInteger, primary_key=True)
+    archivo = Column(String(255), nullable=False)
+    # Huella del archivo: el mismo Excel no se puede ingresar dos veces.
+    sha256 = Column(String(64), nullable=False, unique=True)
+    filas = Column(Integer, nullable=False)
+    envases = Column(Integer, nullable=False)
+    ui_total = Column(Float, nullable=False)
+    created_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    created_by = relationship("User")
+    lots = relationship("DonationLot", back_populates="intake")
+
+
 class DonationLot(Base):
     __tablename__ = "donation_lots"
 
     id = Column(BigInteger, primary_key=True)
     donation_id = Column(BigInteger, ForeignKey("donations.id", ondelete="CASCADE"), nullable=False)
+    intake_id = Column(BigInteger, ForeignKey("donation_intakes.id", ondelete="SET NULL"), nullable=True)
     lote = Column(String(80))
     fecha_venc = Column(Date)
     cantidad_total = Column(Integer, nullable=False)
@@ -308,6 +333,7 @@ class DonationLot(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     donation = relationship("Donation", back_populates="lots")
+    intake = relationship("DonationIntake", back_populates="lots")
     allocations = relationship("DonationAllocation", back_populates="lot", cascade="all, delete-orphan")
     movements = relationship("StockMovement", back_populates="lot", cascade="all, delete-orphan")
 
@@ -367,6 +393,167 @@ class Delivery(Base):
 
     allocation = relationship("DonationAllocation", back_populates="deliveries")
     patient = relationship("Patient", back_populates="deliveries")
+
+
+# --- Reparto de insulina del almacén ------------------------------------------------------------
+# Se calcula con el mismo motor y las mismas reglas que el reporte de distribución, sobre el stock del
+# almacén. Queda en BORRADOR, se ajusta solo con intercambios equivalentes entre dos beneficiarios y, al
+# consolidarse, descuenta el stock. Un borrador reemplazado por un cálculo nuevo queda DESCARTADO.
+INSULIN_DISTRIBUTION_ESTADOS = ("BORRADOR", "CONSOLIDADO", "DESCARTADO")
+
+
+class InsulinDistribution(Base):
+    __tablename__ = "insulin_distributions"
+
+    id = Column(BigInteger, primary_key=True)
+    estado = Column(String(16), nullable=False, default="BORRADOR")
+    dias = Column(Integer, nullable=False)
+    # Resultado del motor tal como se muestra (mismo formato que el reporte), al día con los intercambios.
+    resultado = Column(postgresql.JSONB, nullable=False)
+    # Lo que propuso el motor, sin intercambios: [{beneficiario_id, insulina, lot_id, envases}].
+    propuesta = Column(postgresql.JSONB, nullable=False)
+    # Stock con el que se calculó (lote -> envases disponibles): si cambia, hay que volver a calcular.
+    stock_calculado = Column(postgresql.JSONB, nullable=False)
+    created_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    consolidated_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    consolidated_at = Column(DateTime(timezone=True), nullable=True)
+    discarded_at = Column(DateTime(timezone=True), nullable=True)
+    # Indicaciones para los beneficiarios que acompañan el aviso del portal (p. ej. qué llevar al recogerla).
+    aviso_mensaje = Column(Text, nullable=True)
+    # Ventana de entrega del aviso («del 1 de … al 10 de …»): el día y la hora los coordina cada beneficiario con
+    # el(la) responsable de su departamento.
+    entrega_desde = Column(Date, nullable=True)
+    entrega_hasta = Column(Date, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "estado IN (" + ",".join(f"'{e}'" for e in INSULIN_DISTRIBUTION_ESTADOS) + ")",
+            name="ck_insulin_distribution_estado",
+        ),
+    )
+
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    consolidated_by = relationship("User", foreign_keys=[consolidated_by_id])
+    items = relationship(
+        "InsulinDistributionItem", back_populates="distribution", cascade="all, delete-orphan",
+        order_by="InsulinDistributionItem.id",
+    )
+    swaps = relationship(
+        "InsulinDistributionSwap", back_populates="distribution", cascade="all, delete-orphan",
+        order_by="InsulinDistributionSwap.id",
+    )
+
+
+class InsulinDistributionItem(Base):
+    """Envases de un lote que recibe un beneficiario para uno de sus tratamientos."""
+
+    __tablename__ = "insulin_distribution_items"
+
+    id = Column(BigInteger, primary_key=True)
+    distribution_id = Column(BigInteger, ForeignKey("insulin_distributions.id", ondelete="CASCADE"), nullable=False)
+    # Identificador del motor: id de la ficha, o el id del Registro Asistido en negativo.
+    beneficiario_id = Column(BigInteger, nullable=False)
+    patient_id = Column(BigInteger, ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
+    assisted_registration_id = Column(
+        BigInteger, ForeignKey("assisted_registrations.id", ondelete="SET NULL"), nullable=True
+    )
+    insulina = Column(String(40), nullable=False)  # la del tratamiento (un sustituto trae otra en el lote)
+    lot_id = Column(BigInteger, ForeignKey("donation_lots.id", ondelete="RESTRICT"), nullable=False)
+    envases = Column(Integer, nullable=False)
+    ui = Column(Float, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("distribution_id", "beneficiario_id", "insulina", "lot_id", name="uq_insulin_distribution_item"),
+        CheckConstraint("envases > 0", name="ck_insulin_distribution_item_envases"),
+    )
+
+    distribution = relationship("InsulinDistribution", back_populates="items")
+    lot = relationship("DonationLot")
+
+
+class InsulinDistributionSwap(Base):
+    """Intercambio equivalente: A entrega `envases_a` del lote A a B y recibe `envases_b` del lote B (mismas UI)."""
+
+    __tablename__ = "insulin_distribution_swaps"
+
+    id = Column(BigInteger, primary_key=True)
+    distribution_id = Column(BigInteger, ForeignKey("insulin_distributions.id", ondelete="CASCADE"), nullable=False)
+    beneficiario_a = Column(BigInteger, nullable=False)
+    insulina_a = Column(String(40), nullable=False)
+    lot_a_id = Column(BigInteger, ForeignKey("donation_lots.id", ondelete="RESTRICT"), nullable=False)
+    envases_a = Column(Integer, nullable=False)
+    beneficiario_b = Column(BigInteger, nullable=False)
+    insulina_b = Column(String(40), nullable=False)
+    lot_b_id = Column(BigInteger, ForeignKey("donation_lots.id", ondelete="RESTRICT"), nullable=False)
+    envases_b = Column(Integer, nullable=False)
+    ui = Column(Float, nullable=False)
+    created_by_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    distribution = relationship("InsulinDistribution", back_populates="swaps")
+    created_by = relationship("User")
+
+
+class InsulinDistributionNotice(Base):
+    """Aviso en el Portal del Beneficiario: al consolidar un reparto, cada beneficiario con ficha ve cuánta
+    insulina le corresponde. El Registro Asistido no tiene portal (se le avisa por su persona referente)."""
+
+    __tablename__ = "insulin_distribution_notices"
+
+    id = Column(BigInteger, primary_key=True)
+    distribution_id = Column(BigInteger, ForeignKey("insulin_distributions.id", ondelete="CASCADE"), nullable=False)
+    patient_id = Column(BigInteger, ForeignKey("patients.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Cuándo el beneficiario marcó «Entendido» en su portal.
+    visto_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (UniqueConstraint("distribution_id", "patient_id", name="uq_insulin_distribution_notice"),)
+
+    distribution = relationship("InsulinDistribution")
+    fotos = relationship(
+        "InsulinNoticePhoto", back_populates="notice", cascade="all, delete-orphan", lazy="selectin",
+        order_by="InsulinNoticePhoto.tipo",
+    )
+
+
+INSULIN_NOTICE_PHOTO_TIPOS = ("envases", "hba1c")
+INSULIN_NOTICE_PHOTO_ESTADOS = ("PENDIENTE", "APROBADA", "OBSERVADA")
+
+
+class InsulinNoticePhoto(Base):
+    """Foto que sube el beneficiario en el aviso de un reparto, una de cada tipo: `envases`, sus insulinas ya usadas
+    (envases vacíos de la entrega anterior, reglamento art. 17 b), y `hba1c`, su último resultado de hemoglobina
+    glucosilada (art. 8; imagen o PDF). El SUPER_ADMIN la aprueba u observa (con el motivo); si la observa, el
+    beneficiario sube otra, que reemplaza a esta y vuelve a quedar por revisar. Una foto aprobada ya no se cambia."""
+
+    __tablename__ = "insulin_notice_photos"
+
+    id = Column(BigInteger, primary_key=True)
+    notice_id = Column(BigInteger, ForeignKey("insulin_distribution_notices.id", ondelete="CASCADE"), nullable=False)
+    tipo = Column(String(16), nullable=False)
+    url = Column(Text, nullable=False)
+    subida_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    estado = Column(String(16), nullable=False, default="PENDIENTE", server_default="PENDIENTE")
+    observacion = Column(Text, nullable=True)
+    revisada_at = Column(DateTime(timezone=True), nullable=True)
+    revisada_por_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("notice_id", "tipo", name="uq_insulin_notice_photo"),
+        CheckConstraint(
+            "tipo IN (" + ",".join(f"'{t}'" for t in INSULIN_NOTICE_PHOTO_TIPOS) + ")", name="ck_insulin_notice_photo_tipo"
+        ),
+        CheckConstraint(
+            "estado IN (" + ",".join(f"'{e}'" for e in INSULIN_NOTICE_PHOTO_ESTADOS) + ")",
+            name="ck_insulin_notice_photo_estado",
+        ),
+    )
+
+    notice = relationship("InsulinDistributionNotice", back_populates="fotos")
+    revisada_por = relationship("User", foreign_keys=[revisada_por_id], lazy="selectin")
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"

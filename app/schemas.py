@@ -465,41 +465,7 @@ class ContributionReviewResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-# --- PRODUCTOS (CATÁLOGO) ---
-class DonationBase(BaseModel):
-    tipo: Literal["MED", "INSULINA", "INSUMO"]
-    nombre_generico: str = Field(..., max_length=160)
-    marca: Optional[str] = Field(None, max_length=120)
-    nombre_comercial: Optional[str] = Field(None, max_length=160)
-    presentacion: Optional[str] = Field(None, max_length=120)
-    factor_conversion: Optional[float] = Field(1.0, description="Dosis por envase") 
-
-class DonationCreate(DonationBase):
-    pass
-
-class DonationResponse(DonationBase):
-    id: int
-    created_at: datetime
-    updated_at: datetime
-    model_config = ConfigDict(from_attributes=True)
-
-# --- LOTES (STOCK) ---
-class DonationLotBase(BaseModel):
-    lote: Optional[str] = Field(None, max_length=80)
-    fecha_venc: Optional[date] = None
-    cantidad_total: int = Field(..., gt=0)
-    
-class DonationLotCreate(DonationLotBase):
-    donation_id: int 
-
-class DonationLotResponse(DonationLotBase):
-    id: int
-    donation_id: int
-    cantidad_disponible: int
-    created_at: datetime
-    model_config = ConfigDict(from_attributes=True)
-
-# --- MOVIMIENTOS DE STOCK ---
+# --- MOVIMIENTOS DE STOCK (almacén) ---
 class StockMovementResponse(BaseModel):
     id: int
     lot_id: int
@@ -509,79 +475,24 @@ class StockMovementResponse(BaseModel):
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
-# --- IMPORTACIÓN CSV ---
-class DonationImportRowResult(BaseModel):
-    row_number: int
-    status: Literal["IMPORTED", "ERROR"]
-    message: str
-    donation_id: Optional[int] = None
-    lot_id: Optional[int] = None
-
-class DonationImportResponse(BaseModel):
-    total_rows: int
-    imported_rows: int
-    error_rows: int
-    results: List[DonationImportRowResult] = []
-
-# --- ASIGNACIÓN (VALES) ---
-class DonationAllocationBase(BaseModel):
-    patient_id: int
-    lot_id: int
-    cantidad_sugerida: int 
-    cantidad_ajustada: Optional[int] = None
-    autor_ajuste: Optional[int] = None
-    estado: Literal["BORRADOR", "CONSOLIDADO"]
-
-class DonationAllocationCreate(BaseModel):
-    lot_id: int
-
-class DonationAllocationUpdate(BaseModel):
-    cantidad_ajustada: int = Field(..., ge=0)
-    estado: Optional[Literal["CONSOLIDADO"]] = None 
-
-class DonationAllocationResponse(DonationAllocationBase):
+# --- ENTREGAS DEL ALMACÉN ANTERIOR (boletas del portal) ---
+class DeliveryResponse(BaseModel):
     id: int
-    patient: Optional[PatientResponse] = None
-    model_config = ConfigDict(from_attributes=True)
-
-class DonationLotDetailResponse(DonationLotResponse):
-    donation: Optional[DonationResponse] = None
-    allocations: List[DonationAllocationResponse] = []
-    model_config = ConfigDict(from_attributes=True)
-
-# --- ENTREGAS (CONSTANCIAS) ---
-class DeliveryBase(BaseModel):
     fecha_entrega: date
     cantidad_entregada: int
     url_constancia_pdf: Optional[str] = None
-
-class DeliveryCreate(DeliveryBase):
-    allocation_id: int
-    
-class DeliveryResponse(DeliveryBase):
-    id: int
     estado: str
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
-# --- DETALLES DE CÁLCULO (NO BD) ---
+# --- BENEFICIARIOS SIN DOSIS EN UN REPARTO ---
 class ExclusionDetail(BaseModel):
     patient_id: int
     nombre_completo: str
     motivo: str
 
-class CalculationResult(BaseModel):
-    lot_id: int
-    total_pacientes_compatibles: int
-    total_stock_disponible: int
-    total_requerido_teorico: int
-    sobrante_stock: int
-    
-    allocations: List[DonationAllocationResponse]
-    excluded_patients: List[ExclusionDetail] = []
 
-
-# --- REPARTO GLOBAL DE INSULINAS (todos los lotes a la vez, con reserva) ---
+# --- REPARTO DE INSULINAS (reporte de distribución y almacén: todos los lotes a la vez, con reserva) ---
 class DistributionLotItem(BaseModel):
     lot_id: int
     producto: str
@@ -1510,6 +1421,335 @@ class DistributionReportResult(DistributionPlanResult):
     # Tratamientos que quedaron bajo el mínimo de su margen y qué les falta.
     bajo_minimo: List[DistributionBelowMinItem] = []
     pacientes: List[DistributionReportPatient] = []
+
+
+# --- ALMACÉN: INGRESO POR EXCEL Y REPARTO CONSOLIDADO ---
+class WarehouseIntakeSummary(BaseModel):
+    id: int
+    archivo: str
+    filas: int
+    envases: int
+    ui_total: float
+    created_at: datetime
+    autor: Optional[str] = None
+
+
+class WarehouseIntakePreview(BaseModel):
+    """Lo que se ingresaría con el Excel. En el almacén el lote y el vencimiento son obligatorios."""
+
+    archivo: str
+    filas_leidas: int
+    filas: List[DonationExcelLine] = []
+    errores: List[DonationExcelRowError] = []
+    envases: int = 0
+    ui_total: float = 0.0
+    puede_ingresar: bool = False
+    # El mismo archivo ya se ingresó antes: no se puede ingresar dos veces.
+    ingreso_previo: Optional[WarehouseIntakeSummary] = None
+
+
+class WarehouseIntakeResult(WarehouseIntakeSummary):
+    lotes_creados: int
+    productos_nuevos: int
+
+
+class WarehouseStockLot(BaseModel):
+    lot_id: int
+    donation_id: int
+    producto: str
+    insulina: Optional[str] = None  # None: el nombre no corresponde al catálogo de insulinas
+    presentacion_ml: Optional[float] = None
+    concentracion_ui_ml: Optional[int] = None
+    ui_por_envase: float
+    lote: Optional[str] = None
+    fecha_venc: Optional[date] = None
+    cantidad_total: int
+    disponibles: int
+    vencido: bool = False
+    ingreso_id: Optional[int] = None
+    ingreso_archivo: Optional[str] = None
+
+
+class WarehouseDistributionLot(BaseModel):
+    """Un lote del stock con el que se calculó el reparto y cómo quedó."""
+
+    lot_id: int
+    donation_id: int
+    producto: str
+    insulina: str
+    presentacion_ml: Optional[float] = None
+    concentracion_ui_ml: Optional[int] = None
+    ui_por_envase: float
+    lote: Optional[str] = None
+    fecha_venc: Optional[date] = None
+    disponibles: int
+    asignados: int
+    reserva: int
+    sobrante: int
+
+
+class WarehouseDistributionResult(DistributionPlanResult):
+    estados_considerados: List[str] = []
+    asistidos_incluidos: int = 0
+    prioridades: List[DistributionPriorityBand] = []
+    bajo_minimo: List[DistributionBelowMinItem] = []
+    pacientes: List[DistributionReportPatient] = []
+    stock: List[WarehouseDistributionLot] = []
+
+
+class WarehouseProposalLine(BaseModel):
+    beneficiario_id: int
+    insulina: str
+    lot_id: int
+    envases: int
+
+
+class WarehouseSwapResponse(BaseModel):
+    id: int
+    created_at: datetime
+    autor: Optional[str] = None
+    beneficiario_a: int
+    nombre_a: str
+    insulina_a: str
+    lot_a_id: int
+    producto_a: str
+    envases_a: int
+    beneficiario_b: int
+    nombre_b: str
+    insulina_b: str
+    lot_b_id: int
+    producto_b: str
+    envases_b: int
+    ui: float
+
+
+class WarehouseDistributionOrigin(BaseModel):
+    """Un packing list (ingreso al almacén) del que salen envases asignados en un reparto."""
+
+    # None: lotes cargados antes del ingreso por Excel (no vienen de ningún packing list).
+    ingreso_id: Optional[int] = None
+    archivo: Optional[str] = None
+    ingresado_at: Optional[datetime] = None
+    lotes: int
+    envases: int
+    ui: float
+
+
+class WarehouseDistributionSummary(BaseModel):
+    id: int
+    estado: Literal["BORRADOR", "CONSOLIDADO", "DESCARTADO"]
+    dias: int
+    created_at: datetime
+    autor: Optional[str] = None
+    consolidated_at: Optional[datetime] = None
+    consolidado_por: Optional[str] = None
+    discarded_at: Optional[datetime] = None
+    beneficiarios: int = 0
+    envases: int = 0
+    asignado_ui: float = 0.0
+    intercambios: int = 0
+    # De qué packing lists salen los envases asignados (la reserva y el sobrante no cuentan: quedan en el almacén).
+    ingresos: List[WarehouseDistributionOrigin] = []
+
+
+class InsulinNoticePhoto(BaseModel):
+    """Una foto que subió el beneficiario en el aviso de un reparto: `envases` (sus insulinas ya usadas, reglamento
+    art. 17 b) o `hba1c` (su último resultado de hemoglobina glucosilada, art. 8; imagen o PDF)."""
+
+    tipo: Literal["envases", "hba1c"]
+    url: str
+    subida_at: datetime
+    # PENDIENTE: por revisar. APROBADA: ya no se cambia. OBSERVADA: debe subir otra (el motivo, en `observacion`).
+    estado: Literal["PENDIENTE", "APROBADA", "OBSERVADA"]
+    observacion: Optional[str] = None
+    revisada_at: Optional[datetime] = None
+    revisada_por: Optional[str] = None  # solo lo ve el personal
+
+
+class InsulinNoticePhotos(BaseModel):
+    foto_envases: Optional[InsulinNoticePhoto] = None
+    foto_hba1c: Optional[InsulinNoticePhoto] = None
+
+
+class InsulinNoticePhotoReview(BaseModel):
+    """El SUPER_ADMIN aprueba la foto o la observa diciendo qué debe corregir el beneficiario."""
+
+    estado: Literal["APROBADA", "OBSERVADA"]
+    observacion: Optional[str] = Field(None, max_length=300)
+
+    @model_validator(mode="after")
+    def _motivo_al_observar(self):
+        motivo = (self.observacion or "").strip()
+        if self.estado == "OBSERVADA" and len(motivo) < 3:
+            raise ValueError("Indique qué debe corregir el beneficiario.")
+        self.observacion = motivo if self.estado == "OBSERVADA" else None
+        return self
+
+
+class WarehouseNoticeStatus(InsulinNoticePhotos):
+    """Si el beneficiario vio en su portal el aviso de lo que le corresponde en un reparto consolidado, y las fotos
+    que subió (con su revisión)."""
+
+    notice_id: Optional[int] = None  # sin aviso: Registro Asistido o ficha borrada
+    beneficiario_id: int
+    nombre_completo: str
+    ci: Optional[str] = None
+    # VISTO: pulsó «Entendido». PENDIENTE: tiene cuenta y aún no lo vio. SIN_CUENTA: su ficha no tiene usuario
+    # para entrar al portal. SIN_PORTAL: Registro Asistido (se le avisa por su persona referente).
+    estado: Literal["VISTO", "PENDIENTE", "SIN_CUENTA", "SIN_PORTAL"]
+    visto_at: Optional[datetime] = None
+
+
+class WarehouseDistributionDetail(WarehouseDistributionSummary):
+    resultado: WarehouseDistributionResult
+    propuesta: List[WarehouseProposalLine] = []
+    intercambios_detalle: List[WarehouseSwapResponse] = []
+    # Solo en BORRADOR: si el stock del almacén sigue siendo el del cálculo. Si cambió (otro ingreso, otro
+    # reparto, un lote que venció), hay que volver a calcular antes de consolidar.
+    stock_vigente: bool = True
+    stock_cambios: List[str] = []
+    # Solo en CONSOLIDADO: la ventana de entrega y las indicaciones del aviso, y quién lo vio en su portal.
+    entrega_desde: Optional[date] = None
+    entrega_hasta: Optional[date] = None
+    aviso_mensaje: Optional[str] = None
+    avisos: List[WarehouseNoticeStatus] = []
+
+
+class WarehouseConsolidate(BaseModel):
+    # Indicaciones para los beneficiarios que acompañan el aviso del portal (p. ej. qué llevar al recogerla).
+    mensaje: Optional[str] = Field(None, max_length=500)
+    # Del … al … se entrega (el día y la hora se coordinan con el(la) responsable del departamento). Sin fechas,
+    # del 1 al 10 del mes siguiente.
+    entrega_desde: Optional[date] = None
+    entrega_hasta: Optional[date] = None
+
+    @model_validator(mode="after")
+    def _ventana_completa(self):
+        if (self.entrega_desde is None) != (self.entrega_hasta is None):
+            raise ValueError("Indique desde y hasta qué fecha se entrega la insulina.")
+        if self.entrega_desde and self.entrega_hasta < self.entrega_desde:
+            raise ValueError("La fecha final de la entrega no puede ser anterior a la inicial.")
+        return self
+
+
+class WarehouseSwapOption(BaseModel):
+    beneficiario_id: int
+    nombre_completo: str
+    ci: Optional[str] = None
+    grupo_prioridad: int
+    grupo_prioridad_nombre: str = ""
+    es_menor: bool = False
+    insulina: str  # tratamiento del otro beneficiario
+    lot_id: int  # lote que entrega
+    producto: str
+    lote: Optional[str] = None
+    fecha_venc: Optional[date] = None
+    envases: int
+    ui: float
+    misma_insulina: bool
+
+
+class WarehouseSwapOptions(BaseModel):
+    beneficiario_id: int
+    insulina: str
+    lot_id: int
+    producto: str
+    envases: int
+    ui: float
+    opciones: List[WarehouseSwapOption] = []
+
+
+class WarehouseSwapCreate(BaseModel):
+    """A (beneficiario_id) entrega `envases` del lote `lot_id` y recibe `con_envases` del lote `con_lot_id` de B."""
+
+    beneficiario_id: int
+    insulina: str = Field(..., max_length=40)
+    lot_id: int
+    envases: int = Field(..., gt=0)
+    con_beneficiario_id: int
+    con_insulina: str = Field(..., max_length=40)
+    con_lot_id: int
+    con_envases: int = Field(..., gt=0)
+
+
+class WarehouseBeneficiaryMatch(BaseModel):
+    """Un beneficiario que aparece en los repartos guardados (nombre y CI del reparto más reciente)."""
+
+    beneficiario_id: int  # negativo: persona del Registro Asistido
+    nombre_completo: str
+    ci: Optional[str] = None
+    registro_asistido: bool = False
+    repartos: int
+    ultimo_reparto: datetime
+
+
+class WarehouseBeneficiaryDelivery(BaseModel):
+    """Lo que un beneficiario recibe en un reparto, tal como quedó guardado."""
+
+    distribution_id: int
+    estado: Literal["BORRADOR", "CONSOLIDADO", "DESCARTADO"]
+    dias: int
+    created_at: datetime
+    consolidated_at: Optional[datetime] = None
+    envases: int = 0
+    ui: float = 0.0
+    # Intercambios del reparto en los que participó esta persona.
+    intercambios: int = 0
+    paciente: DistributionReportPatient
+
+
+class WarehouseBeneficiaryHistory(BaseModel):
+    beneficiario_id: int
+    nombre_completo: str
+    ci: Optional[str] = None
+    registro_asistido: bool = False
+    repartos: List[WarehouseBeneficiaryDelivery] = []
+
+
+# --- AVISO DEL REPARTO EN EL PORTAL DEL BENEFICIARIO ---
+class InsulinNoticeProduct(BaseModel):
+    producto: str
+    envases: int
+    ui: float
+    lote: Optional[str] = None
+    fecha_venc: Optional[date] = None
+
+
+class InsulinNoticeTreatment(BaseModel):
+    insulina: str
+    # Dosis con la que se calculó (en menores puede estar limitada a 30 UI/día) y la registrada en su ficha.
+    dosis_diaria: float
+    dosis_registrada: float
+    dosis_limitada: bool = False
+    # Insulina que recibe en lugar de parte de la suya (sustituto permitido).
+    sustituto: Optional[str] = None
+    envases: int
+    ui: float
+    dias_cubiertos: int
+    productos: List[InsulinNoticeProduct] = []
+
+
+class InsulinNoticeOut(InsulinNoticePhotos):
+    """Lo que le corresponde a un beneficiario en un reparto consolidado, como lo ve en su portal, con las fotos
+    que subió para ese reparto."""
+
+    id: int
+    distribution_id: int
+    consolidated_at: Optional[datetime] = None
+    dias: int
+    # Del … al … se entrega; el día y la hora los coordina con el(la) responsable de su departamento.
+    entrega_desde: Optional[date] = None
+    entrega_hasta: Optional[date] = None
+    mensaje: Optional[str] = None
+    visto_at: Optional[datetime] = None
+    envases: int
+    ui: float
+    tratamientos: List[InsulinNoticeTreatment] = []
+
+
+class InsulinNoticeSeen(BaseModel):
+    id: int
+    visto_at: datetime
 
 
 # ==========================================

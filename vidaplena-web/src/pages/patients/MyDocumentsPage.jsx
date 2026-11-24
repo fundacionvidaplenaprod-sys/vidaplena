@@ -8,6 +8,7 @@ import { uploadDocument } from '../../api/patients';
 import { getMySocialEvaluation, getMyEvaluationEligibility } from '../../api/evaluations';
 import { getMyDeliveryReceipt, listMyInsulinDeliveries } from '../../api/donations';
 import { VoluntaryContributionModal } from '../../components/patients/VoluntaryContributionModal';
+import InsulinNoticesSection from '../../components/patients/InsulinNoticesSection';
 import client from '../../api/axios';
 import { displayInsulinName } from '../../constants/insulins';
 
@@ -406,6 +407,9 @@ export default function MyDocumentsPage() {
             </nav>
 
             <main className="max-w-3xl mx-auto p-6 mt-8">
+                {/* Aviso del almacén: aparece al consolidarse un reparto en el que está (activo, habilitado o
+                    con documentos pendientes: los tres entran en el reparto). */}
+                <InsulinNoticesSection />
                 {patientStatus === 'HABILITADO' && (
                     <>
                         <div className="grid md:grid-cols-3 gap-4 mb-6">

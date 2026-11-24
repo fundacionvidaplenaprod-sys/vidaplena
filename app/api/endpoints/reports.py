@@ -23,12 +23,8 @@ from app.core import distribution_service as dist
 from app.core.donation_request import DONATION_REQUEST_ESTADOS, PRESENTACIONES_UI, build_donation_request
 from app.core.donation_excel import DonationExcelError, parse_donation_excel
 from app.core.insulin_catalog import normalize_insulin_name
-from app.core.equitable_distribution import (
-    DistributionConfig as InsulinDistributionConfig,
-    OptimizerUnavailable,
-    plan_distribution as plan_insulin_distribution,
-)
-from app.core.insulin_distribution import DISTRIBUTION_DAYS, LotInput as InsulinLotInput
+from app.core.equitable_distribution import OptimizerUnavailable
+from app.core.insulin_distribution import LotInput as InsulinLotInput
 
 router = APIRouter()
 
@@ -485,9 +481,9 @@ async def get_donation_request_report(
 
 
 # --- Distribución de insulina a partir del Excel de una donación ---------------
-# Reporte de planificación: no toca lotes ni asignaciones de la base, no descuenta
-# stock y no filtra por aporte al día (a diferencia del reparto guardado).
-INSULIN_REPORT_ESTADOS = ("ACTIVO", "PENDIENTE_DOC", "HABILITADO")
+# Reporte de planificación: no toca lotes ni asignaciones de la base, no descuenta stock y no filtra por
+# aporte al día. Usa el mismo motor y los mismos beneficiarios que el reparto del almacén.
+INSULIN_REPORT_ESTADOS = dist.DISTRIBUTION_ESTADOS
 INSULIN_REPORT_MAX_BYTES = 5 * 1024 * 1024
 
 
@@ -566,45 +562,18 @@ async def insulin_distribution_report(
     # reporte falla con un mensaje claro en vez de mostrar un resultado que rompe las reglas.
     try:
         plan = await run_in_threadpool(
-            plan_insulin_distribution,
-            lot_inputs,
-            patient_inputs,
-            days=DISTRIBUTION_DAYS,
-            config=InsulinDistributionConfig(require_optimizer=REQUIRE_OPTIMIZER),
+            dist.run_equitable_plan, lot_inputs, patient_inputs, require_optimizer=REQUIRE_OPTIMIZER
         )
     except OptimizerUnavailable as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"{exc} Sin el reparto exacto no se puede garantizar que nadie quede en 0 % ni bajo su mínimo. "
-            "Revise que el servidor tenga scipy instalado (reconstruir la imagen) y vuelva a generar el reporte.",
-        )
-    grouped = dist.group_assignments(plan)
-    pacientes = dist.plan_patient_items(plan, patient_inputs, info, lot_meta)
+        raise HTTPException(status_code=503, detail=f"{exc} {dist.OPTIMIZER_UNAVAILABLE_HINT}")
 
     return schemas.DistributionReportResult(
         guardado=False,
-        dias=plan.days,
-        reserva_pct=plan.reserve_pct,
-        stock_total_ui=plan.total_stock_ui,
-        reserva_objetivo_ui=plan.reserve_target_ui,
-        reserva_ui=plan.reserve_ui,
-        reserva_liberada_ui=plan.reserve_released_ui,
-        asignado_ui=plan.allocated_ui,
         lotes_considerados=len(lot_inputs),
         lotes_excluidos_consolidados=0,
         lotes_vencidos=vencidos,
         lotes_sin_catalogo=0,
-        asignaciones_generadas=len(grouped),
-        insulinas=dist.plan_ingredient_items(plan),
-        reserva=dist.plan_reserve_items(plan, lot_meta),
-        pacientes=pacientes,
-        prioridades=dist.plan_priority_bands(pacientes),
-        bajo_minimo=dist.plan_below_min_items(pacientes),
-        excluded_patients=excluded,
-        registros_por_corregir=dist.group_choice_issues(plan, info),
-        advertencias=plan.warnings,
-        minimo_imposible=dist.plan_minimum_gaps(plan),
-        optimizador_usado=plan.optimizer_used,
+        **dist.plan_report_fields(plan, patient_inputs, info, excluded, lot_meta),
         archivo=filename,
         filas_leidas=parsed.total_rows,
         filas_con_error=errors,
@@ -623,6 +592,4 @@ async def insulin_distribution_report(
             )
             for r in parsed.rows
         ],
-        estados_considerados=list(INSULIN_REPORT_ESTADOS),
-        asistidos_incluidos=sum(1 for data in info.values() if data.get("asistido")),
     )
