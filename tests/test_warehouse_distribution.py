@@ -5,7 +5,7 @@ cálculo todo lo que no sembró (otros pacientes, personas asistidas y lotes de 
 """
 import io
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -578,126 +578,32 @@ async def test_consolidating_notifies_each_beneficiary_in_their_portal(client, a
 
 
 @pytest.mark.asyncio
-async def test_the_beneficiary_uploads_the_photos_of_used_insulin_and_hba1c(client, aislado, monkeypatch):
-    from app.api.endpoints import patients as patients_module
-
-    subidas, borradas = [], []
-
-    def _subir(content, path, content_type):
-        subidas.append((path, content_type))
-        return f"https://storage.test/{path}"
-
-    monkeypatch.setattr(warehouse_module, "upload_file_to_firebase", _subir)
-    monkeypatch.setattr(warehouse_module, "delete_file_from_firebase_by_url", borradas.append)
+async def test_each_distribution_shows_the_latest_control_photos_of_each_beneficiary(client, aislado):
     menor, adulto, detemir = await _escenario(client, aislado)
     await _solo(aislado, menor, adulto, detemir)
     data = (await client.post("/donations/distributions")).json()
     cons = (await client.post(f"/donations/distributions/{data['id']}/consolidate")).json()
-    jpg = {"foto": ("plumas.jpg", b"\xff\xd8\xff jpeg", "image/jpeg")}
-    assert (await client.post("/donations/insulin-notices/me/1/fotos/envases", files=jpg)).status_code == 403  # personal
+    # Las fotos son del beneficiario, no del reparto: la aprobada queda en el historial y cuenta la más reciente.
+    aislado.add_all([
+        models.InsulinControlPhoto(
+            patient_id=adulto.id, tipo="envases", url="https://storage.test/vieja.jpg", estado="APROBADA",
+            subida_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        ),
+        models.InsulinControlPhoto(
+            patient_id=adulto.id, tipo="envases", url="https://storage.test/nueva.jpg",
+            subida_at=datetime(2026, 11, 20, tzinfo=timezone.utc),
+        ),
+        models.InsulinControlPhoto(patient_id=menor.id, tipo="hba1c", url="https://storage.test/hba1c.pdf"),
+    ])
+    await aislado.flush()
 
-    _como(await aislado.get(models.User, adulto.user_id))
-    aviso = (await client.get("/donations/insulin-notices/me")).json()[0]
-    assert aviso["foto_envases"] is None and aviso["foto_hba1c"] is None
-    url = f"/donations/insulin-notices/me/{aviso['id']}/fotos"
-
-    res = await client.post(f"{url}/envases", files=jpg)
-    assert res.status_code == 200, res.text
-    primera = res.json()["url"]
-    assert primera.startswith(f"https://storage.test/pacientes/{adulto.id}/repartos/{cons['id']}/insulinas_usadas_")
-    assert primera.endswith(".jpg") and res.json()["subida_at"] and res.json()["estado"] == "PENDIENTE"
-
-    # El resultado de laboratorio puede venir en PDF; las insulinas usadas, solo en foto.
-    pdf = {"foto": ("hba1c.pdf", b"%PDF-1.4", "application/pdf")}
-    assert (await client.post(f"{url}/envases", files=pdf)).status_code == 400
-    hba1c = await client.post(f"{url}/hba1c", files=pdf)
-    assert hba1c.status_code == 200 and "/hemoglobina_glucosilada_" in hba1c.json()["url"]
-
-    # Otra foto reemplaza a la anterior, que se borra del almacenamiento.
-    otra = (await client.post(f"{url}/envases", files={"foto": ("plumas.png", b"\x89PNG", "image/png")})).json()
-    assert otra["url"] != primera and otra["url"].endswith(".png")
-    assert borradas == [primera]
-
-    # Vacía, demasiado grande o de un tipo que no existe: no se sube nada.
-    assert (await client.post(f"{url}/envases", files={"foto": ("vacia.jpg", b"", "image/jpeg")})).status_code == 400
-    grande = {"foto": ("grande.jpg", b"\xff" * (warehouse_module.NOTICE_PHOTO_MAX_BYTES + 1), "image/jpeg")}
-    assert (await client.post(f"{url}/envases", files=grande)).status_code == 413
-    assert (await client.post(f"{url}/receta", files=jpg)).status_code == 422
-    assert len(subidas) == 3
-
-    # Lo ve en su aviso, y nadie sube fotos al aviso de otro.
-    aviso = (await client.get("/donations/insulin-notices/me")).json()[0]
-    assert (aviso["foto_envases"]["url"], aviso["foto_hba1c"]["url"]) == (otra["url"], hba1c.json()["url"])
-    _como(await aislado.get(models.User, menor.user_id))
-    assert (await client.post(f"{url}/envases", files=jpg)).status_code == 404
-
-    # El personal las ve en el reparto consolidado, con el aviso para revisarlas.
-    detalle = (await client.get(f"/donations/distributions/{cons['id']}")).json()
-    avisos = {a["beneficiario_id"]: a for a in detalle["avisos"]}
-    assert avisos[adulto.id]["notice_id"] == aviso["id"]
-    assert avisos[adulto.id]["foto_envases"]["url"] == otra["url"] and avisos[adulto.id]["foto_hba1c"]["estado"] == "PENDIENTE"
-    assert avisos[menor.id]["foto_envases"] is None
-
-    # Si se borra al beneficiario, sus fotos se borran con sus demás documentos.
-    urls = await patients_module._collect_patient_document_urls(aislado, adulto)
-    assert {otra["url"], hba1c.json()["url"]} <= set(urls)
-
-
-@pytest.mark.asyncio
-async def test_the_super_admin_approves_or_observes_each_photo(client, aislado, monkeypatch):
-    monkeypatch.setattr(warehouse_module, "upload_file_to_firebase", lambda content, path, ct: f"https://storage.test/{path}")
-    monkeypatch.setattr(warehouse_module, "delete_file_from_firebase_by_url", lambda u: None)
-    menor, adulto, detemir = await _escenario(client, aislado)
-    await _solo(aislado, menor, adulto, detemir)
-    data = (await client.post("/donations/distributions")).json()
-    cons = (await client.post(f"/donations/distributions/{data['id']}/consolidate")).json()
-    usuario = await aislado.get(models.User, adulto.user_id)
-    _como(usuario)
-    aviso = (await client.get("/donations/insulin-notices/me")).json()[0]
-    subir = lambda tipo, nombre="foto.jpg": client.post(  # noqa: E731
-        f"/donations/insulin-notices/me/{aviso['id']}/fotos/{tipo}", files={"foto": (nombre, b"\xff\xd8\xff", "image/jpeg")}
+    avisos = {a["beneficiario_id"]: a for a in (await client.get(f"/donations/distributions/{cons['id']}")).json()["avisos"]}
+    assert (avisos[adulto.id]["foto_envases"]["url"], avisos[adulto.id]["foto_envases"]["estado"]) == (
+        "https://storage.test/nueva.jpg", "PENDIENTE"
     )
-    revision = f"/donations/insulin-notices/{aviso['id']}/fotos"
-
-    # Lo que todavía no subió no se puede revisar.
-    assert (await client.post(f"{revision}/envases/revision", json={"estado": "APROBADA"})).status_code == 404
-    assert (await subir("envases")).status_code == 200 and (await subir("hba1c")).status_code == 200
-
-    # Observar exige decir qué corregir.
-    sin_motivo = await client.post(f"{revision}/hba1c/revision", json={"estado": "OBSERVADA", "observacion": "  "})
-    assert sin_motivo.status_code == 422
-    obs = await client.post(
-        f"{revision}/hba1c/revision", json={"estado": "OBSERVADA", "observacion": "  No se lee el resultado  "}
-    )
-    assert obs.status_code == 200, obs.text
-    assert obs.json()["estado"] == "OBSERVADA" and obs.json()["observacion"] == "No se lee el resultado"
-    assert obs.json()["revisada_por"] and obs.json()["revisada_at"]
-    apr = await client.post(f"{revision}/envases/revision", json={"estado": "APROBADA", "observacion": "ignorada"})
-    assert apr.status_code == 200 and apr.json()["estado"] == "APROBADA" and apr.json()["observacion"] is None
-
-    # El beneficiario ve la revisión (sin saber quién la hizo).
-    mio = (await client.get("/donations/insulin-notices/me")).json()[0]
-    assert mio["foto_envases"]["estado"] == "APROBADA" and mio["foto_envases"]["revisada_por"] is None
-    assert (mio["foto_hba1c"]["estado"], mio["foto_hba1c"]["observacion"]) == ("OBSERVADA", "No se lee el resultado")
-
-    # La aprobada ya no se cambia; la observada se reemplaza y vuelve a quedar por revisar.
-    assert (await subir("envases")).status_code == 409
-    nueva = (await subir("hba1c", "hba1c_nitida.jpg")).json()
-    assert nueva["estado"] == "PENDIENTE" and nueva["observacion"] is None and nueva["revisada_at"] is None
-
-    # El personal ve el estado de cada foto y quién la revisó; cada revisión queda en la auditoría.
-    detalle = (await client.get(f"/donations/distributions/{cons['id']}")).json()
-    fila = {a["beneficiario_id"]: a for a in detalle["avisos"]}[adulto.id]
-    assert fila["foto_envases"]["estado"] == "APROBADA" and fila["foto_envases"]["revisada_por"]
-    assert fila["foto_hba1c"]["estado"] == "PENDIENTE"
-    revisiones = (
-        await aislado.execute(
-            select(models.AuditLog.payload).where(models.AuditLog.accion == "REVIEW_INSULIN_NOTICE_PHOTO")
-            .order_by(models.AuditLog.id)
-        )
-    ).scalars().all()
-    assert [(r["tipo"], r["estado"]) for r in revisiones[-2:]] == [("hba1c", "OBSERVADA"), ("envases", "APROBADA")]
-    assert (await client.post(f"{revision}/receta/revision", json={"estado": "APROBADA"})).status_code == 422
+    assert avisos[adulto.id]["foto_hba1c"] is None
+    assert avisos[menor.id]["foto_hba1c"]["url"] == "https://storage.test/hba1c.pdf" and avisos[menor.id]["foto_envases"] is None
+    assert avisos[detemir.id]["foto_envases"] is None and avisos[detemir.id]["foto_hba1c"] is None
 
 
 @pytest.mark.asyncio
@@ -744,7 +650,6 @@ async def test_only_super_admin_uses_the_warehouse(client, patient_token):
         ("get", "/donations/distributions"),
         ("post", "/donations/distributions"),
         ("post", "/donations/distributions/1/consolidate"),
-        ("post", "/donations/insulin-notices/1/fotos/envases/revision"),
     ):
         res = await getattr(client, method)(url)
         assert res.status_code in (401, 403), (url, res.status_code)

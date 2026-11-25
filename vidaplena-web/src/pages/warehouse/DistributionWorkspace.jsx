@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Camera, CheckCircle2, Download, FileSpreadsheet, RotateCcw, Trash2, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Download, FileSpreadsheet, RotateCcw, Trash2, RefreshCw } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import {
@@ -69,7 +69,8 @@ const GRUPOS = [
 
 // Un reparto del almacén: resumen, avisos y la matriz beneficiario × producto. En BORRADOR cada celda con envases
 // abre el intercambio equivalente; CONSOLIDADO y DESCARTADO se muestran tal como quedaron. En el consolidado, el
-// SUPER_ADMIN revisa las fotos que subieron los beneficiarios. `onDetailUpdate` reemplaza el reparto en pantalla sin
+// SUPER_ADMIN ve las fotos de control más recientes de cada beneficiario y puede revisarlas (la revisión de todas, una
+// tras otra, está en la pestaña «Fotos»). `onDetailUpdate` reemplaza el reparto en pantalla sin
 // recargar el historial (si no viene, se usa `onChange`).
 export default function DistributionWorkspace({
     detail,
@@ -93,23 +94,15 @@ export default function DistributionWorkspace({
     const entregaValida = !!entrega.desde && !!entrega.hasta && entrega.desde <= entrega.hasta && entrega.hasta >= hoy;
     const [revisando, setRevisando] = useState(null); // { beneficiarioId, tipo }
     const [soloPorRevisar, setSoloPorRevisar] = useState(false);
-
-    // Fotos por revisar, en el orden de la tabla de avisos.
-    const porRevisar = useMemo(
-        () => (detail.avisos || []).flatMap((a) => porRevisarDe(a).map((tipo) => ({ beneficiarioId: a.beneficiario_id, tipo }))),
-        [detail.avisos]
-    );
+    const porRevisar = (detail.avisos || []).reduce((n, a) => n + porRevisarDe(a).length, 0);
     const avisoRevisado = revisando && (detail.avisos || []).find((a) => a.beneficiario_id === revisando.beneficiarioId);
 
-    // Guarda la revisión en pantalla y abre la siguiente por revisar (después de la actual; si no, desde el principio).
+    // Guarda la revisión en la tabla sin recargar el reparto.
     const fotoRevisada = (foto) => {
         const { beneficiarioId, tipo } = revisando;
         const avisos = detail.avisos.map((a) => (a.beneficiario_id === beneficiarioId ? { ...a, [`foto_${tipo}`]: foto } : a));
         (onDetailUpdate || onChange)({ ...detail, avisos });
-        const orden = avisos.flatMap((a) => FOTO_TIPOS.map((t) => ({ beneficiarioId: a.beneficiario_id, tipo: t, foto: a[`foto_${t}`] })));
-        const i = orden.findIndex((x) => x.beneficiarioId === beneficiarioId && x.tipo === tipo);
-        const siguiente = [...orden.slice(i + 1), ...orden.slice(0, i)].find((x) => x.foto?.estado === 'PENDIENTE');
-        setRevisando(siguiente ? { beneficiarioId: siguiente.beneficiarioId, tipo: siguiente.tipo } : null);
+        setRevisando(null);
     };
 
     const { columns, rows } = useMemo(() => buildMatrix(detail), [detail]);
@@ -259,21 +252,6 @@ export default function DistributionWorkspace({
                 </div>
             )}
 
-            {porRevisar.length > 0 && (
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border border-amber-200 bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-900">
-                    <span>
-                        Hay <b>{porRevisar.length}</b> foto(s) de beneficiarios por revisar (insulinas ya usadas y HbA1c).
-                    </span>
-                    <button
-                        type="button"
-                        onClick={() => setRevisando(porRevisar[0])}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-amber-600 text-white hover:bg-amber-700"
-                    >
-                        <Camera size={16} /> Revisar fotos
-                    </button>
-                </div>
-            )}
-
             {detail.avisos?.length > 0 && (
                 <details className="mb-4 border border-blue-100 bg-blue-50/60 rounded-xl p-4 text-sm text-gray-700">
                     <summary className="cursor-pointer">
@@ -285,7 +263,7 @@ export default function DistributionWorkspace({
                             .join(' · ')}
                         {` · Fotos enviadas: insulinas usadas ${detail.avisos.filter((a) => a.foto_envases).length}, HbA1c ${
                             detail.avisos.filter((a) => a.foto_hba1c).length
-                        } (${porRevisar.length} por revisar)`}
+                        } (${porRevisar} por revisar)`}
                     </summary>
                     {detail.entrega_desde && (
                         <p className="mt-2 text-blue-900">
@@ -622,9 +600,8 @@ export default function DistributionWorkspace({
             {avisoRevisado?.[`foto_${revisando.tipo}`] && (
                 <PhotoReviewDialog
                     key={`${revisando.beneficiarioId}-${revisando.tipo}`}
-                    aviso={avisoRevisado}
-                    tipo={revisando.tipo}
-                    restantes={porRevisar.filter((x) => x.beneficiarioId !== revisando.beneficiarioId || x.tipo !== revisando.tipo).length}
+                    foto={avisoRevisado[`foto_${revisando.tipo}`]}
+                    beneficiario={avisoRevisado}
                     onClose={() => setRevisando(null)}
                     onReviewed={fotoRevisada}
                 />

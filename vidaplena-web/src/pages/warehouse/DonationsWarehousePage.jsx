@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calculator, History, Package, Syringe, Upload } from 'lucide-react';
+import { Calculator, Camera, History, Package, Syringe, Upload } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import {
     calculateWarehouseDistribution,
     getWarehouseDistribution,
+    listInsulinPhotos,
     listWarehouseDistributions,
     listWarehouseStock,
 } from '../../api/donations';
@@ -13,6 +14,7 @@ import logoUrl from '../../assets/logo.png';
 import { imageToBase64 } from '../../utils/imageToBase64';
 import DistributionHistoryPanel from './DistributionHistoryPanel';
 import DistributionWorkspace from './DistributionWorkspace';
+import InsulinPhotosPanel from './InsulinPhotosPanel';
 import WarehouseIntakePanel from './WarehouseIntakePanel';
 import WarehouseStockPanel from './WarehouseStockPanel';
 
@@ -21,11 +23,13 @@ const TABS = [
     { id: 'stock', label: 'Stock', icon: <Package size={16} /> },
     { id: 'reparto', label: 'Reparto', icon: <Syringe size={16} /> },
     { id: 'historial', label: 'Historial', icon: <History size={16} /> },
+    { id: 'fotos', label: 'Fotos', icon: <Camera size={16} /> },
 ];
 
 // Almacén de insulina: se ingresa el Excel de la donación, se calcula el reparto con el mismo motor y las mismas
 // reglas que el reporte de distribución, se ajusta con intercambios equivalentes y se consolida (descuenta el stock).
-// Cada reparto queda guardado y se puede volver a ver; en el historial se filtra y se busca a un beneficiario.
+// Cada reparto queda guardado y se puede volver a ver; en el historial se filtra y se busca a un beneficiario. En
+// «Fotos» se revisan las fotos de control que suben los beneficiarios (insulinas ya usadas y hemoglobina glucosilada).
 export default function DonationsWarehousePage() {
     const navigate = useNavigate();
     const [tab, setTab] = useState('reparto');
@@ -39,6 +43,16 @@ export default function DonationsWarehousePage() {
     const [calculating, setCalculating] = useState(false);
     const [confirmRecalc, setConfirmRecalc] = useState(false);
     const [logoBase64, setLogoBase64] = useState(null);
+    // Fotos de control por revisar: el número va en la pestaña «Fotos».
+    const [fotosPorRevisar, setFotosPorRevisar] = useState(0);
+
+    const loadFotosPorRevisar = useCallback(
+        () =>
+            listInsulinPhotos({ estado: 'PENDIENTE' })
+                .then((fotos) => setFotosPorRevisar(Array.isArray(fotos) ? fotos.length : 0))
+                .catch(() => setFotosPorRevisar(0)),
+        []
+    );
 
     const loadStock = useCallback(
         (solo = soloDisponibles) =>
@@ -81,6 +95,7 @@ export default function DonationsWarehousePage() {
         }
         imageToBase64(logoUrl).then(setLogoBase64).catch(() => setLogoBase64(null));
         loadStock(true);
+        loadFotosPorRevisar();
         // Al entrar se abre el borrador en curso, si lo hay.
         loadHistory().then((list) => {
             const borrador = list.find((d) => d.estado === 'BORRADOR');
@@ -149,6 +164,14 @@ export default function DonationsWarehousePage() {
                         }`}
                     >
                         {icon} {label}
+                        {id === 'fotos' && fotosPorRevisar > 0 && (
+                            <span
+                                className="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white"
+                                aria-label={`${fotosPorRevisar} por revisar`}
+                            >
+                                {fotosPorRevisar}
+                            </span>
+                        )}
                     </button>
                 ))}
             </div>
@@ -181,13 +204,18 @@ export default function DonationsWarehousePage() {
                             detail={detail}
                             logoBase64={logoBase64}
                             onChange={handleChange}
-                            onDetailUpdate={setDetail}
+                            onDetailUpdate={(updated) => {
+                                setDetail(updated);
+                                loadFotosPorRevisar(); // se revisó una foto desde la tabla de avisos
+                            }}
                             onRecalculate={calculate}
                             recalculating={calculating}
                         />
                     )}
                 </>
             )}
+
+            {tab === 'fotos' && <InsulinPhotosPanel onCambio={loadFotosPorRevisar} />}
 
             {/* Siempre montado: los filtros y la persona buscada se conservan al cambiar de pestaña. */}
             <div hidden={tab !== 'historial'}>

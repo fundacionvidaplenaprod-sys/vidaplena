@@ -101,11 +101,10 @@ async def _collect_patient_document_urls(db: AsyncSession, patient: models.Patie
             evaluation.foto_dormitorio_url,
         ])
 
-    # Fotos que subió en los avisos de reparto (insulinas ya usadas y hemoglobina glucosilada); los avisos se
-    # borran con el paciente (ON DELETE CASCADE), así que sin esto los archivos quedarían huérfanos.
-    N, P = models.InsulinDistributionNotice, models.InsulinNoticePhoto
-    fotos = await db.execute(select(P.url).join(N, N.id == P.notice_id).where(N.patient_id == patient.id))
-    urls.extend(fotos.scalars().all())
+    # Sus fotos de control (insulinas ya usadas y hemoglobina glucosilada, con el historial): las filas se borran con
+    # el paciente (ON DELETE CASCADE), así que sin esto los archivos quedarían huérfanos.
+    P = models.InsulinControlPhoto
+    urls.extend((await db.execute(select(P.url).where(P.patient_id == patient.id))).scalars().all())
 
     return [u for u in urls if u]
 

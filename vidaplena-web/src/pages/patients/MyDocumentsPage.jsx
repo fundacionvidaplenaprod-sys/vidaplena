@@ -392,7 +392,7 @@ export default function MyDocumentsPage() {
                             )}
                         </div>
 
-                        <InsulinDeliveryRecordSection siempreVisible />
+                        <InsulinDeliveryRecordSection />
 
                         {socialEvaluationSection}
 
@@ -518,7 +518,7 @@ export default function MyDocumentsPage() {
                             </div>
                         </div>
 
-                        <InsulinDeliveryRecordSection siempreVisible />
+                        <InsulinDeliveryRecordSection />
 
                         {socialEvaluationSection}
 
@@ -852,8 +852,8 @@ export default function MyDocumentsPage() {
                     </div>
                 )}
 
-                {/* Con documentos pendientes también entra en el reparto: ve su registro de entrega (si tiene algo)
-                    debajo de su expediente. */}
+                {/* Con documentos pendientes también entra en el reparto: ve su registro de entrega (aviso, fotos de
+                    control y boletas) debajo de su expediente. */}
                 {patientStatus !== 'ACTIVO' && patientStatus !== 'HABILITADO' && (
                     <div className="mt-6">
                         <InsulinDeliveryRecordSection />

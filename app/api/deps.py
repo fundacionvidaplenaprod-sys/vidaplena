@@ -67,6 +67,19 @@ def get_current_super_user(
         )
     return current_user
 
+
+async def get_current_patient_id(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user),
+) -> int:
+    """Ficha del beneficiario que entró a su portal (para las rutas `/me` del beneficiario)."""
+    if current_user.role != "PACIENTE":
+        raise HTTPException(status_code=403, detail="Esta opción es solo para beneficiarios.")
+    patient_id = (await db.execute(select(models.Patient.id).where(models.Patient.user_id == current_user.id))).scalar()
+    if not patient_id:
+        raise HTTPException(status_code=404, detail="No se encontró la ficha del beneficiario.")
+    return patient_id
+
 # Registro Asistido por Situación Excepcional (Art. 19 I del reglamento): acceso restringido al
 # Evaluador Social, a la Coordinación y a la Dirección Ejecutiva.
 ASSISTED_ROLES = ("SUPER_ADMIN", "EVALUADOR_SOCIAL", "COORDINADOR_NACIONAL")

@@ -14,19 +14,17 @@ Flujo:
      puede buscar a un beneficiario en todos los repartos guardados.
   6. Aviso: al consolidar, cada beneficiario con ficha ve en su portal cuánta insulina le corresponde para el
      periodo, con el número de lote y la ventana de entrega «del … al …» (el día y la hora los coordina con el(la)
-     responsable de su departamento) (`/insulin-notices/me`); el personal ve quién lo vio. En el aviso, el
-     beneficiario sube una foto de sus insulinas ya usadas y otra de su hemoglobina glucosilada, que el
-     SUPER_ADMIN aprueba u observa (`/insulin-notices/{id}/fotos/{tipo}/revision`).
+     responsable de su departamento) (`/insulin-notices/me`); el personal ve quién lo vio y las fotos de control
+     más recientes de cada beneficiario (`insulin_photos.py`).
 """
 from __future__ import annotations
 
 import copy
 import hashlib
 import math
-import uuid
 from collections import defaultdict
 from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -42,8 +40,8 @@ from app.core import distribution_service as dist
 from app.core import warehouse_distribution as wd
 from app.core.donation_excel import DonationExcelError, parse_donation_excel
 from app.core.equitable_distribution import OptimizerUnavailable
-from app.core.firebase import delete_file_from_firebase_by_url, upload_file_to_firebase
 from app.core.insulin_catalog import normalize_insulin_name
+from app.core.insulin_photos import latest_photos, photos_fields
 from app.core.insulin_distribution import PRIORITY_NAMES, LotInput
 from app.core.text_normalize import fold_sql, normalize_name
 from app.db import get_db
@@ -53,15 +51,6 @@ router = APIRouter()
 # El reparto del almacén exige el reparto exacto (optimizador), igual que el reporte. Las pruebas lo apagan.
 REQUIRE_OPTIMIZER = True
 INTAKE_MAX_BYTES = 5 * 1024 * 1024
-
-# Fotos del beneficiario en el aviso: tipo -> (nombre del archivo, formatos). La HbA1c admite el PDF del
-# laboratorio. El portal achica las fotos antes de subirlas; el tope es para las que no pudo achicar.
-NOTICE_PHOTO_MAX_BYTES = 5 * 1024 * 1024
-_IMAGENES = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp"}
-NOTICE_PHOTOS = {
-    "envases": ("insulinas_usadas", _IMAGENES),
-    "hba1c": ("hemoglobina_glucosilada", {**_IMAGENES, "application/pdf": "pdf"}),
-}
 
 
 def _audit(db: AsyncSession, actor_id: Optional[int], entidad: str, entidad_id: int, accion: str, payload: dict) -> None:
@@ -515,24 +504,9 @@ async def _detail(db: AsyncSession, distribution_id: int) -> schemas.WarehouseDi
     )
 
 
-def _foto_out(foto: models.InsulinNoticePhoto, *, personal: bool) -> schemas.InsulinNoticePhoto:
-    """Quién la revisó solo lo ve el personal."""
-    return schemas.InsulinNoticePhoto(
-        tipo=foto.tipo, url=foto.url, subida_at=foto.subida_at, estado=foto.estado, observacion=foto.observacion,
-        revisada_at=foto.revisada_at,
-        revisada_por=foto.revisada_por.email if personal and foto.revisada_por else None,
-    )
-
-
-def _fotos(notice: Optional[models.InsulinDistributionNotice], *, personal: bool) -> dict:
-    """Las fotos que subió el beneficiario para el reparto (vacío si no tiene aviso)."""
-    if notice is None:
-        return {}
-    return {f"foto_{f.tipo}": _foto_out(f, personal=personal) for f in notice.fotos}
-
-
 async def _notice_statuses(db: AsyncSession, d: models.InsulinDistribution) -> List[schemas.WarehouseNoticeStatus]:
-    """Por beneficiario del reparto (en el orden del reparto): si vio el aviso en su portal y qué fotos subió."""
+    """Por beneficiario del reparto (en el orden del reparto): si vio el aviso en su portal y sus fotos de control
+    más recientes."""
     N = models.InsulinDistributionNotice
     rows = (
         await db.execute(
@@ -542,6 +516,7 @@ async def _notice_statuses(db: AsyncSession, d: models.InsulinDistribution) -> L
         )
     ).all()
     avisos = {notice.patient_id: (notice, user_id) for notice, user_id in rows}
+    fotos = await latest_photos(db, [p["patient_id"] for p in d.resultado.get("pacientes", [])])
     out = []
     for p in d.resultado.get("pacientes", []):
         bid = p["patient_id"]
@@ -555,8 +530,8 @@ async def _notice_statuses(db: AsyncSession, d: models.InsulinDistribution) -> L
             estado = "PENDIENTE" if user_id else "SIN_CUENTA"
         out.append(
             schemas.WarehouseNoticeStatus(
-                notice_id=notice.id if notice else None, beneficiario_id=bid, nombre_completo=p["nombre_completo"],
-                ci=p.get("ci"), estado=estado, visto_at=visto_at, **_fotos(notice, personal=True),
+                beneficiario_id=bid, nombre_completo=p["nombre_completo"], ci=p.get("ci"), estado=estado,
+                visto_at=visto_at, **photos_fields(fotos.get(bid, {}), personal=True),
             )
         )
     return out
@@ -1076,15 +1051,6 @@ def _ventana_por_defecto(hoy: date) -> Tuple[date, date]:
     return date(anio, mes, 1), date(anio, mes, 10)
 
 
-async def _my_patient_id(db: AsyncSession, user: models.User) -> int:
-    if user.role != "PACIENTE":
-        raise HTTPException(status_code=403, detail="Solo los beneficiarios pueden ver sus avisos.")
-    patient_id = (await db.execute(select(models.Patient.id).where(models.Patient.user_id == user.id))).scalar()
-    if not patient_id:
-        raise HTTPException(status_code=404, detail="No se encontró la ficha del beneficiario.")
-    return patient_id
-
-
 def _notice_out(
     notice: models.InsulinDistributionNotice, dias, consolidated_at, entrega_desde, entrega_hasta, mensaje, paciente: dict
 ) -> schemas.InsulinNoticeOut:
@@ -1115,7 +1081,6 @@ def _notice_out(
         id=notice.id, distribution_id=notice.distribution_id, consolidated_at=consolidated_at, dias=dias,
         entrega_desde=entrega_desde, entrega_hasta=entrega_hasta, mensaje=mensaje, visto_at=notice.visto_at,
         envases=sum(t.envases for t in tratamientos), ui=sum(t.ui for t in tratamientos), tratamientos=tratamientos,
-        **_fotos(notice, personal=False),
     )
 
 
@@ -1126,10 +1091,9 @@ def _notice_out(
 )
 async def list_my_insulin_notices(
     db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(deps.get_current_active_user),
+    patient_id: int = Depends(deps.get_current_patient_id),
 ) -> Any:
     """Del más reciente al más antiguo, con lo que quedó guardado al consolidar (ya con los intercambios)."""
-    patient_id = await _my_patient_id(db, current_user)
     D, p, val = _snapshot_patients()
     N = models.InsulinDistributionNotice
     rows = (
@@ -1153,9 +1117,8 @@ async def list_my_insulin_notices(
 async def mark_my_insulin_notice_seen(
     notice_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(deps.get_current_active_user),
+    patient_id: int = Depends(deps.get_current_patient_id),
 ) -> Any:
-    patient_id = await _my_patient_id(db, current_user)
     N = models.InsulinDistributionNotice
     notice = (await db.execute(select(N).where(N.id == notice_id, N.patient_id == patient_id))).scalars().first()
     if notice is None:
@@ -1165,89 +1128,3 @@ async def mark_my_insulin_notice_seen(
         await db.commit()
     return schemas.InsulinNoticeSeen(id=notice.id, visto_at=notice.visto_at)
 
-
-@router.post(
-    "/insulin-notices/me/{notice_id}/fotos/{tipo}",
-    response_model=schemas.InsulinNoticePhoto,
-    summary="El beneficiario sube la foto de sus insulinas ya usadas o de su hemoglobina glucosilada",
-)
-async def upload_my_insulin_notice_photo(
-    notice_id: int,
-    tipo: Literal["envases", "hba1c"],
-    foto: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(deps.get_current_active_user),
-) -> Any:
-    """Una foto de cada tipo por reparto: `envases` (sus insulinas ya usadas, imagen) o `hba1c` (su último resultado
-    de hemoglobina glucosilada, imagen o PDF). Queda por revisar; si sube otra, reemplaza a la anterior (que se
-    borra del almacenamiento). Una foto aprobada ya no se cambia."""
-    patient_id = await _my_patient_id(db, current_user)
-    N = models.InsulinDistributionNotice
-    notice = (await db.execute(select(N).where(N.id == notice_id, N.patient_id == patient_id))).scalars().first()
-    if notice is None:
-        raise HTTPException(status_code=404, detail="Aviso no encontrado.")
-    actual = next((f for f in notice.fotos if f.tipo == tipo), None)
-    if actual is not None and actual.estado == "APROBADA":
-        raise HTTPException(status_code=409, detail="Esta foto ya fue aprobada por la Fundación; no hace falta cambiarla.")
-    nombre, formatos = NOTICE_PHOTOS[tipo]
-    extension = formatos.get(foto.content_type or "")
-    if extension is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Suba una foto JPG, PNG o WEBP" + (" o el PDF del laboratorio." if tipo == "hba1c" else "."),
-        )
-    content = await foto.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="El archivo está vacío.")
-    if len(content) > NOTICE_PHOTO_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="El archivo supera el máximo de 5 MB.")
-    # La URL es pública y es un dato de salud: el nombre lleva un código imposible de adivinar.
-    path = f"pacientes/{patient_id}/repartos/{notice.distribution_id}/{nombre}_{uuid.uuid4().hex}.{extension}"
-    try:
-        url = await run_in_threadpool(upload_file_to_firebase, content, path, foto.content_type)
-    except Exception:
-        raise HTTPException(status_code=502, detail="No se pudo subir el archivo; intente de nuevo en unos minutos.")
-    anterior = actual.url if actual else None
-    if actual is None:
-        actual = models.InsulinNoticePhoto(tipo=tipo)
-        notice.fotos.append(actual)
-    actual.url, actual.subida_at, actual.estado = url, _now(), "PENDIENTE"
-    actual.observacion = actual.revisada_at = actual.revisada_por_id = None
-    await db.commit()
-    if anterior:  # después del commit: si la base fallara, la foto anterior sigue sirviendo
-        try:
-            await run_in_threadpool(delete_file_from_firebase_by_url, anterior)
-        except Exception:
-            pass  # mejor esfuerzo: un archivo huérfano no afecta al beneficiario
-    return _foto_out(actual, personal=False)
-
-
-@router.post(
-    "/insulin-notices/{notice_id}/fotos/{tipo}/revision",
-    response_model=schemas.InsulinNoticePhoto,
-    summary="El SUPER_ADMIN aprueba u observa una foto del aviso",
-)
-async def review_insulin_notice_photo(
-    notice_id: int,
-    tipo: Literal["envases", "hba1c"],
-    payload: schemas.InsulinNoticePhotoReview,
-    db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(deps.get_current_super_user),
-) -> Any:
-    """APROBADA: la foto queda firme (el beneficiario ya no la cambia). OBSERVADA: el beneficiario ve el motivo y
-    sube otra, que vuelve a quedar por revisar. Se puede cambiar la decisión; cada revisión queda en la auditoría."""
-    P = models.InsulinNoticePhoto
-    foto = (
-        await db.execute(select(P).where(P.notice_id == notice_id, P.tipo == tipo).with_for_update())
-    ).scalars().first()
-    if foto is None:
-        raise HTTPException(status_code=404, detail="El beneficiario todavía no subió esta foto.")
-    foto.estado, foto.observacion = payload.estado, payload.observacion
-    foto.revisada_at, foto.revisada_por_id = _now(), current_user.id
-    _audit(
-        db, current_user.id, "insulin_notice_photo", foto.id, "REVIEW_INSULIN_NOTICE_PHOTO",
-        {"notice_id": notice_id, "tipo": tipo, "estado": foto.estado, "observacion": foto.observacion},
-    )
-    await db.commit()
-    await db.refresh(foto, ["revisada_por"])
-    return _foto_out(foto, personal=True)

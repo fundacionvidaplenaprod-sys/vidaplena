@@ -1552,26 +1552,38 @@ class WarehouseDistributionSummary(BaseModel):
     ingresos: List[WarehouseDistributionOrigin] = []
 
 
-class InsulinNoticePhoto(BaseModel):
-    """Una foto que subió el beneficiario en el aviso de un reparto: `envases` (sus insulinas ya usadas, reglamento
+class InsulinControlPhoto(BaseModel):
+    """Foto de control que subió el beneficiario desde su portal: `envases` (sus insulinas ya usadas, reglamento
     art. 17 b) o `hba1c` (su último resultado de hemoglobina glucosilada, art. 8; imagen o PDF)."""
 
+    id: int
     tipo: Literal["envases", "hba1c"]
     url: str
     subida_at: datetime
-    # PENDIENTE: por revisar. APROBADA: ya no se cambia. OBSERVADA: debe subir otra (el motivo, en `observacion`).
+    # PENDIENTE: por revisar. APROBADA: ya no se cambia (la próxima es otra). OBSERVADA: debe subir otra (el motivo,
+    # en `observacion`).
     estado: Literal["PENDIENTE", "APROBADA", "OBSERVADA"]
     observacion: Optional[str] = None
     revisada_at: Optional[datetime] = None
     revisada_por: Optional[str] = None  # solo lo ve el personal
 
 
-class InsulinNoticePhotos(BaseModel):
-    foto_envases: Optional[InsulinNoticePhoto] = None
-    foto_hba1c: Optional[InsulinNoticePhoto] = None
+class InsulinControlPhotos(BaseModel):
+    """La foto más reciente de cada tipo."""
+
+    foto_envases: Optional[InsulinControlPhoto] = None
+    foto_hba1c: Optional[InsulinControlPhoto] = None
 
 
-class InsulinNoticePhotoReview(BaseModel):
+class InsulinControlPhotoListItem(InsulinControlPhoto):
+    """Para la revisión del SUPER_ADMIN: la foto y de quién es."""
+
+    beneficiario_id: int
+    nombre_completo: str
+    ci: Optional[str] = None
+
+
+class InsulinControlPhotoReview(BaseModel):
     """El SUPER_ADMIN aprueba la foto o la observa diciendo qué debe corregir el beneficiario."""
 
     estado: Literal["APROBADA", "OBSERVADA"]
@@ -1586,11 +1598,10 @@ class InsulinNoticePhotoReview(BaseModel):
         return self
 
 
-class WarehouseNoticeStatus(InsulinNoticePhotos):
-    """Si el beneficiario vio en su portal el aviso de lo que le corresponde en un reparto consolidado, y las fotos
-    que subió (con su revisión)."""
+class WarehouseNoticeStatus(InsulinControlPhotos):
+    """Si el beneficiario vio en su portal el aviso de lo que le corresponde en un reparto consolidado, y sus fotos
+    de control más recientes (con su revisión)."""
 
-    notice_id: Optional[int] = None  # sin aviso: Registro Asistido o ficha borrada
     beneficiario_id: int
     nombre_completo: str
     ci: Optional[str] = None
@@ -1729,9 +1740,8 @@ class InsulinNoticeTreatment(BaseModel):
     productos: List[InsulinNoticeProduct] = []
 
 
-class InsulinNoticeOut(InsulinNoticePhotos):
-    """Lo que le corresponde a un beneficiario en un reparto consolidado, como lo ve en su portal, con las fotos
-    que subió para ese reparto."""
+class InsulinNoticeOut(BaseModel):
+    """Lo que le corresponde a un beneficiario en un reparto consolidado, como lo ve en su portal."""
 
     id: int
     distribution_id: int

@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import '@testing-library/jest-dom';
 import DistributionHistoryPanel from '../pages/warehouse/DistributionHistoryPanel';
 import DistributionWorkspace from '../pages/warehouse/DistributionWorkspace';
+import InsulinPhotosPanel from '../pages/warehouse/InsulinPhotosPanel';
 import WarehouseIntakePanel from '../pages/warehouse/WarehouseIntakePanel';
 import { buildMatrix, filterRows } from '../pages/warehouse/distributionMatrix';
 import { exportDistributionPDF, exportDistributionXLS } from '../pages/warehouse/distributionExport';
@@ -19,7 +20,8 @@ const api = vi.hoisted(() => ({
   getDistributionSwapOptions: vi.fn(),
   createDistributionSwap: vi.fn(),
   consolidateWarehouseDistribution: vi.fn(),
-  reviewInsulinNoticePhoto: vi.fn(),
+  reviewInsulinPhoto: vi.fn(),
+  listInsulinPhotos: vi.fn(),
   resetWarehouseDistribution: vi.fn(),
   discardWarehouseDistribution: vi.fn(),
   previewDonationIntake: vi.fn(),
@@ -112,8 +114,8 @@ const detail = (overrides = {}) => ({
   ...overrides,
 });
 
-const fotoAviso = (tipo, url, extra = {}) => ({
-  tipo, url, subida_at: '2026-11-25T15:00:00Z', estado: 'PENDIENTE', observacion: null, revisada_at: null, revisada_por: null,
+const fotoAviso = (id, tipo, url, extra = {}) => ({
+  id, tipo, url, subida_at: '2026-11-25T15:00:00Z', estado: 'PENDIENTE', observacion: null, revisada_at: null, revisada_por: null,
   ...extra,
 });
 
@@ -277,8 +279,8 @@ describe('DistributionWorkspace', () => {
       entrega_desde: '2026-12-01', entrega_hasta: '2026-12-10',
       avisos: [
         {
-          notice_id: 31, beneficiario_id: 1, nombre_completo: 'Ana Menor', ci: 'CI1', estado: 'VISTO', visto_at: '2026-11-25T14:00:00Z',
-          foto_envases: fotoAviso('envases', 'https://storage.test/insulinas_usadas_1.jpg'),
+          beneficiario_id: 1, nombre_completo: 'Ana Menor', ci: 'CI1', estado: 'VISTO', visto_at: '2026-11-25T14:00:00Z',
+          foto_envases: fotoAviso(51, 'envases', 'https://storage.test/insulinas_usadas_1.jpg'),
         },
         { beneficiario_id: 2, nombre_completo: 'Beto Adulto', ci: 'CI2', estado: 'PENDIENTE', visto_at: null },
         { beneficiario_id: -4, nombre_completo: 'RA-00004', ci: null, estado: 'SIN_PORTAL', visto_at: null },
@@ -297,23 +299,19 @@ describe('DistributionWorkspace', () => {
     expect(avisos.querySelector('summary')).toHaveTextContent('Fotos enviadas: insulinas usadas 1, HbA1c 0 (1 por revisar)');
     expect(screen.getByRole('button', { name: 'Insulinas usadas de Ana Menor: Por revisar' })).toBeInTheDocument();
     expect(within(within(avisos).getByText('Beto Adulto').closest('tr')).queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByText(/Hay/)).toHaveTextContent('Hay 1 foto(s) de beneficiarios por revisar');
   });
 
-  it('el super admin revisa las fotos una tras otra: aprueba u observa con el motivo', async () => {
+  it('desde la tabla de avisos se revisa la foto de un beneficiario', async () => {
     const consolidado = detail({
       estado: 'CONSOLIDADO', consolidated_at: '2026-11-24T12:00:00Z',
       avisos: [
-        { notice_id: 31, beneficiario_id: 1, nombre_completo: 'Ana Menor', ci: 'CI1', estado: 'VISTO', visto_at: null,
-          foto_envases: fotoAviso('envases', 'https://storage.test/insulinas_usadas_1.jpg') },
-        { notice_id: 32, beneficiario_id: 2, nombre_completo: 'Beto Adulto', ci: 'CI2', estado: 'VISTO', visto_at: null,
-          foto_envases: fotoAviso('envases', 'https://storage.test/insulinas_usadas_2.jpg', { estado: 'APROBADA' }),
-          foto_hba1c: fotoAviso('hba1c', 'https://storage.test/hba1c_2.pdf') },
+        { beneficiario_id: 2, nombre_completo: 'Beto Adulto', ci: 'CI2', estado: 'VISTO', visto_at: null,
+          foto_hba1c: fotoAviso(62, 'hba1c', 'https://storage.test/hba1c_2.pdf') },
       ],
     });
-    api.reviewInsulinNoticePhoto.mockImplementation(async (_id, tipo, { estado, observacion }) => ({
-      ...fotoAviso(tipo, 'https://storage.test/x.jpg'), estado, observacion, revisada_at: '2026-11-26T10:00:00Z', revisada_por: 'admin@test.com',
-    }));
+    api.reviewInsulinPhoto.mockResolvedValue({
+      ...fotoAviso(62, 'hba1c', 'https://storage.test/hba1c_2.pdf'), estado: 'APROBADA', revisada_at: '2026-11-26T10:00:00Z',
+    });
     const actualizaciones = [];
     function Pantalla() {
       const [d, setD] = React.useState(consolidado);
@@ -325,37 +323,16 @@ describe('DistributionWorkspace', () => {
     }
     render(<Pantalla />);
 
-    fireEvent.click(screen.getByRole('button', { name: /Revisar fotos/ }));
-    let dialog = screen.getByRole('dialog', { name: 'Revisar foto' });
-    expect(within(dialog).getByText('Insulinas ya usadas · Ana Menor')).toBeInTheDocument();
-    expect(within(dialog).getByRole('img', { name: 'Insulinas ya usadas de Ana Menor' })).toHaveAttribute(
-      'src', 'https://storage.test/insulinas_usadas_1.jpg'
+    fireEvent.click(screen.getByRole('button', { name: 'HbA1c de Beto Adulto: Por revisar' }));
+    const dialog = screen.getByRole('dialog', { name: 'Revisar foto' });
+    expect(within(dialog).getByTitle('Hemoglobina glucosilada (HbA1c) de Beto Adulto')).toHaveAttribute(
+      'src', 'https://storage.test/hba1c_2.pdf'
     );
-    expect(within(dialog).getByText('Quedan 1 foto(s) más por revisar en este reparto.')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: /Aprobar/ }));
-    await waitFor(() => expect(api.reviewInsulinNoticePhoto).toHaveBeenCalledWith(31, 'envases', { estado: 'APROBADA', observacion: null }));
-
-    // Se abre sola la siguiente por revisar (la aprobada de Beto se salta): su HbA1c en PDF.
-    dialog = await screen.findByRole('dialog', { name: 'Revisar foto' });
-    expect(within(dialog).getByText('Hemoglobina glucosilada (HbA1c) · Beto Adulto')).toBeInTheDocument();
-    expect(within(dialog).getByTitle('Hemoglobina glucosilada (HbA1c) de Beto Adulto')).toHaveAttribute('src', 'https://storage.test/hba1c_2.pdf');
-    fireEvent.click(within(dialog).getByRole('button', { name: /Observar/ }));
-    const enviar = within(dialog).getByRole('button', { name: /Enviar observación/ });
-    expect(enviar).toBeDisabled(); // sin motivo no se observa
-    fireEvent.change(within(dialog).getByLabelText('Qué debe corregir el beneficiario'), {
-      target: { value: '  No se lee el resultado  ' },
-    });
-    fireEvent.click(enviar);
-    await waitFor(() =>
-      expect(api.reviewInsulinNoticePhoto).toHaveBeenLastCalledWith(32, 'hba1c', { estado: 'OBSERVADA', observacion: 'No se lee el resultado' })
-    );
-
-    // Era la última: se cierra, y la tabla muestra cómo quedó cada una.
+    await waitFor(() => expect(api.reviewInsulinPhoto).toHaveBeenCalledWith(62, { estado: 'APROBADA', observacion: null }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Revisar foto' })).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Insulinas usadas de Ana Menor: Aprobada' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'HbA1c de Beto Adulto: Observada' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Revisar fotos/ })).not.toBeInTheDocument();
-    expect(actualizaciones).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'HbA1c de Beto Adulto: Aprobada' })).toBeInTheDocument();
+    expect(actualizaciones).toHaveLength(1);
   });
 
   it('un reparto consolidado se ve pero no se modifica', () => {
@@ -410,6 +387,65 @@ const historial = () => [
   reparto(2, 'CONSOLIDADO', '2026-10-15T15:00:00Z', [origen(2, 'packing_octubre.xlsx', 20)]),
   reparto(1, 'CONSOLIDADO', '2026-09-10T15:00:00Z', [origen(1, 'packing_septiembre.xlsx', 14), origen(null, null, 1)]),
 ];
+
+describe('InsulinPhotosPanel', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const enLista = (id, tipo, nombre, extra = {}) => ({
+    ...fotoAviso(id, tipo, 'https://storage.test/' + id + (tipo === 'hba1c' ? '.pdf' : '.jpg')), beneficiario_id: id,
+    nombre_completo: nombre, ci: 'CI' + id, ...extra,
+  });
+
+  it('el super admin revisa las fotos por revisar una tras otra: aprueba u observa con el motivo', async () => {
+    api.listInsulinPhotos.mockResolvedValue([enLista(1, 'envases', 'Ana Menor'), enLista(2, 'hba1c', 'Beto Adulto')]);
+    api.reviewInsulinPhoto.mockImplementation(async (id, { estado, observacion }) => ({
+      ...fotoAviso(id, 'envases', 'x'), estado, observacion, revisada_at: '2026-11-26T10:00:00Z', revisada_por: 'admin@test.com',
+    }));
+    const onCambio = vi.fn();
+    render(<InsulinPhotosPanel onCambio={onCambio} />);
+    await waitFor(() => expect(api.listInsulinPhotos).toHaveBeenCalledWith({ estado: 'PENDIENTE', q: '' }));
+    expect(await screen.findByText('Ana Menor')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Revisar una tras otra \(2\)/ }));
+    let dialog = screen.getByRole('dialog', { name: 'Revisar foto' });
+    expect(within(dialog).getByText('Insulinas ya usadas · Ana Menor')).toBeInTheDocument();
+    expect(within(dialog).getByRole('img', { name: 'Insulinas ya usadas de Ana Menor' })).toHaveAttribute(
+      'src', 'https://storage.test/1.jpg'
+    );
+    expect(within(dialog).getByText('Quedan 1 foto(s) más por revisar.')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Aprobar/ }));
+    await waitFor(() => expect(api.reviewInsulinPhoto).toHaveBeenCalledWith(1, { estado: 'APROBADA', observacion: null }));
+
+    // Se abre sola la siguiente, y la aprobada sale de «Por revisar».
+    dialog = await screen.findByRole('dialog', { name: 'Revisar foto' });
+    expect(within(dialog).getByText('Hemoglobina glucosilada (HbA1c) · Beto Adulto')).toBeInTheDocument();
+    expect(screen.queryByText('Ana Menor')).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Observar/ }));
+    const enviar = within(dialog).getByRole('button', { name: /Enviar observación/ });
+    expect(enviar).toBeDisabled(); // sin motivo no se observa
+    fireEvent.change(within(dialog).getByLabelText('Qué debe corregir el beneficiario'), { target: { value: '  No se lee  ' } });
+    fireEvent.click(enviar);
+    await waitFor(() => expect(api.reviewInsulinPhoto).toHaveBeenLastCalledWith(2, { estado: 'OBSERVADA', observacion: 'No se lee' }));
+
+    // Era la última: se cierra y no queda nada por revisar.
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Revisar foto' })).not.toBeInTheDocument());
+    expect(screen.getByText('No hay fotos por revisar.')).toBeInTheDocument();
+    expect(onCambio).toHaveBeenCalledTimes(2);
+  });
+
+  it('filtra por estado y busca por beneficiario', async () => {
+    api.listInsulinPhotos.mockResolvedValue([]);
+    render(<InsulinPhotosPanel />);
+    expect(await screen.findByText('No hay fotos por revisar.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'OBSERVADA' } });
+    await waitFor(() => expect(api.listInsulinPhotos).toHaveBeenLastCalledWith({ estado: 'OBSERVADA', q: '' }));
+    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: '' } });
+    await waitFor(() => expect(api.listInsulinPhotos).toHaveBeenLastCalledWith({ estado: null, q: '' }));
+    fireEvent.change(screen.getByLabelText('Buscar beneficiario'), { target: { value: 'rosa' } });
+    await waitFor(() => expect(api.listInsulinPhotos).toHaveBeenLastCalledWith({ estado: null, q: 'rosa' }));
+    expect(await screen.findByText('No hay fotos con ese filtro.')).toBeInTheDocument();
+  });
+});
 
 describe('filtros del historial', () => {
   it('por estado (sin descartados de entrada), por fechas y por packing list', () => {

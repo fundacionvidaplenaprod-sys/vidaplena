@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.core.config import settings
 # Importamos todos los endpoints, INCLUYENDO auth
-from app.api.endpoints import patients, admin_complications, users, auth, donations, contributions, reports, director_deliveries, appointments, gallery, site_assets, site_settings, evaluations, departmental, assisted_registrations, warehouse
+from app.api.endpoints import patients, admin_complications, users, auth, donations, contributions, reports, director_deliveries, appointments, gallery, site_assets, site_settings, evaluations, departmental, assisted_registrations, warehouse, insulin_photos
 from app.core.firebase import init_firebase
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -36,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_complications.router, prefix="/admin/complication-types", tags=["Admin - Complication Types"])
     app.include_router(donations.router, prefix="/donations", tags=["Boletas de entregas anteriores"])
     app.include_router(warehouse.router, prefix="/donations", tags=["Almacén - ingreso y reparto"])
+    app.include_router(insulin_photos.router, prefix="/donations", tags=["Fotos de control del beneficiario"])
     app.include_router(contributions.router, prefix="/contributions", tags=["Aportes"]) 
     app.include_router(reports.router, prefix="/reports", tags=["Reportes Gerenciales"])
     app.include_router(director_deliveries.router, prefix="/api/director-deliveries", tags=["Director Deliveries"])

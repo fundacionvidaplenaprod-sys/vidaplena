@@ -181,39 +181,6 @@ export const listMyInsulinNotices = async () => {
   }
 };
 
-/**
- * Sube la foto del aviso: `tipo` 'envases' (sus insulinas ya usadas) o 'hba1c' (su hemoglobina glucosilada, foto o
- * PDF). Reemplaza a la anterior (salvo que ya esté aprobada), queda por revisar y devuelve la foto.
- */
-export const uploadInsulinNoticePhoto = async (noticeId, tipo, file) => {
-  try {
-    const formData = new FormData();
-    formData.append('foto', file);
-    const response = await client.post(`/donations/insulin-notices/me/${noticeId}/fotos/${tipo}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000, // con datos móviles una foto puede tardar
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Error al subir la foto del aviso:', error);
-    throw detail(error, 'No se pudo subir la foto');
-  }
-};
-
-/** SUPER_ADMIN: aprueba (`estado` 'APROBADA') u observa ('OBSERVADA', con `observacion`) una foto del aviso. */
-export const reviewInsulinNoticePhoto = async (noticeId, tipo, { estado, observacion = null }) => {
-  try {
-    const response = await client.post(`/donations/insulin-notices/${noticeId}/fotos/${tipo}/revision`, {
-      estado,
-      observacion,
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Error al revisar la foto del aviso:', error);
-    throw detail(error, 'No se pudo guardar la revisión');
-  }
-};
-
 export const markInsulinNoticeSeen = async (noticeId) => {
   try {
     const response = await client.post(`/donations/insulin-notices/me/${noticeId}/visto`);
@@ -221,6 +188,63 @@ export const markInsulinNoticeSeen = async (noticeId) => {
   } catch (error) {
     console.error('Error al confirmar el aviso:', error);
     throw detail(error, 'No se pudo confirmar el aviso');
+  }
+};
+
+// --- Fotos de control del beneficiario: sus insulinas ya usadas y su hemoglobina glucosilada ----------------
+// Las sube desde su portal cuando quiera (no hace falta un reparto); cuenta la más reciente de cada tipo.
+
+/** Portal del beneficiario: su foto más reciente de cada tipo, con su revisión. */
+export const getMyInsulinPhotos = async () => {
+  try {
+    const response = await client.get('/donations/insulin-photos/me');
+    return response.data;
+  } catch (error) {
+    console.error('Error al cargar mis fotos de control:', error);
+    throw detail(error, 'No se pudieron cargar sus fotos');
+  }
+};
+
+/**
+ * Sube la foto: `tipo` 'envases' (sus insulinas ya usadas) o 'hba1c' (su hemoglobina glucosilada, foto o PDF).
+ * Queda por revisar; reemplaza a la más reciente si todavía no fue aprobada. Devuelve la foto.
+ */
+export const uploadMyInsulinPhoto = async (tipo, file) => {
+  try {
+    const formData = new FormData();
+    formData.append('foto', file);
+    const response = await client.post(`/donations/insulin-photos/me/${tipo}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000, // con datos móviles una foto puede tardar
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error al subir la foto de control:', error);
+    throw detail(error, 'No se pudo subir la foto');
+  }
+};
+
+/** SUPER_ADMIN: fotos de los beneficiarios por `estado` (sin estado: todas) y nombre o C.I. (`q`). */
+export const listInsulinPhotos = async ({ estado = null, q = '' } = {}) => {
+  try {
+    const response = await client.get('/donations/insulin-photos', {
+      params: { ...(estado ? { estado } : {}), ...(q.trim() ? { q: q.trim() } : {}) },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error al cargar las fotos de control:', error);
+    throw detail(error, 'No se pudieron cargar las fotos');
+  }
+};
+
+/** SUPER_ADMIN: aprueba (`estado` 'APROBADA') u observa ('OBSERVADA', con `observacion`) una foto. */
+export const reviewInsulinPhoto = async (photoId, { estado, observacion = null }) => {
+  try {
+    const response = await client.post(`/donations/insulin-photos/${photoId}/revision`, { estado, observacion });
+    return response.data;
+  } catch (error) {
+    console.error('Error al revisar la foto de control:', error);
+    throw detail(error, 'No se pudo guardar la revisión');
   }
 };
 

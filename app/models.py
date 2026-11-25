@@ -512,26 +512,26 @@ class InsulinDistributionNotice(Base):
     __table_args__ = (UniqueConstraint("distribution_id", "patient_id", name="uq_insulin_distribution_notice"),)
 
     distribution = relationship("InsulinDistribution")
-    fotos = relationship(
-        "InsulinNoticePhoto", back_populates="notice", cascade="all, delete-orphan", lazy="selectin",
-        order_by="InsulinNoticePhoto.tipo",
-    )
 
 
-INSULIN_NOTICE_PHOTO_TIPOS = ("envases", "hba1c")
-INSULIN_NOTICE_PHOTO_ESTADOS = ("PENDIENTE", "APROBADA", "OBSERVADA")
+INSULIN_CONTROL_PHOTO_TIPOS = ("envases", "hba1c")
+INSULIN_CONTROL_PHOTO_ESTADOS = ("PENDIENTE", "APROBADA", "OBSERVADA")
 
 
-class InsulinNoticePhoto(Base):
-    """Foto que sube el beneficiario en el aviso de un reparto, una de cada tipo: `envases`, sus insulinas ya usadas
-    (envases vacíos de la entrega anterior, reglamento art. 17 b), y `hba1c`, su último resultado de hemoglobina
-    glucosilada (art. 8; imagen o PDF). El SUPER_ADMIN la aprueba u observa (con el motivo); si la observa, el
-    beneficiario sube otra, que reemplaza a esta y vuelve a quedar por revisar. Una foto aprobada ya no se cambia."""
+class InsulinControlPhoto(Base):
+    """Foto de control que el beneficiario sube desde su portal, cuando quiera (no hace falta un reparto): `envases`,
+    sus insulinas ya usadas (envases vacíos de la entrega anterior, reglamento art. 17 b), o `hba1c`, su último
+    resultado de hemoglobina glucosilada (art. 8; imagen o PDF). El SUPER_ADMIN la aprueba u observa (con el motivo).
 
-    __tablename__ = "insulin_notice_photos"
+    Cuenta la más reciente de cada tipo. Mientras está por revisar u observada, una foto nueva la reemplaza; una
+    aprobada queda en el historial y la siguiente (para la próxima entrega) es otro registro. `notice_id` es el aviso
+    de reparto que tenía vigente cuando la subió, si tenía uno."""
+
+    __tablename__ = "insulin_control_photos"
 
     id = Column(BigInteger, primary_key=True)
-    notice_id = Column(BigInteger, ForeignKey("insulin_distribution_notices.id", ondelete="CASCADE"), nullable=False)
+    patient_id = Column(BigInteger, ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    notice_id = Column(BigInteger, ForeignKey("insulin_distribution_notices.id", ondelete="SET NULL"), nullable=True)
     tipo = Column(String(16), nullable=False)
     url = Column(Text, nullable=False)
     subida_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -541,17 +541,16 @@ class InsulinNoticePhoto(Base):
     revisada_por_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("notice_id", "tipo", name="uq_insulin_notice_photo"),
         CheckConstraint(
-            "tipo IN (" + ",".join(f"'{t}'" for t in INSULIN_NOTICE_PHOTO_TIPOS) + ")", name="ck_insulin_notice_photo_tipo"
+            "tipo IN (" + ",".join(f"'{t}'" for t in INSULIN_CONTROL_PHOTO_TIPOS) + ")",
+            name="ck_insulin_control_photo_tipo",
         ),
         CheckConstraint(
-            "estado IN (" + ",".join(f"'{e}'" for e in INSULIN_NOTICE_PHOTO_ESTADOS) + ")",
-            name="ck_insulin_notice_photo_estado",
+            "estado IN (" + ",".join(f"'{e}'" for e in INSULIN_CONTROL_PHOTO_ESTADOS) + ")",
+            name="ck_insulin_control_photo_estado",
         ),
     )
 
-    notice = relationship("InsulinDistributionNotice", back_populates="fotos")
     revisada_por = relationship("User", foreign_keys=[revisada_por_id], lazy="selectin")
 
 

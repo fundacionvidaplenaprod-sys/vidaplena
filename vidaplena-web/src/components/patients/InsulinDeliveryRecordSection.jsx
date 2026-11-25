@@ -3,10 +3,11 @@ import { AlertTriangle, Bell, CalendarDays, Camera, CheckCircle, Clock, Download
 import { toast } from 'react-hot-toast';
 import {
     getMyDeliveryReceipt,
+    getMyInsulinPhotos,
     listMyInsulinDeliveries,
     listMyInsulinNotices,
     markInsulinNoticeSeen,
-    uploadInsulinNoticePhoto,
+    uploadMyInsulinPhoto,
 } from '../../api/donations';
 import { Button } from '../ui/Button';
 import { displayInsulinName } from '../../constants/insulins';
@@ -22,14 +23,16 @@ const lotesResumen = (productos) => {
     return lotes.length ? `, lote${lotes.length > 1 ? 's' : ''} ${lotes.join(', ')}` : '';
 };
 
-// Lo que el beneficiario envía para cada entrega: una foto de cada una, que la Fundación revisa. Puede cambiarla
-// mientras no esté aprobada; si se la observan, ve el motivo y sube otra.
+// Fotos de control que el beneficiario envía desde su portal, aunque todavía no tenga un reparto. La Fundación las
+// revisa: mientras no estén aprobadas las puede cambiar; si se las observan, ve el motivo y sube otra; una aprobada
+// queda y la siguiente (para su próxima entrega o su nuevo resultado) es otra.
 const FOTOS = [
     {
         tipo: 'envases',
         titulo: 'Sus insulinas ya usadas',
         etiqueta: 'Foto de sus insulinas ya usadas',
         ayuda: 'Una foto de los envases vacíos (frascos o plumas) de su entrega anterior.',
+        proxima: 'Para su próxima entrega, envíe la foto de los envases que use.',
         accept: 'image/*',
     },
     {
@@ -37,17 +40,23 @@ const FOTOS = [
         titulo: 'Hemoglobina glucosilada (HbA1c)',
         etiqueta: 'Foto de su hemoglobina glucosilada',
         ayuda: 'Una foto (o el PDF) de su último resultado de laboratorio. Se pide cada 3 meses y es gratuito en el SUS.',
+        proxima: 'Cuando tenga su nuevo resultado (cada 3 meses), envíelo aquí.',
         accept: 'image/*,application/pdf',
     },
 ];
 
+const BOTON_SUBIR = { PENDIENTE: 'Cambiar', OBSERVADA: 'Subir otra foto', APROBADA: 'Enviar una nueva' };
+
 // Cómo va la revisión de la foto que envió.
-function EstadoFoto({ subida }) {
+function EstadoFoto({ subida, proxima }) {
     if (subida.estado === 'APROBADA') {
         return (
-            <p className="mt-1 text-xs font-semibold text-green-700 flex items-center gap-1">
-                <CheckCircle size={14} /> Aprobada por la Fundación el {fecha(subida.revisada_at)}
-            </p>
+            <>
+                <p className="mt-1 text-xs font-semibold text-green-700 flex items-center gap-1">
+                    <CheckCircle size={14} /> Aprobada por la Fundación el {fecha(subida.revisada_at)}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">{proxima}</p>
+            </>
         );
     }
     if (subida.estado === 'OBSERVADA') {
@@ -67,13 +76,11 @@ function EstadoFoto({ subida }) {
     );
 }
 
-function FotoAviso({ aviso, foto, onSubida }) {
+function FotoControl({ foto, subida, onSubida }) {
     const [subiendo, setSubiendo] = useState(false);
     const [sinMiniatura, setSinMiniatura] = useState(null); // URL que no se pudo mostrar como imagen
-    const subida = aviso[`foto_${foto.tipo}`];
     const url = subida?.url;
-    const aprobada = subida?.estado === 'APROBADA';
-    const inputId = `foto-${foto.tipo}-${aviso.id}`;
+    const inputId = `foto-control-${foto.tipo}`;
     const comoIcono = esPdf(url) || sinMiniatura === url;
 
     const elegir = async (e) => {
@@ -82,8 +89,8 @@ function FotoAviso({ aviso, foto, onSubida }) {
         if (!file) return;
         try {
             setSubiendo(true);
-            onSubida(await uploadInsulinNoticePhoto(aviso.id, foto.tipo, await compressImage(file)));
-            toast.success('Foto enviada');
+            onSubida(await uploadMyInsulinPhoto(foto.tipo, await compressImage(file)));
+            toast.success('Foto enviada: la Fundación la revisará');
         } catch (error) {
             toast.error(typeof error === 'string' ? error : 'No se pudo subir la foto');
         } finally {
@@ -114,33 +121,53 @@ function FotoAviso({ aviso, foto, onSubida }) {
                 </span>
             )}
             <div className="min-w-0 flex-1">
-                <h5 className="font-bold text-gray-800">{foto.titulo}</h5>
+                <h4 className="font-bold text-gray-800">{foto.titulo}</h4>
                 <p className="mt-0.5 text-xs text-gray-500">{foto.ayuda}</p>
-                {subida && <EstadoFoto subida={subida} />}
-                {!aprobada && (
-                    <>
-                        <input
-                            id={inputId}
-                            type="file"
-                            accept={foto.accept}
-                            aria-label={foto.etiqueta}
-                            className="sr-only"
-                            onChange={elegir}
-                            disabled={subiendo}
-                        />
-                        <label
-                            htmlFor={inputId}
-                            className={`mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer ${
-                                subida?.estado === 'PENDIENTE'
-                                    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    : 'bg-vida-main text-white hover:bg-vida-hover'
-                            } ${subiendo ? 'opacity-50 pointer-events-none' : ''}`}
-                        >
-                            <Upload size={16} />{' '}
-                            {subiendo ? 'Subiendo...' : { PENDIENTE: 'Cambiar', OBSERVADA: 'Subir otra foto' }[subida?.estado] || 'Subir foto'}
-                        </label>
-                    </>
-                )}
+                {subida && <EstadoFoto subida={subida} proxima={foto.proxima} />}
+                <input
+                    id={inputId}
+                    type="file"
+                    accept={foto.accept}
+                    aria-label={foto.etiqueta}
+                    className="sr-only"
+                    onChange={elegir}
+                    disabled={subiendo}
+                />
+                <label
+                    htmlFor={inputId}
+                    className={`mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer ${
+                        subida && subida.estado !== 'OBSERVADA'
+                            ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            : 'bg-vida-main text-white hover:bg-vida-hover'
+                    } ${subiendo ? 'opacity-50 pointer-events-none' : ''}`}
+                >
+                    <Upload size={16} /> {subiendo ? 'Subiendo...' : BOTON_SUBIR[subida?.estado] || 'Subir foto'}
+                </label>
+            </div>
+        </div>
+    );
+}
+
+// Las dos fotos de control, siempre a la vista (con o sin reparto).
+function FotosDeControl({ fotos, onSubida }) {
+    return (
+        <div className="mt-6">
+            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <Camera size={20} /> Sus fotos de control
+            </h3>
+            <p className="text-sm text-gray-500">
+                Envíe una foto de sus insulinas ya usadas y de su último resultado de hemoglobina glucosilada. La Fundación
+                las revisa.
+            </p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {FOTOS.map((foto) => (
+                    <FotoControl
+                        key={foto.tipo}
+                        foto={foto}
+                        subida={fotos[`foto_${foto.tipo}`]}
+                        onSubida={(subida) => onSubida(foto.tipo, subida)}
+                    />
+                ))}
             </div>
         </div>
     );
@@ -250,32 +277,119 @@ function BoletasAnteriores({ boletas }) {
     );
 }
 
+// Lo que le corresponde en el último reparto consolidado: se destaca como «Nuevo» hasta que pulse «Entendido» (la
+// Fundación ve quién lo vio).
+function AvisoDelPeriodo({ actual, nuevo, marcando, onEntendido }) {
+    return (
+        <>
+            <h3 className="mt-4 text-lg font-bold text-gray-800 flex items-center gap-2">
+                <Bell size={20} /> Su insulina para este periodo
+            </h3>
+            <p className="text-gray-500 mb-4">
+                Reparto del {fecha(actual.consolidated_at)}, para {actual.dias} días. Le corresponde{' '}
+                <b className="text-gray-800">
+                    {actual.envases} envase(s) ({fmt(actual.ui)} UI)
+                </b>
+                :
+            </p>
+
+            {actual.entrega_desde && (
+                <div className="mb-4 flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-green-900">
+                    <CalendarDays size={22} className="shrink-0 mt-0.5" />
+                    <p>
+                        <b>Fecha de entrega:</b> {ventanaEntregaTexto(actual.entrega_desde, actual.entrega_hasta)}.
+                        <br />
+                        {COORDINAR_ENTREGA}
+                    </p>
+                </div>
+            )}
+
+            <div className="space-y-3">
+                {actual.tratamientos.map((t) => (
+                    <Tratamiento key={t.insulina} t={t} />
+                ))}
+            </div>
+
+            {actual.mensaje && (
+                <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-900">
+                    <b>Indicaciones de la Fundación:</b> {actual.mensaje}
+                </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+                {nuevo ? (
+                    <button
+                        type="button"
+                        onClick={onEntendido}
+                        disabled={marcando}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-vida-main text-white hover:bg-vida-hover disabled:opacity-50"
+                    >
+                        <CheckCircle size={18} /> {marcando ? 'Guardando...' : 'Entendido'}
+                    </button>
+                ) : (
+                    <p className="text-xs text-green-700 flex items-center gap-1">
+                        <CheckCircle size={14} /> Visto el {fecha(actual.visto_at)}
+                    </p>
+                )}
+            </div>
+        </>
+    );
+}
+
+function RepartosAnteriores({ anteriores }) {
+    return (
+        <details className="mt-6">
+            <summary className="cursor-pointer text-sm font-semibold text-gray-600">
+                Repartos anteriores ({anteriores.length})
+            </summary>
+            <ul className="mt-2 divide-y divide-gray-100 text-sm text-gray-700">
+                {anteriores.map((a) => (
+                    <li key={a.id} className="py-2">
+                        <b>{fecha(a.consolidated_at)}</b>
+                        {a.entrega_desde && ` (entrega ${ventanaEntregaTexto(a.entrega_desde, a.entrega_hasta)})`}:{' '}
+                        {a.tratamientos
+                            .map(
+                                (t) =>
+                                    `${displayInsulinName(t.insulina)} ${t.envases} envase(s)${lotesResumen(t.productos)}, ≈ ${t.dias_cubiertos} días`
+                            )
+                            .join(' · ')}
+                    </li>
+                ))}
+            </ul>
+        </details>
+    );
+}
+
 // Portal del Beneficiario: «Registro de Entrega de Insulina». Arriba, lo que le corresponde en el último reparto
-// consolidado del almacén (se destaca como «Nuevo» hasta que pulse «Entendido»; la Fundación ve quién lo vio), con sus
-// fotos y los repartos anteriores; abajo, las boletas de las entregas del almacén anterior.
-// `siempreVisible`: el expediente activo o habilitado ve la sección aunque esté vacía; los demás, solo si hay algo.
-export default function InsulinDeliveryRecordSection({ siempreVisible = false }) {
+// consolidado del almacén; luego sus fotos de control (siempre a la vista, aunque todavía no tenga un reparto) y los
+// repartos anteriores; abajo, las boletas de las entregas del almacén anterior.
+export default function InsulinDeliveryRecordSection() {
     const [avisos, setAvisos] = useState([]);
+    const [fotos, setFotos] = useState({});
     const [boletas, setBoletas] = useState([]);
     const [cargado, setCargado] = useState(false);
     const [marcando, setMarcando] = useState(false);
 
     useEffect(() => {
         let vigente = true;
-        Promise.allSettled([listMyInsulinNotices(), listMyInsulinDeliveries()]).then(([resAvisos, resBoletas]) => {
-            if (!vigente) return;
-            if (resAvisos.status === 'fulfilled') setAvisos(Array.isArray(resAvisos.value) ? resAvisos.value : []);
-            else console.error('Error cargando avisos de insulina:', resAvisos.reason);
-            if (resBoletas.status === 'fulfilled') setBoletas(Array.isArray(resBoletas.value) ? resBoletas.value : []);
-            else console.error('Error cargando entregas de insulina:', resBoletas.reason);
-            setCargado(true);
-        });
+        Promise.allSettled([listMyInsulinNotices(), getMyInsulinPhotos(), listMyInsulinDeliveries()]).then(
+            ([resAvisos, resFotos, resBoletas]) => {
+                if (!vigente) return;
+                if (resAvisos.status === 'fulfilled') setAvisos(Array.isArray(resAvisos.value) ? resAvisos.value : []);
+                else console.error('Error cargando avisos de insulina:', resAvisos.reason);
+                if (resFotos.status === 'fulfilled') setFotos(resFotos.value || {});
+                else console.error('Error cargando fotos de control:', resFotos.reason);
+                if (resBoletas.status === 'fulfilled') setBoletas(Array.isArray(resBoletas.value) ? resBoletas.value : []);
+                else console.error('Error cargando entregas de insulina:', resBoletas.reason);
+                setCargado(true);
+            }
+        );
         return () => {
             vigente = false;
         };
     }, []);
 
-    if (!cargado || (!avisos.length && !boletas.length && !siempreVisible)) return null;
+    if (!cargado) return null;
     const [actual, ...anteriores] = avisos;
     const nuevo = actual ? !actual.visto_at : false;
 
@@ -301,110 +415,19 @@ export default function InsulinDeliveryRecordSection({ siempreVisible = false })
                 {nuevo && <span className="px-3 py-1 rounded-full text-xs font-bold bg-vida-main text-white">Nuevo</span>}
             </div>
 
-            {!actual && (
+            {actual ? (
+                <AvisoDelPeriodo actual={actual} nuevo={nuevo} marcando={marcando} onEntendido={entendido} />
+            ) : (
                 <p className="text-gray-500">
-                    {boletas.length
-                        ? 'Todavía no hay un reparto nuevo para usted.'
-                        : 'Aún no tiene entregas de insulina registradas.'}{' '}
+                    {boletas.length ? 'Todavía no hay un reparto nuevo para usted.' : 'Aún no tiene entregas de insulina registradas.'}{' '}
                     Cuando la Fundación consolide un reparto, aquí verá cuánta insulina le corresponde, el número de lote y
                     la fecha de entrega.
                 </p>
             )}
 
-            {actual && (
-                <>
-                    <h3 className="mt-4 text-lg font-bold text-gray-800 flex items-center gap-2">
-                        <Bell size={20} /> Su insulina para este periodo
-                    </h3>
-                    <p className="text-gray-500 mb-4">
-                        Reparto del {fecha(actual.consolidated_at)}, para {actual.dias} días. Le corresponde{' '}
-                        <b className="text-gray-800">
-                            {actual.envases} envase(s) ({fmt(actual.ui)} UI)
-                        </b>
-                        :
-                    </p>
+            <FotosDeControl fotos={fotos} onSubida={(tipo, subida) => setFotos((prev) => ({ ...prev, [`foto_${tipo}`]: subida }))} />
 
-                    {actual.entrega_desde && (
-                        <div className="mb-4 flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-green-900">
-                            <CalendarDays size={22} className="shrink-0 mt-0.5" />
-                            <p>
-                                <b>Fecha de entrega:</b> {ventanaEntregaTexto(actual.entrega_desde, actual.entrega_hasta)}.
-                                <br />
-                                {COORDINAR_ENTREGA}
-                            </p>
-                        </div>
-                    )}
-
-                    <div className="space-y-3">
-                        {actual.tratamientos.map((t) => (
-                            <Tratamiento key={t.insulina} t={t} />
-                        ))}
-                    </div>
-
-                    {actual.mensaje && (
-                        <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-900">
-                            <b>Indicaciones de la Fundación:</b> {actual.mensaje}
-                        </div>
-                    )}
-
-                    <div className="mt-6">
-                        <h4 className="font-bold text-gray-800">Envíe sus fotos para esta entrega</h4>
-                        <div className="mt-2 grid gap-3 md:grid-cols-2">
-                            {FOTOS.map((foto) => (
-                                <FotoAviso
-                                    key={foto.tipo}
-                                    aviso={actual}
-                                    foto={foto}
-                                    onSubida={(subida) =>
-                                        setAvisos((prev) =>
-                                            prev.map((a) => (a.id === actual.id ? { ...a, [`foto_${foto.tipo}`]: subida } : a))
-                                        )
-                                    }
-                                />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap items-center gap-3">
-                        {nuevo ? (
-                            <button
-                                type="button"
-                                onClick={entendido}
-                                disabled={marcando}
-                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-vida-main text-white hover:bg-vida-hover disabled:opacity-50"
-                            >
-                                <CheckCircle size={18} /> {marcando ? 'Guardando...' : 'Entendido'}
-                            </button>
-                        ) : (
-                            <p className="text-xs text-green-700 flex items-center gap-1">
-                                <CheckCircle size={14} /> Visto el {fecha(actual.visto_at)}
-                            </p>
-                        )}
-                    </div>
-
-                    {anteriores.length > 0 && (
-                        <details className="mt-6">
-                            <summary className="cursor-pointer text-sm font-semibold text-gray-600">
-                                Repartos anteriores ({anteriores.length})
-                            </summary>
-                            <ul className="mt-2 divide-y divide-gray-100 text-sm text-gray-700">
-                                {anteriores.map((a) => (
-                                    <li key={a.id} className="py-2">
-                                        <b>{fecha(a.consolidated_at)}</b>
-                                        {a.entrega_desde && ` (entrega ${ventanaEntregaTexto(a.entrega_desde, a.entrega_hasta)})`}:{' '}
-                                        {a.tratamientos
-                                            .map(
-                                                (t) =>
-                                                    `${displayInsulinName(t.insulina)} ${t.envases} envase(s)${lotesResumen(t.productos)}, ≈ ${t.dias_cubiertos} días`
-                                            )
-                                            .join(' · ')}
-                                    </li>
-                                ))}
-                            </ul>
-                        </details>
-                    )}
-                </>
-            )}
+            {anteriores.length > 0 && <RepartosAnteriores anteriores={anteriores} />}
 
             {boletas.length > 0 && <BoletasAnteriores boletas={boletas} />}
         </section>
