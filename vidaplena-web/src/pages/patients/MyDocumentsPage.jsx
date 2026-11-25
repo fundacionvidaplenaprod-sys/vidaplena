@@ -6,9 +6,8 @@ import { Button } from '../../components/ui/Button';
 import { toast } from 'react-hot-toast';
 import { uploadDocument } from '../../api/patients';
 import { getMySocialEvaluation, getMyEvaluationEligibility } from '../../api/evaluations';
-import { getMyDeliveryReceipt, listMyInsulinDeliveries } from '../../api/donations';
 import { VoluntaryContributionModal } from '../../components/patients/VoluntaryContributionModal';
-import InsulinNoticesSection from '../../components/patients/InsulinNoticesSection';
+import InsulinDeliveryRecordSection from '../../components/patients/InsulinDeliveryRecordSection';
 import client from '../../api/axios';
 import { displayInsulinName } from '../../constants/insulins';
 
@@ -25,8 +24,6 @@ export default function MyDocumentsPage() {
     const [montoAporte, setMontoAporte] = useState(100); // Mínimo por defecto
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [downloading, setDownloading] = useState(false);
-    const [insulinDeliveries, setInsulinDeliveries] = useState([]);
-    const [downloadingDeliveryId, setDownloadingDeliveryId] = useState(null);
     const [socialEvaluation, setSocialEvaluation] = useState(null);
     const [evaluationEligibility, setEvaluationEligibility] = useState(null);
 
@@ -56,35 +53,6 @@ export default function MyDocumentsPage() {
         }
     };
 
-    const loadInsulinDeliveries = async () => {
-        try {
-            const data = await listMyInsulinDeliveries();
-            setInsulinDeliveries(Array.isArray(data) ? data : []);
-        } catch (error) {
-            console.error('Error cargando entregas de insulina:', error);
-        }
-    };
-
-    const handleDownloadInsulinReceipt = async (deliveryId) => {
-        try {
-            setDownloadingDeliveryId(deliveryId);
-            const blob = await getMyDeliveryReceipt(deliveryId);
-            const url = window.URL.createObjectURL(new Blob([blob]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `Boleta_Entrega_${deliveryId}.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
-            toast.success('Boleta descargada');
-        } catch (error) {
-            console.error(error);
-            toast.error('No se pudo descargar la boleta.');
-        } finally {
-            setDownloadingDeliveryId(null);
-        }
-    };
     // 1. CARGA INTELIGENTE DEL PERFIL
     useEffect(() => {
         const fetchPatientData = async () => {
@@ -173,7 +141,6 @@ export default function MyDocumentsPage() {
 
                 if (data.estado === 'ACTIVO' || data.estado === 'HABILITADO') {
                     await loadContributions();
-                    await loadInsulinDeliveries();
                 }
 
             } catch (error) {
@@ -310,42 +277,6 @@ export default function MyDocumentsPage() {
         return acc + Number(treatment.dosis_diaria || 0);
     }, 0);
 
-    const insulinDeliveriesSection = (
-        <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 mb-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Boletas de entrega de insulina</h2>
-            <p className="text-gray-500 mb-6">
-                Descargue la boleta de cada entrega para presentarla en la fundación cuando corresponda.
-            </p>
-            <div className="space-y-3">
-                {insulinDeliveries.length > 0 ? (
-                    insulinDeliveries.map((delivery) => (
-                        <div key={delivery.id} className="border border-gray-100 rounded-lg p-4 flex items-center justify-between gap-4">
-                            <div>
-                                <p className="text-sm font-semibold text-gray-800">
-                                    Entrega #{delivery.id} - {delivery.fecha_entrega}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                    Cantidad: {delivery.cantidad_entregada} | Estado: {delivery.estado}
-                                </p>
-                            </div>
-                            <Button
-                                type="button"
-                                className="bg-vida-main hover:bg-vida-hover text-white"
-                                onClick={() => handleDownloadInsulinReceipt(delivery.id)}
-                                disabled={downloadingDeliveryId === delivery.id}
-                            >
-                                <Download size={16} className="mr-2" />
-                                {downloadingDeliveryId === delivery.id ? 'Descargando...' : 'Descargar boleta'}
-                            </Button>
-                        </div>
-                    ))
-                ) : (
-                    <p className="text-sm text-gray-500 italic">Aún no tiene entregas de insulina registradas.</p>
-                )}
-            </div>
-        </div>
-    );
-
     const canRequestEvaluation = evaluationEligibility?.puede_evaluar !== false;
     const socialEvaluationSection = (
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 mb-6">
@@ -407,9 +338,6 @@ export default function MyDocumentsPage() {
             </nav>
 
             <main className="max-w-3xl mx-auto p-6 mt-8">
-                {/* Aviso del almacén: aparece al consolidarse un reparto en el que está (activo, habilitado o
-                    con documentos pendientes: los tres entran en el reparto). */}
-                <InsulinNoticesSection />
                 {patientStatus === 'HABILITADO' && (
                     <>
                         <div className="grid md:grid-cols-3 gap-4 mb-6">
@@ -464,7 +392,7 @@ export default function MyDocumentsPage() {
                             )}
                         </div>
 
-                        {insulinDeliveriesSection}
+                        <InsulinDeliveryRecordSection siempreVisible />
 
                         {socialEvaluationSection}
 
@@ -590,7 +518,7 @@ export default function MyDocumentsPage() {
                             </div>
                         </div>
 
-                        {insulinDeliveriesSection}
+                        <InsulinDeliveryRecordSection siempreVisible />
 
                         {socialEvaluationSection}
 
@@ -921,6 +849,14 @@ export default function MyDocumentsPage() {
                                 </Button>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {/* Con documentos pendientes también entra en el reparto: ve su registro de entrega (si tiene algo)
+                    debajo de su expediente. */}
+                {patientStatus !== 'ACTIVO' && patientStatus !== 'HABILITADO' && (
+                    <div className="mt-6">
+                        <InsulinDeliveryRecordSection />
                     </div>
                 )}
             </main>

@@ -1,13 +1,15 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import InsulinNoticesSection from '../components/patients/InsulinNoticesSection';
+import InsulinDeliveryRecordSection from '../components/patients/InsulinDeliveryRecordSection';
 import { ventanaEntregaPorDefecto, ventanaEntregaTexto } from '../utils/insulinDistribution';
 
 const api = vi.hoisted(() => ({
   listMyInsulinNotices: vi.fn(),
   markInsulinNoticeSeen: vi.fn(),
   uploadInsulinNoticePhoto: vi.fn(),
+  listMyInsulinDeliveries: vi.fn(),
+  getMyDeliveryReceipt: vi.fn(),
 }));
 vi.mock('../api/donations', () => api);
 vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -29,8 +31,11 @@ const aviso = (id, distribution_id, consolidated_at, tratamientos, extra = {}) =
   tratamientos, ...extra,
 });
 
-describe('Aviso de insulina en el Portal del Beneficiario', () => {
-  beforeEach(() => vi.clearAllMocks());
+describe('Registro de Entrega de Insulina en el Portal del Beneficiario', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.listMyInsulinDeliveries.mockResolvedValue([]);
+  });
 
   it('muestra lo que le corresponde y registra «Entendido»', async () => {
     api.listMyInsulinNotices.mockResolvedValue([
@@ -46,9 +51,9 @@ describe('Aviso de insulina en el Portal del Beneficiario', () => {
       ])], { visto_at: '2026-09-11T10:00:00Z', entrega_desde: '2026-10-01', entrega_hasta: '2026-10-10' }),
     ]);
     api.markInsulinNoticeSeen.mockResolvedValue({ id: 12, visto_at: '2026-11-25T14:00:00Z' });
-    render(<InsulinNoticesSection />);
+    render(<InsulinDeliveryRecordSection />);
 
-    const seccion = await screen.findByRole('region', { name: 'Insulina que le corresponde' });
+    const seccion = await screen.findByRole('region', { name: 'Registro de Entrega de Insulina' });
     expect(seccion).toHaveTextContent('Nuevo');
     expect(seccion).toHaveTextContent('Le corresponde 4 envase(s) (1.200 UI)');
     expect(seccion).toHaveTextContent(
@@ -82,7 +87,7 @@ describe('Aviso de insulina en el Portal del Beneficiario', () => {
       ])], { foto_hba1c: foto('hba1c', pdf) }),
     ]);
     api.uploadInsulinNoticePhoto.mockResolvedValue(foto('envases', jpg));
-    render(<InsulinNoticesSection />);
+    render(<InsulinDeliveryRecordSection />);
     await screen.findByText('Envíe sus fotos para esta entrega');
 
     // La HbA1c ya enviada (en PDF) se puede ver y cambiar; la de las insulinas usadas todavía no está.
@@ -110,7 +115,7 @@ describe('Aviso de insulina en el Portal del Beneficiario', () => {
         }),
       }),
     ]);
-    render(<InsulinNoticesSection />);
+    render(<InsulinDeliveryRecordSection />);
     await screen.findByText('Envíe sus fotos para esta entrega');
 
     expect(screen.getByText(/Aprobada por la Fundación el/)).toBeInTheDocument();
@@ -128,18 +133,60 @@ describe('Aviso de insulina en el Portal del Beneficiario', () => {
         { producto: 'Lantus SoloStar 3 ml', envases: 2, ui: 600, lote: null, fecha_venc: null },
       ])]),
     ]);
-    render(<InsulinNoticesSection />);
-    await screen.findByRole('region', { name: 'Insulina que le corresponde' });
+    render(<InsulinDeliveryRecordSection />);
+    await screen.findByRole('region', { name: 'Registro de Entrega de Insulina' });
     expect(screen.queryByText(/Fecha de entrega/)).not.toBeInTheDocument();
     expect(screen.getByText(/Lantus SoloStar 3 ml/).closest('li')).toHaveTextContent('2 × Lantus SoloStar 3 mlN.º de lote: sin dato');
     expect(screen.queryByText(/Vence:/)).not.toBeInTheDocument();
   });
 
-  it('sin repartos consolidados no muestra nada', async () => {
+  it('sin repartos ni boletas no muestra nada, salvo al expediente activo o habilitado', async () => {
     api.listMyInsulinNotices.mockResolvedValue([]);
-    const { container } = render(<InsulinNoticesSection />);
-    await waitFor(() => expect(api.listMyInsulinNotices).toHaveBeenCalled());
+    const { container, unmount } = render(<InsulinDeliveryRecordSection />);
+    await waitFor(() => expect(api.listMyInsulinDeliveries).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
+    unmount();
+
+    render(<InsulinDeliveryRecordSection siempreVisible />);
+    const seccion = await screen.findByRole('region', { name: 'Registro de Entrega de Insulina' });
+    expect(seccion).toHaveTextContent('Aún no tiene entregas de insulina registradas.');
+    expect(screen.queryByText('Boletas de entregas anteriores')).not.toBeInTheDocument();
+  });
+
+  it('debajo del aviso del periodo están las boletas de las entregas anteriores, para descargar', async () => {
+    api.listMyInsulinNotices.mockResolvedValue([
+      aviso(12, 89, '2026-11-24T15:00:00Z', [tratamiento('Glargina', [
+        { producto: 'Lantus SoloStar 3 ml', envases: 3, ui: 900, lote: 'LAN-2411', fecha_venc: '2027-12-31' },
+      ])]),
+    ]);
+    api.listMyInsulinDeliveries.mockResolvedValue([
+      { id: 41, fecha_entrega: '2026-08-10', cantidad_entregada: 4, estado: 'ENTREGADO' },
+    ]);
+    api.getMyDeliveryReceipt.mockResolvedValue(new Blob(['%PDF']));
+    window.URL.createObjectURL = vi.fn(() => 'blob:boleta');
+    window.URL.revokeObjectURL = vi.fn();
+    const clic = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {}); // jsdom no descarga
+    render(<InsulinDeliveryRecordSection siempreVisible />);
+
+    const seccion = await screen.findByRole('region', { name: 'Registro de Entrega de Insulina' });
+    const titulos = [...seccion.querySelectorAll('h2, h3')].map((h) => h.textContent);
+    expect(titulos).toEqual(['Registro de Entrega de Insulina', ' Su insulina para este periodo', 'Boletas de entregas anteriores']);
+    expect(screen.getByText('Entrega #41 - 2026-08-10')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Descargar boleta/ }));
+    await waitFor(() => expect(api.getMyDeliveryReceipt).toHaveBeenCalledWith(41));
+    await waitFor(() => expect(clic).toHaveBeenCalled());
+    clic.mockRestore();
+  });
+
+  it('con boletas pero sin reparto nuevo, avisa que todavía no hay uno', async () => {
+    api.listMyInsulinNotices.mockResolvedValue([]);
+    api.listMyInsulinDeliveries.mockResolvedValue([
+      { id: 41, fecha_entrega: '2026-08-10', cantidad_entregada: 4, estado: 'ENTREGADO' },
+    ]);
+    render(<InsulinDeliveryRecordSection />);
+    const seccion = await screen.findByRole('region', { name: 'Registro de Entrega de Insulina' });
+    expect(seccion).toHaveTextContent('Todavía no hay un reparto nuevo para usted.');
+    expect(screen.getByText('Entrega #41 - 2026-08-10')).toBeInTheDocument();
   });
 });
 
